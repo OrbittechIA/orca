@@ -43,7 +43,9 @@ const baseArgs = {
   connectionId: null,
   primaryTabId: null,
   startupPlan: null,
-  launchSource: 'task_page' as const
+  launchSource: 'task_page' as const,
+  structuredSessionRequired: false,
+  promptDelivery: 'draft' as const
 }
 
 describe('settleDirectWorkItemStructuredLaunch', () => {

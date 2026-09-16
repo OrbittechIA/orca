@@ -1,3 +1,4 @@
+import { mobileRuntimeAuthFrame } from './mobile-runtime-client-capabilities'
 import {
   decrypt,
   decryptBytes,
@@ -208,7 +209,7 @@ export class RpcClientSocketSession {
       const message = JSON.parse(raw) as { type?: unknown }
       if (message.type === 'e2ee_ready') {
         this.options.emitLog('success', 'Received e2ee_ready', 'Sending device token')
-        this.sendEncrypted({ type: 'e2ee_auth', deviceToken: this.options.deviceToken })
+        this.sendEncrypted(mobileRuntimeAuthFrame(this.options.deviceToken))
         return
       }
     } catch {

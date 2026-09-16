@@ -1,11 +1,11 @@
+import { projectSessionTabsForContext } from './session-tabs-inventory'
+import { restoreStructuredTabsIfSupported } from './structured-session-tab-restore'
 import { withSpan } from '../../../observability/tracer'
 import { SESSION_TAB_CLOSE_INTENT_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
 import { defineMethod } from '../core'
 import { CloseLifecycleTab, CloseTab } from './session-tabs-schemas'
 import { assertProjectedSessionTabVisible } from './session-tab-browser-placement-projection'
 import { assertAgentSessionTabDestructiveMutationSupported } from './session-tab-agent-status-projection'
-import { projectSessionTabsForClient } from './session-tabs-inventory'
-import { isStructuredNativeChatEnabled } from './structured-agent-session-policy'
 
 export const SESSION_TAB_CLOSE_METHODS = [
   defineMethod({
@@ -13,16 +13,14 @@ export const SESSION_TAB_CLOSE_METHODS = [
     params: CloseTab,
     handler: async (params, context) => {
       if (context.clientKind) {
+        // Restaura o escopo durável ANTES de autorizar: decidir sobre um mapa não
+        // restaurado recusa uma aba que existe.
+        await restoreStructuredTabsIfSupported(context)
         const raw = await context.runtime.listMobileSessionTabs(
           params.worktree,
           context.pairedDeviceId
         )
-        const visible = projectSessionTabsForClient(
-          raw,
-          context.clientKind,
-          context.clientCapabilities,
-          isStructuredNativeChatEnabled(context.runtime)
-        )
+        const visible = projectSessionTabsForContext(raw, context)
         assertProjectedSessionTabVisible(visible, params.tabId)
         assertAgentSessionTabDestructiveMutationSupported(
           raw,
@@ -90,16 +88,14 @@ export const SESSION_TAB_CLOSE_METHODS = [
     params: CloseLifecycleTab,
     handler: async (params, context) => {
       if (context.clientKind) {
+        // Restaura o escopo durável ANTES de autorizar: decidir sobre um mapa não
+        // restaurado recusa uma aba que existe.
+        await restoreStructuredTabsIfSupported(context)
         const raw = await context.runtime.listMobileSessionTabs(
           params.worktree,
           context.pairedDeviceId
         )
-        const visible = projectSessionTabsForClient(
-          raw,
-          context.clientKind,
-          context.clientCapabilities,
-          isStructuredNativeChatEnabled(context.runtime)
-        )
+        const visible = projectSessionTabsForContext(raw, context)
         assertProjectedSessionTabVisible(visible, params.tabId)
         assertAgentSessionTabDestructiveMutationSupported(
           raw,

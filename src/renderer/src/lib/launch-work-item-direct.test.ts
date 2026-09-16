@@ -11,6 +11,9 @@ const mocks = vi.hoisted(() => ({
   ensureRemoteDetectedAgents: vi.fn(),
   updateWorktreeMeta: vi.fn(),
   setSidebarOpen: vi.fn(),
+  // O Start estrito passa pela semente do draft estruturado, que limpa a anterior.
+  clearNativeChatLaunchDraft: vi.fn(),
+  setNativeChatLaunchDraft: vi.fn(),
   seedNativeChatLaunchPrompt: vi.fn(),
   seedNativeChatLaunchDraft: vi.fn(),
   markNativeChatLaunchPromptFailed: vi.fn(),
@@ -25,6 +28,8 @@ const mocks = vi.hoisted(() => ({
     createWorktree: ReturnType<typeof vi.fn>
     updateWorktreeMeta: ReturnType<typeof vi.fn>
     setSidebarOpen: ReturnType<typeof vi.fn>
+    clearNativeChatLaunchDraft: ReturnType<typeof vi.fn>
+    setNativeChatLaunchDraft: ReturnType<typeof vi.fn>
     seedNativeChatLaunchPrompt: ReturnType<typeof vi.fn>
     seedNativeChatLaunchDraft: ReturnType<typeof vi.fn>
     markNativeChatLaunchPromptFailed: ReturnType<typeof vi.fn>
@@ -93,6 +98,18 @@ vi.mock('@/lib/new-workspace', () => ({
   isGitLabIssueUrl: vi.fn(() => false)
 }))
 
+// Um Start estrito (`submit-after-ready` por este entrypoint) exige a capability
+// escopada do host; sem ela o preflight recusa antes de criar a worktree, que é o
+// comportamento correto e não o que estes casos medem.
+vi.mock('@/runtime/local-runtime-capabilities', () => ({
+  readLocalRuntimeCapabilitiesOrUnknown: () => [
+    'agent-session.structured.v1',
+    'agent-session.work-item-start.v1'
+  ],
+  refreshLocalRuntimeCapabilities: vi
+    .fn()
+    .mockResolvedValue(['agent-session.structured.v1', 'agent-session.work-item-start.v1'])
+}))
 vi.mock('@/lib/telemetry', () => ({
   track: vi.fn(),
   tuiAgentToAgentKind: (agent: string) => agent
@@ -206,7 +223,9 @@ describe('launchWorkItemDirect', () => {
       setSidebarOpen: mocks.setSidebarOpen,
       seedNativeChatLaunchPrompt: mocks.seedNativeChatLaunchPrompt,
       seedNativeChatLaunchDraft: mocks.seedNativeChatLaunchDraft,
-      markNativeChatLaunchPromptFailed: mocks.markNativeChatLaunchPromptFailed
+      markNativeChatLaunchPromptFailed: mocks.markNativeChatLaunchPromptFailed,
+      clearNativeChatLaunchDraft: mocks.clearNativeChatLaunchDraft,
+      setNativeChatLaunchDraft: mocks.setNativeChatLaunchDraft
     } as typeof mocks.store
     // @ts-expect-error -- test shim
     globalThis.window = { api: mockApi }
@@ -520,6 +539,10 @@ describe('launchWorkItemDirect', () => {
         openModalFallback: vi.fn(),
         agentOverride: 'claude',
         promptDelivery: 'submit-after-ready',
+        // Estes casos exercem a entrega PELO TERMINAL: sob o contrato estrito isso
+        // só é permitido com o opt-in explícito, e declará-lo é o que diz qual
+        // contrato o caso mede.
+        allowLegacyTerminalPromptSubmission: true,
         item: {
           type: 'issue',
           number: null,
@@ -577,6 +600,10 @@ describe('launchWorkItemDirect', () => {
         openModalFallback: vi.fn(),
         agentOverride: 'claude',
         promptDelivery: 'submit-after-ready',
+        // Estes casos exercem a entrega PELO TERMINAL: sob o contrato estrito isso
+        // só é permitido com o opt-in explícito, e declará-lo é o que diz qual
+        // contrato o caso mede.
+        allowLegacyTerminalPromptSubmission: true,
         item: {
           type: 'pr',
           number: 7,
@@ -828,7 +855,9 @@ describe('launchWorkItemDirect', () => {
         openModalFallback: mocks.openModalFallback,
         launchSource: 'task_page',
         agentOverride: 'codex',
-        promptDelivery: 'submit-after-ready'
+        promptDelivery: 'submit-after-ready',
+        // Mede a partida por TERMINAL; sob o contrato estrito isso exige o opt-in.
+        allowLegacyTerminalPromptSubmission: true
       })
     ).resolves.toBe(true)
 

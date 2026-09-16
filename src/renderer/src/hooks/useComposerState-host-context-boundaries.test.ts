@@ -567,7 +567,9 @@ describe('useComposerState host-context boundaries', () => {
     expect(section).toContain(
       'const submitLinkedWorkItem = smartGitHubMetadata?.linkedWorkItem ?? linkedWorkItem'
     )
-    expect(section).toContain('resolveFolderWorkspaceLaunchDraft(submitLinkedWorkItem, note)')
+    expect(section).toContain(
+      'resolveFolderWorkspaceLaunchDraft(submitLinkedWorkItem, note, workItemPromptDelivery)'
+    )
     expect(section).toContain('linkedWorkItem: submitLinkedWorkItem')
   })
 
@@ -697,7 +699,7 @@ describe('useComposerState host-context boundaries', () => {
     expect(quickSubmit).toContain(
       'const promptLinkedWorkItem = agent === null ? null : submitLinkedWorkItem'
     )
-    expect(quickSubmit).toContain('resolveQuickCreateLinkedWorkItemPrompt(promptLinkedWorkItem')
+    expect(quickSubmit).toContain('resolveQuickCreateLinkedWorkItemPrompt(')
     expect(quickSubmit).not.toContain('explicitAgentChoice')
     expect(quickSubmit).not.toContain('shouldPrepareQuickLinkedWorkItemAgentPrompt')
     expect(COMPOSER_SOURCE.quickCreation).not.toContain('resolveQuickWorkspaceSubmitAgent')

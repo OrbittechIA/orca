@@ -30,6 +30,7 @@ type FolderSubmitOrchestrationInput = Pick<
 import { useCallback } from 'react'
 import type { TuiAgent } from '../../../../shared/tui-agent'
 import { settleComposerSubmit } from '@/lib/composer-submit-cancellation'
+import { resolveWorkItemStartPromptDelivery } from '../../../../shared/agent-session-options'
 import { isTuiAgentEnabled } from '../../../../shared/tui-agent-selection'
 import {
   resolveFolderWorkspaceLaunchDraft,
@@ -107,9 +108,14 @@ export function useFolderSubmitOrchestration(input: FolderSubmitOrchestrationInp
         if (isSubmissionCancelled()) {
           return
         }
+        // A entrega escolhida para Work Item Start decide o rascunho: `submit-after-ready` não
+        // deixa texto no composer, porque quem submete é a sessão estruturada.
+        const workItemPromptDelivery = submitLinkedWorkItem
+          ? resolveWorkItemStartPromptDelivery(settings?.workItemStartPromptDelivery)
+          : undefined
         const folderLaunchDraftText =
           agent && submitLinkedWorkItem
-            ? resolveFolderWorkspaceLaunchDraft(submitLinkedWorkItem, note)
+            ? resolveFolderWorkspaceLaunchDraft(submitLinkedWorkItem, note, workItemPromptDelivery)
             : null
         const folderWorkspaceCreated = await submitFolderWorkspaceCreate({
           projectGroup: selectedProjectGroup,

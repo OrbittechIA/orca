@@ -196,6 +196,16 @@ module.exports = {
     // it is gitignored, but exclude it defensively so a stray local capture at
     // package time never bloats app.asar.
     '!pr-evidence{,/**/*}',
+    // Why: the test suite writes into these, and gitignored is not the same as
+    // unpackaged — electron-builder walks the working tree, not the index. A run of the
+    // suite before a package put `test-results/.last-run.json` inside a certified
+    // app.asar, and `out/orcad` — a daemon the desktop build never produces — added
+    // 20 MB to another. Certification compares the artifact against the source tree, so
+    // anything that lands here from a test run breaks that correspondence.
+    '!test-results{,/**/*}',
+    '!playwright-report{,/**/*}',
+    '!coverage{,/**/*}',
+    '!out/orcad{,/**/*}',
     // Why: local agent/tooling directories may contain worktree symlink loops;
     // they are never runtime inputs and must not be traversed by electron-builder.
     '!{.claude,.grok,.agents,.codex}{,/**/*}',

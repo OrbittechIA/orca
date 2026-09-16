@@ -1,4 +1,10 @@
+import { isAgentSessionOptions } from './agent-session-options'
 import { isAgentSessionRewindRecord, type AgentSessionRewindRecord } from './agent-session-rewind'
+import {
+  isStructuredAgentSessionLaunchAuthority,
+  type StructuredAgentSessionLaunchAuthority,
+  type StructuredAgentSessionLaunchOrigin
+} from './structured-agent-session-create'
 import { isAgentSessionConversationName } from './agent-session-conversation-name'
 /**
  * Durable agent-session record and its single-writer lease.
@@ -136,6 +142,10 @@ export type AgentSessionRecord = {
   /** The name Orca gave this conversation, so a later acquisition need not name it again. */
   conversationName?: string
   launchArgs?: AgentSessionLaunchArgs
+  /** Narrow admission retained for sessions created by an explicit Work Item Start action. */
+  launchOrigin?: StructuredAgentSessionLaunchOrigin
+  /** Server-derived caller authority for the scoped launch. */
+  launchAuthority?: StructuredAgentSessionLaunchAuthority
   lease: AgentSessionLease
   createdAt: number
   updatedAt: number
@@ -228,20 +238,6 @@ function isAgentSessionAccountHome(value: unknown): value is AgentSessionAccount
   return (
     (home.variable === 'CLAUDE_CONFIG_DIR' || home.variable === 'CODEX_HOME') &&
     isBoundedString(home.path, MAX_PATH_LENGTH)
-  )
-}
-
-export function isAgentSessionOptions(value: unknown): value is Record<string, string> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return false
-  }
-  const entries = Object.entries(value)
-  return (
-    entries.length <= 32 &&
-    entries.every(
-      ([key, option]) =>
-        isBoundedString(key, MAX_ID_LENGTH) && isBoundedString(option, MAX_ID_LENGTH)
-    )
   )
 }
 
@@ -345,6 +341,12 @@ export function isAgentSessionRecord(value: unknown): value is AgentSessionRecor
     isAgentSessionProviderHandleChain(record.providerHandleChain) &&
     isAgentSessionAccountHome(record.accountHome) &&
     (record.options === undefined || isAgentSessionOptions(record.options)) &&
+    // A origem só pode ser a do Work Item Start, e a autoridade só existe com ela:
+    // autoridade sem origem seria admissão ampla travestida de admissão estreita.
+    (record.launchOrigin === undefined || record.launchOrigin === 'work-item-start') &&
+    (record.launchAuthority === undefined ||
+      (record.launchOrigin === 'work-item-start' &&
+        isStructuredAgentSessionLaunchAuthority(record.launchAuthority))) &&
     (record.rewind === undefined || isAgentSessionRewindRecord(record.rewind)) &&
     (record.conversationCommand === undefined ||
       isAgentSessionConversationCommandRecord(record.conversationCommand)) &&

@@ -1,3 +1,4 @@
+import { toast } from 'sonner'
 import { useState } from 'react'
 import { Github, Gitlab } from 'lucide-react'
 import type { GlobalSettings } from '../../../../shared/global-settings-types'
@@ -28,10 +29,13 @@ import { getTasksPaneSearchKeywords } from './tasks-search'
 import { useIntegrationProviderStatusRefresh } from './use-integration-provider-status-refresh'
 import { useTaskSourceProviderReadiness } from './use-task-source-provider-readiness'
 import { translate } from '@/i18n/i18n'
+import { WorkItemStartBehaviorSetting } from './WorkItemStartBehaviorSetting'
 
 type TasksPaneProps = {
   settings: GlobalSettings
   updateSettings: (updates: Partial<GlobalSettings>) => void
+  /** For settings the host enforces: it rejects rather than logging and returning. */
+  updateHostOwnedSettings?: (updates: Partial<GlobalSettings>) => Promise<void>
 }
 
 const PROVIDER_META: Record<
@@ -92,7 +96,11 @@ const PROVIDER_META: Record<
   }
 }
 
-export function TasksPane({ settings, updateSettings }: TasksPaneProps): React.JSX.Element {
+export function TasksPane({
+  settings,
+  updateSettings,
+  updateHostOwnedSettings
+}: TasksPaneProps): React.JSX.Element {
   const visibleProviders = normalizeVisibleTaskProviders(settings.visibleTaskProviders)
   const openSettingsPage = useAppStore((s) => s.openSettingsPage)
   const openSettingsTarget = useAppStore((s) => s.openSettingsTarget)
@@ -144,6 +152,25 @@ export function TasksPane({ settings, updateSettings }: TasksPaneProps): React.J
 
   return (
     <div className="space-y-6">
+      <WorkItemStartBehaviorSetting
+        value={settings.workItemStartPromptDelivery}
+        onChange={(workItemStartPromptDelivery) => {
+          const updates = { workItemStartPromptDelivery }
+          if (!updateHostOwnedSettings) {
+            updateSettings(updates)
+            return
+          }
+          void updateHostOwnedSettings(updates).catch(() => {
+            toast.error(
+              translate(
+                'auto.components.settings.TasksPane.workItemStartSaveFailed',
+                'Could not save this setting. The host decides how a work item Start begins, so it keeps the value it already had.'
+              )
+            )
+          })
+        }}
+      />
+
       <section className="space-y-3">
         <SettingsSubsectionHeader
           title={translate(

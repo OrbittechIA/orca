@@ -20,6 +20,8 @@ function structuredLaunchIntent(worktreeId: string, sessionId = 'codex-session-1
   return {
     sessionId,
     worktreeId,
+    // Obrigatório e não persistido: o intento carrega o runtime que executa a sessão.
+    target: { kind: 'local' as const },
     params: {
       envelope: {
         sessionId,

@@ -16,6 +16,25 @@ export const MOBILE_RUNTIME_CLIENT_CAPABILITIES = remoteRuntimeClientCapabilitie
   AGENT_SESSION_TURN_ITEM_CAPABILITY
 ])
 
+/**
+ * O quadro `e2ee_auth` que este telefone envia, já declarando o que sabe decodificar.
+ *
+ * Declarar na autenticação e não depois é o que faz o host registrar as capabilities antes
+ * da primeira resposta: um `runtime.clientCapabilities.update` posterior chega tarde para
+ * tudo que o host publicar no intervalo.
+ */
+export function mobileRuntimeAuthFrame(deviceToken: string): {
+  type: 'e2ee_auth'
+  deviceToken: string
+  clientCapabilities: string[]
+} {
+  return {
+    type: 'e2ee_auth',
+    deviceToken,
+    clientCapabilities: [...MOBILE_RUNTIME_CLIENT_CAPABILITIES]
+  }
+}
+
 export const MOBILE_RUNTIME_CLIENT_CAPABILITY_UPDATE_METHOD =
   'runtime.clientCapabilities.update' as const
 

@@ -125,15 +125,40 @@ export class StructuredAgentSessionStatusFeed {
   constructor(private readonly deps: StructuredAgentSessionStatusFeedDeps) {}
 
   /** Opens with every session this host has projected, live ones re-read, then only changes. */
-  subscribe(subscriber: StructuredAgentSessionStatusSubscriber): () => void {
+  /** A projeção corrente, sem assinar nada: é a leitura pontual que o `worktree ps` faz
+   *  para enxergar execuções estruturadas, que não têm linha no store de PTY. */
+  snapshot() {
+    for (const [sessionId] of this.deps.sessions) {
+      this.publish(sessionId, undefined, { replay: true })
+    }
+    return [...this.published.values()]
+  }
+
+  /** `includeSession` filtra POR ASSINANTE: uma sessão escopada não pode aparecer no
+   *  fluxo de quem não a alcança, nem no snapshot inicial nem nas publicações seguintes. */
+  subscribe(
+    subscriber: StructuredAgentSessionStatusSubscriber,
+    includeSession?: (sessionId: string) => boolean
+  ): () => void {
+    if (includeSession) {
+      this.filters.set(subscriber.id, includeSession)
+    }
     // Re-project before registering: a change found here has to reach the subscribers that
     // already read the old value, and the arriving one carries it in its snapshot instead.
     for (const [sessionId] of this.deps.sessions) {
       this.publish(sessionId, undefined, { replay: true })
     }
     this.subscribers.set(subscriber.id, subscriber)
-    this.emit(subscriber, { type: 'snapshot', sessions: [...this.published.values()] })
-    return () => this.unsubscribe(subscriber.id)
+    this.emit(subscriber, {
+      type: 'snapshot',
+      sessions: [...this.published.values()].filter(
+        (session) => includeSession?.(session.sessionId) ?? true
+      )
+    })
+    return () => {
+      this.filters.delete(subscriber.id)
+      this.unsubscribe(subscriber.id)
+    }
   }
 
   /** The host stopped holding the session: ownership leaves the retained projection, and the
@@ -270,9 +295,15 @@ export class StructuredAgentSessionStatusFeed {
     }
   }
 
+  private readonly filters = new Map<string, (sessionId: string) => boolean>()
+
   private broadcast(event: AgentSessionStatusEvent): void {
     // A Map skips entries deleted mid-iteration, so a failing subscriber can drop itself here.
     for (const subscriber of this.subscribers.values()) {
+      const include = this.filters.get(subscriber.id)
+      if (include && 'sessionId' in event && !include(event.sessionId as string)) {
+        continue
+      }
       this.emit(subscriber, event)
     }
   }

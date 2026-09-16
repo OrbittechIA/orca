@@ -22,8 +22,18 @@ import { hasPersistedStructuredAgentSessionStore as hasPersistedStructuredAgentS
 import { getProfileUserDataPath } from '../orca-profiles/profile-storage-paths'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { parseWslUncPath } from '../../shared/wsl-paths'
-import { parseWorkspaceKey } from '../../shared/workspace-scope'
+import type { AgentSessionExecutionLocation } from '../../shared/agent-session-record'
+import {
+  structuredAgentSessionExecutionLocation,
+  type RuntimeFileTarget
+} from './structured-agent-session-execution-location'
+import {
+  structuredAgentSessionCreateWorktreeTarget,
+  structuredAgentSessionCreateWorktreeTargetsEqual,
+  type ResolvedStructuredAgentSessionCreateTarget,
+  type StructuredAgentSessionCreateIntentInput,
+  type StructuredAgentSessionCreateWorktreeTarget
+} from './structured-agent-session-create-worktree-target'
 
 export class OrcaRuntimeWithResolveRecoveredStructuredTuiTranscript extends OrcaRuntimeWithStopStructuredSessionProcess {
   protected async resolveRecoveredStructuredTuiTranscript(input: {
@@ -60,6 +70,31 @@ export class OrcaRuntimeWithResolveRecoveredStructuredTuiTranscript extends Orca
     agent: 'claude' | 'codex'
   ): Promise<{ supported: boolean; reason?: 'agent' | 'remote' | 'wsl' }> {
     const location = await this.resolveStructuredAgentSessionLocation(worktreeSelector)
+    return this.getStructuredAgentSessionCreateSupportForLocation(location, agent)
+  }
+
+  /**
+   * The create target for a scoped Work Item Start, resolved the same way the support probe
+   * resolves it.
+   *
+   * `showManagedWorktree` cannot answer for a folder workspace — its candidate set is
+   * repo-derived worktrees only — so resolving the scoped admission through it refused every
+   * folder Work Item Start with `selector_not_found`, after the workspace had already been
+   * created and with the terminal startup already dropped. Folder workspaces carry their own
+   * `creatorProvenance`, so this path keeps the paired-device check meaningful rather than
+   * trading it away for reach.
+   */
+  async resolveStructuredAgentSessionCreateWorktreeTarget(
+    worktreeSelector: string
+  ): Promise<StructuredAgentSessionCreateWorktreeTarget> {
+    const target = await this.resolveRuntimeFileTarget(worktreeSelector)
+    return structuredAgentSessionCreateWorktreeTarget(target.worktree)
+  }
+
+  protected getStructuredAgentSessionCreateSupportForLocation(
+    location: AgentSessionExecutionLocation,
+    agent: 'claude' | 'codex'
+  ): { supported: boolean; reason?: 'agent' | 'remote' | 'wsl' } {
     return resolveStructuredAgentSessionCreateSupport({
       agent,
       location,
@@ -96,74 +131,87 @@ export class OrcaRuntimeWithResolveRecoveredStructuredTuiTranscript extends Orca
 
   protected async resolveStructuredAgentSessionLocation(worktreeSelector: string) {
     const target = await this.resolveRuntimeFileTarget(worktreeSelector)
-    const repo = this.store?.getRepo(target.worktree.repoId)
-    const folderScope = parseWorkspaceKey(target.worktree.id)
-    const folderWorkspace = folderScope?.type === 'folder'
-    // WSL routing describes *this* machine; no remote or runtime host may inherit
-    // it. Both branches key on executionHostId: the target no longer carries a
-    // connectionId, which used to spell remote, unresolved and local alike.
-    const isLocalHost = target.executionHostId === LOCAL_EXECUTION_HOST_ID
-    const configuredWslDistro =
-      repo && isLocalHost
-        ? (getLocalProjectWorktreeGitOptions(this.requireStore(), repo).wslDistro ?? null)
-        : null
-    // Folder workspaces have no repo Git options, so a WSL UNC path is the only
-    // durable signal that native Windows structured Codex cannot safely use it.
-    const wslDistro =
-      configuredWslDistro ??
-      (folderWorkspace && isLocalHost
-        ? (parseWslUncPath(target.worktree.path)?.distro ?? null)
-        : null)
-    return {
-      executionHostId: target.executionHostId,
-      wslDistro,
-      workspaceId: target.worktree.id,
-      workspaceKind: folderWorkspace ? ('folder' as const) : ('git-worktree' as const)
-    }
+    return this.resolveStructuredAgentSessionLocationForTarget(target)
   }
 
-  async resolveStructuredAgentSessionCreateIntent(input: {
-    envelope: { sessionId: string; clientOperationId: string }
-    worktree: string
-    agent: 'claude' | 'codex'
-    callerKey?: string
-    resumeFrom?: { providerSessionId: string }
-  }): Promise<AgentSessionAttachParams> {
-    if (input.agent === 'claude') {
-      return this.resolveStructuredAgentSessionIntent(input, async ({ launchEnv, location }) => {
-        return (
-          launchEnv.CLAUDE_CONFIG_DIR?.trim() ||
-          this.accounts
-            .getClaudeConfigDirectory(
-              location.wslDistro
-                ? { runtime: 'wsl', wslDistro: location.wslDistro }
-                : { runtime: 'host' }
-            )
-            ?.trim() ||
-          join(homedir(), '.claude')
-        )
-      })
-    }
-    return this.resolveStructuredAgentSessionIntent(input, async ({ workspacePath, launchEnv }) => {
-      // A create has no process yet, so the current selection is what it must follow.
-      const preparedHome = await this.prepareCodexStructuredLaunchFn?.({ workspacePath, launchEnv })
-      const configuredHome = launchEnv.CODEX_HOME
-      return (
-        preparedHome?.trim() ||
-        (this.prepareCodexStructuredLaunchFn ? getSystemCodexHomePath() : configuredHome?.trim()) ||
-        getSystemCodexHomePath()
-      )
+  protected resolveStructuredAgentSessionLocationForTarget(
+    target: RuntimeFileTarget
+  ): AgentSessionExecutionLocation {
+    // `getRepo` is not optional on the store; calling it optionally masked a missing method
+    // on the certified create path instead of failing where it could be seen.
+    const repo = this.store?.getRepo(target.worktree.repoId)
+    // WSL routing describes *this* machine; no remote or runtime host may inherit it. This
+    // keys on executionHostId: the target no longer carries a connectionId, which used to
+    // spell remote, unresolved and local alike.
+    const isLocalHost = target.executionHostId === LOCAL_EXECUTION_HOST_ID
+    return structuredAgentSessionExecutionLocation({
+      target,
+      configuredWslDistro:
+        repo && isLocalHost
+          ? (getLocalProjectWorktreeGitOptions(this.requireStore(), repo).wslDistro ?? null)
+          : null
     })
   }
 
+  async resolveStructuredAgentSessionCreateIntent(
+    input: StructuredAgentSessionCreateIntentInput
+  ): Promise<AgentSessionAttachParams> {
+    const target = await this.resolveRuntimeFileTarget(input.worktree)
+    if (
+      input.expectedWorktreeTarget &&
+      !structuredAgentSessionCreateWorktreeTargetsEqual(
+        input.expectedWorktreeTarget,
+        structuredAgentSessionCreateWorktreeTarget(target.worktree)
+      )
+    ) {
+      throw new Error('structured_agent_session_unsupported')
+    }
+    const resolvedTarget = {
+      location: this.resolveStructuredAgentSessionLocationForTarget(target),
+      workspacePath: target.worktree.path
+    }
+    if (input.agent === 'claude') {
+      return this.resolveStructuredAgentSessionIntent(
+        input,
+        async ({ launchEnv, location }) => {
+          return (
+            launchEnv.CLAUDE_CONFIG_DIR?.trim() ||
+            this.accounts
+              .getClaudeConfigDirectory(
+                location.wslDistro
+                  ? { runtime: 'wsl', wslDistro: location.wslDistro }
+                  : { runtime: 'host' }
+              )
+              ?.trim() ||
+            join(homedir(), '.claude')
+          )
+        },
+        resolvedTarget
+      )
+    }
+    return this.resolveStructuredAgentSessionIntent(
+      input,
+      async ({ workspacePath, launchEnv }) => {
+        // A create has no process yet, so the current selection is what it must follow.
+        const preparedHome = await this.prepareCodexStructuredLaunchFn?.({
+          workspacePath,
+          launchEnv
+        })
+        const configuredHome = launchEnv.CODEX_HOME
+        return (
+          preparedHome?.trim() ||
+          (this.prepareCodexStructuredLaunchFn
+            ? getSystemCodexHomePath()
+            : configuredHome?.trim()) ||
+          getSystemCodexHomePath()
+        )
+      },
+      resolvedTarget
+    )
+  }
+
   protected async resolveStructuredAgentSessionIntent(
-    input: {
-      envelope: { sessionId: string; clientOperationId: string }
-      worktree: string
-      agent: 'claude' | 'codex'
-      callerKey?: string
-      resumeFrom?: { providerSessionId: string }
-    },
+    input: StructuredAgentSessionCreateIntentInput,
     resolveAccountHomePath: (context: {
       workspacePath: string
       launchEnv: NodeJS.ProcessEnv
@@ -173,9 +221,11 @@ export class OrcaRuntimeWithResolveRecoveredStructuredTuiTranscript extends Orca
         workspaceId: string
         workspaceKind: 'folder' | 'git-worktree'
       }
-    }) => string | Promise<string>
+    }) => string | Promise<string>,
+    target: ResolvedStructuredAgentSessionCreateTarget
   ): Promise<AgentSessionAttachParams> {
-    const support = await this.getStructuredAgentSessionCreateSupport(input.worktree, input.agent)
+    const { location, workspacePath } = target
+    const support = this.getStructuredAgentSessionCreateSupportForLocation(location, input.agent)
     if (!support.supported) {
       throw new Error('structured_agent_session_unsupported')
     }
@@ -185,8 +235,6 @@ export class OrcaRuntimeWithResolveRecoveredStructuredTuiTranscript extends Orca
       settings.nativeChatSessionOptions,
       input.agent
     )
-    const location = await this.resolveStructuredAgentSessionLocation(input.worktree)
-    const workspacePath = (await this.resolveRuntimeFileTarget(input.worktree)).worktree.path
     const host = getStructuredAgentSessionHost()
     const committedReplay = resolveCommittedStructuredAgentSessionAdoptionIntent({
       host,

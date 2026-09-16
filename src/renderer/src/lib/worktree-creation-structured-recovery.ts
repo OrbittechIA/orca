@@ -15,7 +15,41 @@ export function markStructuredWorktreeLaunchUnconfirmed(
       'auto.lib.worktree.creation.flow.structured.launch.unknown',
       'Could not confirm whether Codex chat opened. Retry to check again.'
     ),
-    structuredLaunchRecoveryWorktreeId: worktreeId
+    structuredLaunchRecoveryWorktreeId: worktreeId,
+    // Explícito: um retry anterior pode tê-lo desligado, e reconciliar é permitido.
+    structuredLaunchRetryDisabled: false
+  })
+}
+
+/** Entrega sem confirmação: a MESMA mensagem é reconciliada, nunca reenviada. */
+export function markStructuredWorktreePromptDeliveryUnconfirmed(
+  creationId: string,
+  worktreeId: string
+): void {
+  useAppStore.getState().updatePendingWorktreeCreation(creationId, {
+    status: 'error',
+    error: translate(
+      'auto.lib.worktree.creation.flow.structured.prompt.unknown',
+      'Could not confirm whether the work item prompt was delivered. Retry to reconcile the same message.'
+    ),
+    structuredLaunchRecoveryWorktreeId: worktreeId,
+    structuredLaunchRetryDisabled: false
+  })
+}
+
+/** Recusa definitiva: a workspace e a sessão ficam; reenviar abriria um segundo writer. */
+export function markStructuredWorktreePromptDeliveryFailed(
+  creationId: string,
+  worktreeId: string
+): void {
+  useAppStore.getState().updatePendingWorktreeCreation(creationId, {
+    status: 'error',
+    error: translate(
+      'auto.lib.worktree.creation.flow.structured.prompt.failed',
+      'The structured agent session did not accept the work item prompt. Orca did not retry or start another writer.'
+    ),
+    structuredLaunchRecoveryWorktreeId: worktreeId,
+    structuredLaunchRetryDisabled: true
   })
 }
 
@@ -49,6 +83,14 @@ export async function retryStructuredWorktreeLaunch(
   }
   if (structuredSession.visibilityUnknown) {
     markStructuredWorktreeLaunchUnconfirmed(creationId, worktreeId)
+    return
+  }
+  if (structuredSession.promptDeliveryUnknown) {
+    markStructuredWorktreePromptDeliveryUnconfirmed(creationId, worktreeId)
+    return
+  }
+  if (structuredSession.failure === 'prompt-delivery') {
+    markStructuredWorktreePromptDeliveryFailed(creationId, worktreeId)
     return
   }
   await completeWorktreeCreation({

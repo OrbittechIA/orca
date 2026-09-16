@@ -1,3 +1,4 @@
+import type { WorkItemStartPromptDelivery } from '../../../shared/agent-session-options'
 import type { TuiAgent } from '../../../shared/tui-agent'
 import type { WorkspaceSource as WorkspaceCreateTelemetrySource } from '../../../shared/workspace-source'
 import type {
@@ -115,6 +116,8 @@ export type WorktreeCreationRequest = {
   /** When the composer stays open for sequential creates, completion must not
    *  steal focus from the next workspace name field. */
   suppressTerminalFocusOnCompletion?: boolean
+  /** A entrega escolhida no Start acompanha o pedido: um retry não pode mudá-la. */
+  workItemStartPromptDelivery?: WorkItemStartPromptDelivery
 }
 
 /** Renderer-only, session-ephemeral record of an in-flight (or failed) worktree
@@ -141,6 +144,10 @@ export type PendingWorktreeCreation = {
   /** Existing worktree whose uncertain structured launch must be reconciled instead of recreated. */
   structuredLaunchRecoveryWorktreeId?: string
   request: WorktreeCreationRequest
+  /** Captured linked-item behavior; strict delivery must survive background retries unchanged. */
+  workItemStartPromptDelivery?: WorkItemStartPromptDelivery
+  /** Strict failures with a definitive verdict cannot safely resend the prompt. */
+  structuredLaunchRetryDisabled?: boolean
 }
 
 export function findPendingLinkedWorkItemCreationId(

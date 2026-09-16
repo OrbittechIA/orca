@@ -1,3 +1,4 @@
+import type { WorkItemStartPromptDelivery } from '../../../../shared/agent-session-options'
 import { CLIENT_PLATFORM, type LinkedWorkItemSummary } from '@/lib/new-workspace'
 import { resolveQuickCreateLinkedWorkItemPrompt } from '@/lib/linked-work-item-context'
 import {
@@ -25,9 +26,15 @@ export function getFolderWorkspaceAgentLaunchPlatform(
 /** Resolve the linked context that should appear in the agent input without submitting. */
 export function resolveFolderWorkspaceLaunchDraft(
   linkedWorkItem: LinkedWorkItemSummary,
-  note: string
+  note: string,
+  /** `draft` por omissão: quem não declara entrega não submete nada sozinho. */
+  promptDelivery: WorkItemStartPromptDelivery = 'draft'
 ): string | null {
-  const { prompt, draftPrompt } = resolveQuickCreateLinkedWorkItemPrompt(linkedWorkItem, note)
+  const { prompt, draftPrompt } = resolveQuickCreateLinkedWorkItemPrompt(
+    linkedWorkItem,
+    note,
+    promptDelivery
+  )
   return (draftPrompt ?? prompt.trim()) || null
 }
 

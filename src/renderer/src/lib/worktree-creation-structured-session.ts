@@ -18,6 +18,10 @@ export type WorktreeCreationStructuredSessionResult = {
   accepted: boolean
   cancelled: boolean
   visibilityUnknown: boolean
+  /** Entrega estrita sem confirmação: reconciliar a MESMA mensagem, nunca reenviar outra. */
+  promptDeliveryUnknown?: boolean
+  /** Recusa definitiva da entrega: a workspace fica, o retry não. */
+  failure?: 'prompt-delivery'
   activation: ActivateAndRevealResult | false
   primaryTabId: string | null
 }
@@ -205,7 +209,20 @@ export async function launchStructuredWorktreeSession(
       }
     case 'visibility-unknown':
       return { ...settled, visibilityUnknown: true, activation, primaryTabId }
-    case 'structured':
+    case 'structured': {
+      // Entrega estrita é prova: sem confirmação o create não conclui, e incerteza
+      // (reconciliável) nunca é tratada como recusa (definitiva).
+      if (args.request.workItemStartPromptDelivery !== 'submit-after-ready') {
+        return { ...settled, activation, primaryTabId }
+      }
+      const delivery = await settlement.promptDeliveryResult
+      if (!delivery || delivery.delivered) {
+        return { ...settled, activation, primaryTabId }
+      }
+      return delivery.deliveryUnknown === true
+        ? { ...settled, promptDeliveryUnknown: true, activation, primaryTabId }
+        : { ...settled, failure: 'prompt-delivery' as const, activation, primaryTabId }
+    }
     case 'failed':
       // Why: a failed launch has always reported as accepted here; the launch layer toasts it.
       return { ...settled, activation, primaryTabId }

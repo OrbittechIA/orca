@@ -1,6 +1,7 @@
 import { isBuiltin } from 'node:module'
 import { resolve } from 'node:path'
 import { defineConfig, type UserConfig } from 'electron-vite'
+import { readBuildProvenanceLiteral } from './config/scripts/build-provenance.mjs'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { createBootstrapFatalExitBanner } from './config/build-plugins/bootstrap-fatal-exit-banner'
@@ -48,6 +49,7 @@ const ORCA_BUILD_IDENTITY_LITERAL =
   orcaBuildIdentity === 'stable' || orcaBuildIdentity === 'rc'
     ? JSON.stringify(orcaBuildIdentity)
     : 'null'
+const ORCA_BUILD_PROVENANCE_LITERAL = readBuildProvenanceLiteral()
 const orcaPostHogWriteKey = process.env.ORCA_POSTHOG_WRITE_KEY
 const ORCA_POSTHOG_WRITE_KEY_LITERAL =
   typeof orcaPostHogWriteKey === 'string' && orcaPostHogWriteKey.length > 0
@@ -274,6 +276,10 @@ export const electronViteConfig: UserConfig = {
     // above for the full rationale.
     define: {
       ORCA_BUILD_IDENTITY: ORCA_BUILD_IDENTITY_LITERAL,
+      // Substituição em tempo de compilação: um processo em execução precisa poder dizer de
+      // qual commit veio, e nenhuma superfície de runtime carrega isso.
+      ORCA_BUILD_PROVENANCE: ORCA_BUILD_PROVENANCE_LITERAL,
+      'globalThis.ORCA_BUILD_PROVENANCE': ORCA_BUILD_PROVENANCE_LITERAL,
       ORCA_POSTHOG_WRITE_KEY: ORCA_POSTHOG_WRITE_KEY_LITERAL,
       ORCA_DIAGNOSTICS_TOKEN_URL: ORCA_DIAGNOSTICS_TOKEN_URL_LITERAL
     },

@@ -1,3 +1,4 @@
+import type { RuntimeMobileSessionTabsResult } from '../../../shared/runtime-session-contracts'
 import type { AgentSessionHistoryResult } from '../../../shared/agent-session-wire'
 import {
   launchStructuredAgentSession,
@@ -35,7 +36,19 @@ async function verifyPublishedSession(state: StructuredLaunchRecoveryState): Pro
   if (hasAdoptedStructuredSession(state.intent)) {
     return
   }
-  const snapshots = await refreshLocalStructuredSessionTabs()
+  // A publicação é verificada no runtime que DETÉM a sessão. `refreshLocalStructuredSessionTabs`
+  // pergunta ao IPC local, que numa Desktop pareada não conhece a workspace — e a ausência
+  // virava "publicação indisponível" em vez de ser procurada onde a sessão existe.
+  const snapshots =
+    state.intent.target.kind === 'local'
+      ? await refreshLocalStructuredSessionTabs()
+      : ((
+          await callStructuredAgentSession<{ snapshots?: RuntimeMobileSessionTabsResult[] }>(
+            state.intent.target,
+            'session.tabs.listAll',
+            {}
+          )
+        ).snapshots ?? [])
   throwIfLaunchCancelled(state)
   const published = snapshots.some(
     (snapshot) =>
@@ -67,7 +80,7 @@ async function recoverPublishedSessionReceipt(
 ): Promise<StructuredAgentLaunchReceipt> {
   await verifyPublishedSession(state)
   const history = await callStructuredAgentSession<AgentSessionHistoryResult>(
-    { kind: 'local' },
+    state.intent.target,
     'agentSession.history',
     { sessionId: state.intent.sessionId, direction: 'tail', limit: 1 }
   )
