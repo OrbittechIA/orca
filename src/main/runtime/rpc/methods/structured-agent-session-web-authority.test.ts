@@ -4,12 +4,16 @@ import { projectSessionTabsForContext } from './session-tabs-inventory'
 import { structuredAgentSessionCreateWorktreeTarget } from '../../structured-agent-session-create-worktree-target'
 import {
   call,
+  callStreaming,
   clearStructuredHostStub,
   envelope,
   hostCalls,
   installStructuredHostStub,
+  publishStatusItems,
   SESSION,
+  STATUS_ITEMS,
   STATUS_SESSION,
+  statusFeedInstance,
   STRUCTURED_CLIENT,
   STRUCTURED_MOBILE_CLIENT
 } from './structured-agent-session-rpc.test-fixture'
@@ -302,6 +306,71 @@ describe('Web Work Item Start authority', () => {
       expect(projectSessionTabsForContext(snapshot, context).tabs.map((tab) => tab.id)).toEqual([
         'agent-session:ordinary'
       ])
+    }
+  )
+
+  it.each([
+    ['paired runtime', STRUCTURED_CLIENT],
+    ['mobile', STRUCTURED_MOBILE_CLIENT]
+  ] as const)(
+    'keeps later status and revoke events of a scoped session away from %s that cannot access it',
+    async (_name, clientKind) => {
+      hostCalls.getRecord.mockImplementation((sessionId) =>
+        sessionId === STATUS_SESSION
+          ? {
+              launchOrigin: 'work-item-start',
+              launchAuthority: { kind: 'paired-device', deviceId: 'device-owner' }
+            }
+          : { launchOrigin: undefined }
+      )
+      // Two connections: the status stream is keyed per connection, and one id would let the
+      // second subscribe evict the first instead of proving anything about scope.
+      const other = { ...clientKind, pairedDeviceId: 'device-other', connectionId: 'conn-other' }
+      const owner = {
+        ...STRUCTURED_CLIENT,
+        pairedDeviceId: 'device-owner',
+        connectionId: 'conn-owner'
+      }
+
+      const denied = await callStreaming('agentSession.subscribeStatus', null, other, {
+        ...ENABLED_SETTINGS
+      })
+      const admitted = await callStreaming('agentSession.subscribeStatus', null, owner, {
+        ...ENABLED_SETTINGS
+      })
+      expect(denied.first).toMatchObject({ ok: true, result: { type: 'snapshot', sessions: [] } })
+      expect(admitted.first).toMatchObject({
+        ok: true,
+        result: {
+          type: 'snapshot',
+          sessions: [expect.objectContaining({ sessionId: STATUS_SESSION })]
+        }
+      })
+
+      // The leak was here: the snapshot was filtered, but a later publish or an ownership
+      // revoke named its session at `event.session` and bypassed the subscriber's scope.
+      publishStatusItems([
+        ...STATUS_ITEMS,
+        {
+          itemId: 'user-2',
+          sequence: 3,
+          revision: 1,
+          observedAt: 3,
+          body: {
+            kind: 'message',
+            role: 'user',
+            blocks: [{ type: 'text', text: 'scoped follow-up prompt' }]
+          }
+        }
+      ])
+      statusFeedInstance().revokeLive(STATUS_SESSION)
+
+      const statusEvents = (replies: typeof denied.replies) =>
+        replies.filter((reply) => reply.ok && (reply.result as { type?: string }).type === 'status')
+      expect(statusEvents(denied.replies)).toEqual([])
+      expect(JSON.stringify(denied.replies)).not.toContain('scoped follow-up prompt')
+      expect(statusEvents(admitted.replies)).toHaveLength(2)
+      expect(JSON.stringify(admitted.replies)).toContain('scoped follow-up prompt')
     }
   )
 
