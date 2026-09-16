@@ -1,7 +1,7 @@
 import { isBuiltin } from 'node:module'
 import { resolve } from 'node:path'
 import { defineConfig, type UserConfig } from 'electron-vite'
-import { readBuildProvenanceLiteral } from './config/scripts/build-provenance.mjs'
+import { readBuildProvenanceLiteralForConfigLoad } from './config/scripts/build-provenance.mjs'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { createBootstrapFatalExitBanner } from './config/build-plugins/bootstrap-fatal-exit-banner'
@@ -49,7 +49,7 @@ const ORCA_BUILD_IDENTITY_LITERAL =
   orcaBuildIdentity === 'stable' || orcaBuildIdentity === 'rc'
     ? JSON.stringify(orcaBuildIdentity)
     : 'null'
-const ORCA_BUILD_PROVENANCE_LITERAL = readBuildProvenanceLiteral()
+const ORCA_BUILD_PROVENANCE_LITERAL = readBuildProvenanceLiteralForConfigLoad()
 const orcaPostHogWriteKey = process.env.ORCA_POSTHOG_WRITE_KEY
 const ORCA_POSTHOG_WRITE_KEY_LITERAL =
   typeof orcaPostHogWriteKey === 'string' && orcaPostHogWriteKey.length > 0
