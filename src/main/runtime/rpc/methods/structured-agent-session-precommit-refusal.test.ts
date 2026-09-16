@@ -83,6 +83,8 @@ async function create(
       ...resolvedIntent
     })),
     publishStructuredAgentSessionTab: vi.fn(async () => undefined),
+    // The lifecycle hold every create keeps from resolution through attach.
+    holdWorktreeLifecycle: vi.fn(async () => () => undefined),
     ...runtimeOverrides
   }
   const replies: RpcResponse[] = []
