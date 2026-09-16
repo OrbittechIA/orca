@@ -1,3 +1,5 @@
+import { toast } from 'sonner'
+import { structuredWorkItemPromptDeliveryFailedMessage } from '@/lib/launch-work-item-direct-messages'
 import type { TuiAgent } from '../../../shared/tui-agent'
 import type { AppState } from '@/store/types'
 import { TUI_AGENT_CONFIG } from '../../../shared/tui-agent-config'
@@ -7,7 +9,10 @@ import type { AgentSessionLaunchPlan } from '@/lib/agent-session-launch-plan'
 import { isNativeChatTranscriptLocalReadable } from '@/lib/native-chat-transcript-readability'
 import { resolveSourceControlLaunchPlatform } from '@/lib/source-control-launch-platform'
 import { preflightAgentTrust } from '@/lib/agent-trust-preflight'
-import { beginStructuredAgentSessionProvisionalLaunch } from '@/lib/structured-agent-session-provisional-tab'
+import {
+  beginStructuredAgentSessionProvisionalLaunch,
+  type StructuredAgentSessionProvisionalLaunch
+} from '@/lib/structured-agent-session-provisional-tab'
 
 export function buildDirectWorkItemStartup(args: {
   agent: TuiAgent | null
@@ -104,6 +109,7 @@ export function beginDirectWorkItemStructuredLaunch(args: {
   completed: boolean
   structuredLaunch: boolean
   primaryTabId: string | null
+  launch?: StructuredAgentSessionProvisionalLaunch
 } {
   const { plan } = args
   const notLaunched = (structuredLaunch: boolean) => ({
@@ -125,6 +131,38 @@ export function beginDirectWorkItemStructuredLaunch(args: {
   return {
     completed: true,
     structuredLaunch: true,
-    primaryTabId: launch.tab.id
+    primaryTabId: launch.tab.id,
+    launch
   }
+}
+
+/**
+ * Strict delivery is proof, not intent: a strict Start only reports started once the host
+ * confirmed the prompt. Without a prompt there is nothing to deliver, so it holds vacuously.
+ */
+export async function settleStrictDirectWorkItemDelivery(args: {
+  launch: StructuredAgentSessionProvisionalLaunch
+  hasPrompt: boolean
+}): Promise<boolean> {
+  let settlement: Awaited<StructuredAgentSessionProvisionalLaunch['settlement']>
+  try {
+    settlement = await args.launch.settlement
+  } catch {
+    return false
+  }
+  // Why: failed, cancelled and unknown launches are surfaced by the launch layer and its chat tab.
+  if (settlement.kind !== 'structured') {
+    return false
+  }
+  if (!args.hasPrompt) {
+    return true
+  }
+  const delivery = await settlement.promptDeliveryResult
+  if (delivery?.delivered === true) {
+    return true
+  }
+  if (delivery?.failureNotified !== true && delivery?.deliveryUnknown !== true) {
+    toast.error(structuredWorkItemPromptDeliveryFailedMessage())
+  }
+  return false
 }

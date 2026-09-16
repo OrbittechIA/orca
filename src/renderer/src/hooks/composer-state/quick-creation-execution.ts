@@ -1,3 +1,5 @@
+import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
+import { resolveQuickCreationAgentLaunchRoute } from '@/hooks/composer-state/quick-work-item-start-route'
 import type { ComposerModel } from './composer-model'
 
 type QuickCreationExecutionInput = Pick<
@@ -46,7 +48,6 @@ import { resolveQuickCreateLinkedWorkItemPrompt } from '@/lib/linked-work-item-c
 import { buildQuickComposerStartup } from './quick-startup-plan'
 import { buildQuickCreationRequest } from './quick-creation-request'
 import type { PendingSmartGitHubSubmitResolution } from './source-selection-decisions'
-import { planAgentSessionLaunch } from '@/lib/agent-session-launch-plan'
 
 export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
   const {
@@ -122,9 +123,15 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
       } = prepared
 
       const promptLinkedWorkItem = agent === null ? null : submitLinkedWorkItem
+      // A preparação é a dona desta decisão: aqui ela só é lida, nunca re-derivada.
+      const { workItemStartPromptDelivery } = prepared
 
       const { prompt: quickPrompt, draftPrompt: quickDraftPrompt } =
-        resolveQuickCreateLinkedWorkItemPrompt(promptLinkedWorkItem, trimmedNote)
+        resolveQuickCreateLinkedWorkItemPrompt(
+          promptLinkedWorkItem,
+          trimmedNote,
+          workItemStartPromptDelivery
+        )
 
       const {
         startupPlan,
@@ -195,22 +202,22 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
       }
 
       const promptDelivery = quickDraftPrompt ? 'draft' : 'auto-submit'
-      // Why: the verdict is persisted on the request as data and re-entered once the worktree exists.
-      const agentLaunchRoute = agent
-        ? planAgentSessionLaunch(useAppStore.getState(), {
-            agent,
-            workspace: {
-              kind: selectedRepoIsGit ? 'git-worktree' : 'folder',
-              repoId,
-              executionHostId: ephemeralVmRecipe
-                ? 'runtime:pending-ephemeral-vm'
-                : (workspaceRunContext?.hostId ?? selectedRepoExecutionHostId ?? undefined)
-            },
-            prompt: quickDraftPrompt ?? quickPrompt,
-            promptDelivery,
-            initialSessionOptions: startupPlan?.sessionOptions
-          }).route
-        : 'terminal-tui'
+      const agentLaunchRoute = await resolveQuickCreationAgentLaunchRoute({
+        agent,
+        workItemPromptDelivery: workItemStartPromptDelivery,
+        settings,
+        executionHostId: selectedRepoExecutionHostId ?? LOCAL_EXECUTION_HOST_ID,
+        repoId,
+        workspaceKind: selectedRepoIsGit ? 'git-worktree' : 'folder',
+        launchText: quickPrompt,
+        nativeChatTranscriptIsLocalReadable: !selectedRepoIsRemote,
+        prompt: quickDraftPrompt ?? quickPrompt,
+        promptDelivery,
+        workspaceExecutionHostId: ephemeralVmRecipe
+          ? 'runtime:pending-ephemeral-vm'
+          : (workspaceRunContext?.hostId ?? selectedRepoExecutionHostId ?? undefined),
+        initialSessionOptions: startupPlan?.sessionOptions
+      })
       const structuredLaunch = agentLaunchRoute === 'structured-native-chat'
 
       const request = buildQuickCreationRequest({
@@ -238,6 +245,7 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
         pushTarget: submitPushTarget,
         agent,
         agentLaunchRoute,
+        ...(workItemStartPromptDelivery ? { workItemStartPromptDelivery } : {}),
         linkedLinearIssue,
         linkedLinearIssueWorkspaceId,
         linkedLinearIssueOrganizationUrlKey,

@@ -1,3 +1,4 @@
+import type { WorkItemStartPromptDelivery } from '../../../src/shared/agent-session-options'
 import type { TuiAgent } from '../../../src/shared/tui-agent'
 import { MOBILE_AGENT_CATALOG } from '../tasks/mobile-agent-catalog'
 import { isMobileTuiAgentEnabled } from '../tasks/mobile-tui-agents'
@@ -6,6 +7,8 @@ import { pickWorkspaceAgent } from '../tasks/workspace-agent-selection'
 export type NewWorktreeRuntimeSettings = {
   defaultTuiAgent?: TuiAgent | 'blank' | null
   disabledTuiAgents?: TuiAgent[]
+  /** Host preference for Work Item Start; `submit-after-ready` needs a structured session. */
+  workItemStartPromptDelivery?: WorkItemStartPromptDelivery
 }
 
 export type NewWorktreeAgentOption = {

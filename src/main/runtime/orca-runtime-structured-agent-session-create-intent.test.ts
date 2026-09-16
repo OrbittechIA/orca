@@ -1,11 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 import { OrcaRuntimeService } from './orca-runtime'
+import { structuredAgentSessionCreateWorktreeTarget } from './structured-agent-session-create-worktree-target'
 
 describe('structured agent-session create intent', () => {
   it('pins the selected Codex launch home after normal launch preparation', async () => {
     const prepareCodexStructuredLaunch = vi.fn(() => '/accounts/selected/home')
     const runtime = new OrcaRuntimeService(
       {
+        // The real store always answers this; leaving it out only worked while the call
+        // site was optional, which is exactly the masking this test should not do.
+        getRepo: () => undefined,
         getSettings: () => ({
           agentDefaultEnv: { codex: { CODEX_HOME: '/configured/home' } },
           nativeChatSessionOptions: {
@@ -21,28 +25,15 @@ describe('structured agent-session create intent', () => {
       undefined,
       { prepareCodexStructuredLaunch }
     )
-    vi.spyOn(runtime, 'getStructuredAgentSessionCreateSupport').mockResolvedValue({
-      supported: true
-    })
     const internal = runtime as unknown as {
-      resolveStructuredAgentSessionLocation: (selector: string) => Promise<{
-        executionHostId: string
-        wslDistro: null
-        workspaceId: string
-        workspaceKind: 'git-worktree'
-      }>
       resolveRuntimeFileTarget: (selector: string) => Promise<{
-        worktree: { path: string }
+        executionHostId: string
+        worktree: { id: string; repoId: string; path: string }
       }>
     }
-    internal.resolveStructuredAgentSessionLocation = vi.fn(async () => ({
-      executionHostId: 'local',
-      wslDistro: null,
-      workspaceId: 'workspace-1',
-      workspaceKind: 'git-worktree' as const
-    }))
     internal.resolveRuntimeFileTarget = vi.fn(async () => ({
-      worktree: { path: '/repos/workspace-1' }
+      executionHostId: 'local',
+      worktree: { id: 'workspace-1', repoId: 'repo-1', path: '/repos/workspace-1' }
     }))
 
     const intent = await runtime.resolveStructuredAgentSessionCreateIntent({
@@ -60,12 +51,16 @@ describe('structured agent-session create intent', () => {
       path: '/accounts/selected/home'
     })
     expect(intent.options).toEqual({ model: 'gpt-5.6-sol', effort: 'medium', fastMode: 'true' })
+    expect(internal.resolveRuntimeFileTarget).toHaveBeenCalledOnce()
   })
 
   it('pins the configured Claude launch home without Codex launch preparation', async () => {
     const prepareCodexStructuredLaunch = vi.fn()
     const runtime = new OrcaRuntimeService(
       {
+        // The real store always answers this; leaving it out only worked while the call
+        // site was optional, which is exactly the masking this test should not do.
+        getRepo: () => undefined,
         getSettings: () => ({
           agentDefaultEnv: {
             claude: { CLAUDE_CONFIG_DIR: '/configured/claude-home' }
@@ -81,28 +76,15 @@ describe('structured agent-session create intent', () => {
       undefined,
       { prepareCodexStructuredLaunch }
     )
-    vi.spyOn(runtime, 'getStructuredAgentSessionCreateSupport').mockResolvedValue({
-      supported: true
-    })
     const internal = runtime as unknown as {
-      resolveStructuredAgentSessionLocation: (selector: string) => Promise<{
-        executionHostId: string
-        wslDistro: null
-        workspaceId: string
-        workspaceKind: 'git-worktree'
-      }>
       resolveRuntimeFileTarget: (selector: string) => Promise<{
-        worktree: { path: string }
+        executionHostId: string
+        worktree: { id: string; repoId: string; path: string }
       }>
     }
-    internal.resolveStructuredAgentSessionLocation = vi.fn(async () => ({
-      executionHostId: 'local',
-      wslDistro: null,
-      workspaceId: 'workspace-1',
-      workspaceKind: 'git-worktree' as const
-    }))
     internal.resolveRuntimeFileTarget = vi.fn(async () => ({
-      worktree: { path: '/repos/workspace-1' }
+      executionHostId: 'local',
+      worktree: { id: 'workspace-1', repoId: 'repo-1', path: '/repos/workspace-1' }
     }))
 
     const intent = await runtime.resolveStructuredAgentSessionCreateIntent({
@@ -124,6 +106,9 @@ describe('structured agent-session create intent', () => {
     const getRuntimeConfigDir = vi.fn(() => '/accounts/managed/claude-home')
     const runtime = new OrcaRuntimeService(
       {
+        // The real store always answers this; leaving it out only worked while the call
+        // site was optional, which is exactly the masking this test should not do.
+        getRepo: () => undefined,
         getSettings: () => ({
           agentDefaultEnv: { claude: {} }
         })
@@ -136,28 +121,15 @@ describe('structured agent-session create intent', () => {
       codexAccounts: {} as never,
       rateLimits: {} as never
     })
-    vi.spyOn(runtime, 'getStructuredAgentSessionCreateSupport').mockResolvedValue({
-      supported: true
-    })
     const internal = runtime as unknown as {
-      resolveStructuredAgentSessionLocation: (selector: string) => Promise<{
-        executionHostId: string
-        wslDistro: null
-        workspaceId: string
-        workspaceKind: 'git-worktree'
-      }>
       resolveRuntimeFileTarget: (selector: string) => Promise<{
-        worktree: { path: string }
+        executionHostId: string
+        worktree: { id: string; repoId: string; path: string }
       }>
     }
-    internal.resolveStructuredAgentSessionLocation = vi.fn(async () => ({
-      executionHostId: 'local',
-      wslDistro: null,
-      workspaceId: 'workspace-1',
-      workspaceKind: 'git-worktree' as const
-    }))
     internal.resolveRuntimeFileTarget = vi.fn(async () => ({
-      worktree: { path: '/repos/workspace-1' }
+      executionHostId: 'local',
+      worktree: { id: 'workspace-1', repoId: 'repo-1', path: '/repos/workspace-1' }
     }))
 
     const intent = await runtime.resolveStructuredAgentSessionCreateIntent({
@@ -171,5 +143,48 @@ describe('structured agent-session create intent', () => {
       variable: 'CLAUDE_CONFIG_DIR',
       path: '/accounts/managed/claude-home'
     })
+  })
+
+  it('rejects a resolved checkout that differs from the authorized occupant', async () => {
+    const runtime = new OrcaRuntimeService({ getSettings: () => ({}) } as never)
+    const internal = runtime as unknown as {
+      resolveRuntimeFileTarget: (selector: string) => Promise<{
+        executionHostId: string
+        worktree: {
+          id: string
+          repoId: string
+          path: string
+          instanceId: string
+          creatorProvenance: { kind: string; deviceId: string }
+        }
+      }>
+    }
+    internal.resolveRuntimeFileTarget = vi.fn(async () => ({
+      executionHostId: 'local',
+      worktree: {
+        id: 'workspace-2',
+        repoId: 'repo-1',
+        path: '/repos/workspace-2',
+        instanceId: 'instance-2',
+        creatorProvenance: { kind: 'paired-device', deviceId: 'device-other' }
+      }
+    }))
+    const expectedWorktreeTarget = structuredAgentSessionCreateWorktreeTarget({
+      id: 'workspace-1',
+      repoId: 'repo-1',
+      path: '/repos/workspace-1',
+      instanceId: 'instance-1',
+      creatorProvenance: { kind: 'paired-device', deviceId: 'device-owner' }
+    } as never)
+
+    await expect(
+      runtime.resolveStructuredAgentSessionCreateIntent({
+        envelope: { sessionId: 'session-1', clientOperationId: 'operation-1' },
+        worktree: 'name:changing-alias',
+        agent: 'codex',
+        expectedWorktreeTarget
+      })
+    ).rejects.toThrow('structured_agent_session_unsupported')
+    expect(internal.resolveRuntimeFileTarget).toHaveBeenCalledOnce()
   })
 })

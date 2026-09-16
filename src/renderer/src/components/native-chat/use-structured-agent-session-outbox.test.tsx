@@ -159,7 +159,8 @@ describe('useStructuredAgentSessionOutbox', () => {
       settleStructuredAgentLaunchPrompt({
         launchResult: Promise.resolve({ sessionId: 'session-1', fence: 1 }),
         options: { prompt: 'review this' },
-        stagedEntry
+        stagedEntry,
+        target: { kind: 'local' }
       })
     ).resolves.toEqual({ delivered: true, failureNotified: false })
     expect(mocks.call).toHaveBeenCalledOnce()
@@ -179,7 +180,8 @@ describe('useStructuredAgentSessionOutbox', () => {
     const delivery = settleStructuredAgentLaunchPrompt({
       launchResult: Promise.resolve({ sessionId: 'session-1', fence: 1 }),
       options: { prompt: 'review this' },
-      stagedEntry
+      stagedEntry,
+      target: { kind: 'local' }
     })
     await waitFor(() => expect(mocks.call).toHaveBeenCalledOnce())
 

@@ -1,3 +1,10 @@
+import { planFolderWorkspaceWorkItemStart } from './folder-workspace-work-item-start'
+import { toast } from 'sonner'
+import type { GlobalSettings } from '../../../../shared/global-settings-types'
+import {
+  structuredWorkItemComposerPreflightUnavailableMessage,
+  structuredWorkItemPromptDeliveryFailedMessage
+} from '@/lib/launch-work-item-direct-messages'
 import { ensureAgentStartupInTerminal, type LinkedWorkItemSummary } from '@/lib/new-workspace'
 import { seedNativeChatLaunchDraftForAgentTab } from '@/lib/agent-launch-prompt-delivery'
 import { preflightAgentTrust } from '@/lib/agent-trust-preflight'
@@ -18,14 +25,10 @@ import {
   getLinkedItemDisplayName,
   toFolderWorkspaceLinkedTask
 } from './folder-workspace-composer-helpers'
-import { planAgentSessionLaunch } from '@/lib/agent-session-launch-plan'
 import { beginStructuredAgentSessionProvisionalLaunch } from '@/lib/structured-agent-session-provisional-tab'
-import { getNewWorkspaceProjectGroupHostId } from '@/lib/new-workspace-project-options'
-import { useAppStore } from '@/store'
 import {
   buildFolderWorkspaceLinkedStartupPlan,
-  getFolderWorkspaceAgentLaunchPlatform,
-  resolveFolderWorkspaceLaunchDraft
+  getFolderWorkspaceAgentLaunchPlatform
 } from './folder-workspace-agent-startup'
 
 export {
@@ -58,6 +61,7 @@ type SubmitFolderWorkspaceCreateParams = {
   agentEnv?: Record<string, string>
   sessionOptions?: Record<string, SessionOptionValue>
   terminalWindowsShell?: string | null
+  settings?: GlobalSettings | null
   isRemote?: boolean
   launchSource?: LaunchSource
   runtimeEnvironmentId?: string | null
@@ -79,6 +83,7 @@ export async function submitFolderWorkspaceCreate({
   agentEnv,
   sessionOptions,
   terminalWindowsShell,
+  settings,
   launchSource = 'sidebar',
   runtimeEnvironmentId = null,
   createFolderWorkspace,
@@ -129,22 +134,25 @@ export async function submitFolderWorkspaceCreate({
         : null
   // Why: the argv-prefill plan carries the draft inside `launchCommand`, so
   // `startupPlan.draftPrompt` alone can't tell whether this launch has one.
-  const launchDraftPrompt =
-    quickAgent && linkedWorkItem ? resolveFolderWorkspaceLaunchDraft(linkedWorkItem, note) : null
-  const plan = quickAgent
-    ? planAgentSessionLaunch(useAppStore.getState(), {
-        agent: quickAgent,
-        workspace: {
-          kind: 'folder',
-          runtimeEnvironmentId,
-          executionHostId: getNewWorkspaceProjectGroupHostId(projectGroup)
-        },
-        prompt: launchDraftPrompt ?? note,
-        promptDelivery: launchDraftPrompt ? 'draft' : 'auto-submit',
-        initialSessionOptions: startupPlan?.sessionOptions
-      })
-    : null
+  const {
+    strict: strictWorkItemStart,
+    launchDraftPrompt,
+    plan
+  } = planFolderWorkspaceWorkItemStart({
+    projectGroup,
+    linkedWorkItem,
+    note,
+    quickAgent,
+    settings,
+    runtimeEnvironmentId,
+    initialSessionOptions: startupPlan?.sessionOptions
+  })
   const structuredLaunch = plan?.route === 'structured-native-chat'
+  if (strictWorkItemStart && !structuredLaunch) {
+    // Recusa ANTES do create: um bloqueio resolvido depois deixaria a workspace de pasta
+    // criada sem writer nenhum — a assinatura do incidente que este Start remove.
+    throw new Error(structuredWorkItemComposerPreflightUnavailableMessage())
+  }
   // Why: the pending badge should only appear when the submitted prompt can
   // actually produce the first agent message that names the workspace.
   const pendingFirstAgentMessageRename =
@@ -220,12 +228,29 @@ export async function submitFolderWorkspaceCreate({
     }
     const structuredLaunchAccepted = structuredLaunch
     if (plan?.route === 'structured-native-chat') {
-      beginStructuredAgentSessionProvisionalLaunch({
+      const launch = beginStructuredAgentSessionProvisionalLaunch({
         plan,
         hooks: {},
         target: { worktreeId: folderWorkspaceKey(workspace.id) },
         beforeOpen: revealWorkspace
       })
+      if (strictWorkItemStart) {
+        // Why: the workspace exists and one session owns it, so a strict Start is never repeatable;
+        // a definitive delivery refusal is reported once, and uncertainty is not a refusal.
+        const settlement = await launch?.settlement
+        if (settlement?.kind === 'structured' && launchDraftPrompt) {
+          const delivery = await settlement.promptDeliveryResult
+          if (
+            delivery &&
+            !delivery.delivered &&
+            delivery.deliveryUnknown !== true &&
+            delivery.failureNotified !== true
+          ) {
+            toast.error(structuredWorkItemPromptDeliveryFailedMessage())
+          }
+        }
+        return true
+      }
     } else {
       revealWorkspace()
     }

@@ -77,6 +77,8 @@ export type RpcContext = {
   clientKind?: 'mobile' | 'runtime'
   // Why: negotiation is bound to the authenticated socket, never asserted by a destructive request.
   clientCapabilities?: readonly RuntimeCapability[]
+  // Set only by Electron IPC; authenticated network clients cannot assert local desktop authority.
+  localDesktopAuthority?: true
   // Why: mobile v2 auth is exact-key validated; capability upgrades must mutate only the authenticated socket after auth.
   updateClientCapabilities?: (capabilities: readonly RuntimeCapability[]) => void
   // Why: Dispatch authority rides in the authenticated RPC envelope, never in user payload fields.

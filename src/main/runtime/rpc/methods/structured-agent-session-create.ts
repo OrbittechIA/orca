@@ -1,3 +1,11 @@
+import type {
+  StructuredAgentSessionLaunchAuthority,
+  StructuredAgentSessionLaunchOrigin
+} from '../../../../shared/structured-agent-session-create'
+import {
+  structuredAgentSessionCreateLocationMatchesTarget,
+  type StructuredAgentSessionCreateWorktreeTarget
+} from '../../structured-agent-session-create-worktree-target'
 /**
  * Creating a structured session for a worktree: resolve the create intent, attach it under the
  * host-computed fingerprint, then publish its tab.
@@ -53,6 +61,11 @@ export async function prepareStructuredAgentSessionCreateForWorktree(args: {
    *  `--model`/`--effort` the dispatch asked for; a chat the user opened passes nothing and keeps
    *  the saved selection. Narrowed by the caller, so `{}` never reaches the reservation. */
   options?: Readonly<Record<string, string>>
+  /** Marca a admissão estreita no registro; sem isso o gate escopado não reconhece
+   *  depois a sessão que ele mesmo acabou de admitir. */
+  launchOrigin?: StructuredAgentSessionLaunchOrigin
+  launchAuthority?: StructuredAgentSessionLaunchAuthority
+  expectedWorktreeTarget?: StructuredAgentSessionCreateWorktreeTarget
 }): Promise<PreparedStructuredAgentSessionCreate> {
   // Adoption replay may need the record loaded from disk before source discovery can be skipped.
   let host = args.resumeFrom ? await args.ensureHost() : null
@@ -63,10 +76,26 @@ export async function prepareStructuredAgentSessionCreateForWorktree(args: {
     callerKey: args.caller.callerKey,
     ...(args.resumeFrom ? { resumeFrom: args.resumeFrom } : {})
   })
+  // A worktree resolvida tem de ser a que a autoridade escopada autorizou; senão o
+  // create escapava do escopo que o admitiu.
+  if (
+    args.expectedWorktreeTarget &&
+    !structuredAgentSessionCreateLocationMatchesTarget(
+      args.expectedWorktreeTarget,
+      resolved.location
+    )
+  ) {
+    throw new Error('structured_agent_session_unsupported')
+  }
+  const resolvedWithOrigin = {
+    ...resolved,
+    ...(args.launchOrigin ? { launchOrigin: args.launchOrigin } : {}),
+    ...(args.launchAuthority ? { launchAuthority: args.launchAuthority } : {})
+  }
   const hostFingerprint = computeAgentSessionPayloadFingerprint({
     method: 'agentSession.attach',
     sessionId: args.envelope.sessionId,
-    fields: attachFingerprintFields({ ...resolved, envelope: args.envelope })
+    fields: attachFingerprintFields({ ...resolvedWithOrigin, envelope: args.envelope })
   })
   host ??= await args.ensureHost()
   const { agent: _resolvedAgent, provider: _resolvedProvider, ...resolvedAttach } = resolved
@@ -80,6 +109,8 @@ export async function prepareStructuredAgentSessionCreateForWorktree(args: {
       ...(args.options ? { options: args.options } : {}),
       provider: resolved.provider as 'claude' | 'codex',
       agent: resolved.agent as 'claude' | 'codex',
+      ...(args.launchOrigin ? { launchOrigin: args.launchOrigin } : {}),
+      ...(args.launchAuthority ? { launchAuthority: args.launchAuthority } : {}),
       envelope: { ...args.envelope, payloadFingerprint: hostFingerprint }
     },
     tab: {

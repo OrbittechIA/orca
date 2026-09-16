@@ -1,3 +1,4 @@
+import type { RuntimeClientTarget } from '@/runtime/runtime-client-target'
 import { settleStructuredAgentLaunchPrompt } from '@/lib/structured-agent-session-launch-prompt'
 import type { StructuredPromptDeliveryResult } from '@/lib/structured-agent-session-launch-prompt'
 import type { StructuredAgentSessionOutboxEntry } from '../../../shared/structured-agent-session-outbox'
@@ -10,6 +11,8 @@ export type StructuredAgentLaunchOptions = {
   /** Adopt an existing provider conversation instead of starting a fresh one. Part of the launch's
    *  identity, not a preference — see `launchIdentity`. */
   resumeFrom?: StructuredAgentSessionResumeSource
+  /** Declara o create ESCOPADO do Work Item Start; o host o admite por capability própria. */
+  launchOrigin?: 'work-item-start'
 }
 
 export type StructuredLaunchCaller = {
@@ -49,13 +52,16 @@ export function addStructuredLaunchCaller(args: {
   launchResult: Promise<{ sessionId: string; fence: number }>
   options: StructuredAgentLaunchOptions
   stagedEntry: StructuredAgentSessionOutboxEntry | null
+  /** O runtime dono da sessão; a entrega segue o mesmo caminho do create. */
+  target: RuntimeClientTarget
 }): StructuredLaunchCaller {
   const caller: StructuredLaunchCaller = {}
   args.group.entries.add(caller)
   const promptDeliveryResult = settleStructuredAgentLaunchPrompt({
     launchResult: args.launchResult,
     options: args.options,
-    stagedEntry: args.stagedEntry
+    stagedEntry: args.stagedEntry,
+    target: args.target
   })
   caller.promptDeliveryResult = promptDeliveryResult?.catch(() => ({
     delivered: false,

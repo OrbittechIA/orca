@@ -25,7 +25,8 @@ export function restorePersistedStructuredLaunchState(
     clientOperationId: record.clientOperationId,
     payloadFingerprint: record.payloadFingerprint,
     expectedRuntimeFence: record.expectedRuntimeFence,
-    ...(record.resumeFrom ? { resumeFrom: record.resumeFrom } : {})
+    ...(record.resumeFrom ? { resumeFrom: record.resumeFrom } : {}),
+    ...(record.launchOrigin ? { launchOrigin: record.launchOrigin } : {})
   })
   const callers: StructuredLaunchCallerGroup = createStructuredLaunchCallerGroup()
   const state: StructuredLaunchState = {

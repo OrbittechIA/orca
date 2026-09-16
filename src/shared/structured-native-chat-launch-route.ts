@@ -11,13 +11,21 @@
 import { isAgentSessionHandleProvider } from './agent-session-provider-handle'
 import type { GlobalSettings } from './global-settings-types'
 import type { ProjectExecutionRuntimeResolution } from './project-execution-runtime'
-import { STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY } from './protocol-version'
+import {
+  STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
+  WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY
+} from './protocol-version'
 import type { TuiAgent } from './tui-agent'
 import type { WorkspaceLaunchKind } from './workspace-launch-kind'
 
 export type NativeChatDefaultSettings = Pick<
   GlobalSettings,
   'experimentalNativeChat' | 'experimentalStructuredNativeChat' | 'openAgentTabsInChatByDefault'
+>
+
+export type StructuredAgentSessionPolicySettings = Pick<
+  GlobalSettings,
+  'experimentalStructuredNativeChat'
 >
 
 /** Why a launch that the user's default asked to be structured cannot be. */
@@ -51,6 +59,13 @@ export type StructuredNativeChatSupportInput = {
   requiresTuiLaunchCommand?: boolean
   /** An existing PTY agent keeps its execution transport. */
   reusesTerminal?: boolean
+  /**
+   * A Work Item Start, which is a *scoped* create the host gates separately. Declaring it
+   * makes this route also require the work-item-start capability, because dropping the
+   * terminal startup against a host that lacks the scoped route leaves the workspace with
+   * no writer at all — a host can have structured sessions and still refuse this one.
+   */
+  launchOrigin?: 'work-item-start'
 }
 
 /** The user's default for a new agent tab: native chat rather than the raw TUI. */
@@ -69,6 +84,12 @@ export function prefersStructuredNativeChatByDefault(
   return (
     agentTabsDefaultToNativeChat(settings) && settings?.experimentalStructuredNativeChat === true
   )
+}
+
+export function structuredAgentSessionsEnabled(
+  settings: Partial<StructuredAgentSessionPolicySettings> | null | undefined
+): boolean {
+  return settings?.experimentalStructuredNativeChat === true
 }
 
 export function resolveStructuredNativeChatSupport(
@@ -97,6 +118,15 @@ export function resolveStructuredNativeChatSupport(
     return { supported: false, blocker: 'runtime-capability-unknown' }
   }
   if (!input.hostCapabilities.includes(STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY)) {
+    return { supported: false, blocker: 'runtime-capability' }
+  }
+  if (
+    input.launchOrigin === 'work-item-start' &&
+    !input.hostCapabilities.includes(WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY)
+  ) {
+    // Versões mistas são o estado normal: um host antigo responde
+    // `agent-session.structured.v1` e ainda não tem a rota escopada. Sem isto o cliente
+    // abandona a partida por terminal e é recusado sem nada para onde voltar.
     return { supported: false, blocker: 'runtime-capability' }
   }
   return { supported: true }

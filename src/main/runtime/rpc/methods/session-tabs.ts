@@ -24,8 +24,9 @@ export const SESSION_TAB_METHODS = [
   defineMethod({
     name: 'session.tabs.list',
     params: WorktreeTabSelector,
-    handler: async (params, { runtime, pairedDeviceId, clientKind, clientCapabilities }) => {
-      await restoreStructuredTabsIfSupported({ runtime, clientKind, clientCapabilities })
+    handler: async (params, context) => {
+      const { runtime, pairedDeviceId, clientKind, clientCapabilities } = context
+      await restoreStructuredTabsIfSupported(context)
       return projectSessionTabsForClient(
         await runtime.listMobileSessionTabs(params.worktree, pairedDeviceId),
         clientKind,
@@ -95,16 +96,14 @@ export const SESSION_TAB_METHODS = [
   defineStreamingMethod({
     name: 'session.tabs.subscribe',
     params: WorktreeTabSelector,
-    handler: async (
-      params,
-      { runtime, connectionId, requestId, pairedDeviceId, clientKind, clientCapabilities },
-      emit
-    ) => {
+    handler: async (params, context, emit) => {
+      const { runtime, connectionId, requestId, pairedDeviceId, clientKind, clientCapabilities } =
+        context
       let subscribedWorktree: string | null = null
       let unsubscribe = (): void => {}
       let closed = false
       let initialized = false
-      await restoreStructuredTabsIfSupported({ runtime, clientKind, clientCapabilities })
+      await restoreStructuredTabsIfSupported(context)
       const initial = await runtime.listMobileSessionTabs(params.worktree, pairedDeviceId)
       if (closed) {
         return

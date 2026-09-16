@@ -46,6 +46,84 @@ describe('admission revoked while a session is still open', () => {
     }
   )
 
+  it.each(CLEANUP_METHODS)(
+    'keeps scoped Work Item Start cleanup $method on the authoritative desktop',
+    async ({ method, params, hostCall }) => {
+      hostCalls.getRecord.mockReturnValue({ launchOrigin: 'work-item-start' })
+      const response = await call(
+        method,
+        params,
+        { ...STRUCTURED_CLIENT, clientId: 'desktop-renderer', localDesktopAuthority: true },
+        SETTING_OFF
+      )
+
+      expect(response).toMatchObject({ ok: true })
+      if (hostCall === 'unsubscribe') {
+        expect(response).toMatchObject({ result: { unsubscribed: true } })
+      } else {
+        expect(hostCalls[hostCall]).toHaveBeenCalled()
+      }
+    }
+  )
+
+  it.each(CLEANUP_METHODS)(
+    'refuses scoped Work Item Start cleanup $method from remote and mobile clients',
+    async ({ method, params, hostCall }) => {
+      hostCalls.getRecord.mockReturnValue({ launchOrigin: 'work-item-start' })
+      for (const clientKind of ['runtime', 'mobile'] as const) {
+        const response = await call(
+          method,
+          params,
+          {
+            clientKind,
+            clientCapabilities: [STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY]
+          },
+          SETTING_OFF
+        )
+        expect(response).toMatchObject({
+          ok: false,
+          error: { message: expect.stringContaining('structured_agent_session_unsupported') }
+        })
+      }
+      expect(hostCalls[hostCall]).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each(CLEANUP_METHODS)(
+    'keeps paired Work Item Start cleanup $method scoped to its creating device',
+    async ({ method, params, hostCall }) => {
+      hostCalls.getRecord.mockReturnValue({
+        launchOrigin: 'work-item-start',
+        launchAuthority: { kind: 'paired-device', deviceId: 'device-web' }
+      })
+      const owner = await call(
+        method,
+        params,
+        {
+          ...STRUCTURED_CLIENT,
+          clientId: 'rotated-token',
+          pairedDeviceId: 'device-web'
+        },
+        SETTING_OFF
+      )
+      const otherDevice = await call(
+        method,
+        params,
+        { ...STRUCTURED_CLIENT, pairedDeviceId: 'device-other' },
+        SETTING_OFF
+      )
+
+      expect(owner).toMatchObject({ ok: true })
+      expect(otherDevice).toMatchObject({
+        ok: false,
+        error: { message: expect.stringContaining('structured_agent_session_unsupported') }
+      })
+      if (hostCall !== 'unsubscribe') {
+        expect(hostCalls[hostCall]).toHaveBeenCalledOnce()
+      }
+    }
+  )
+
   it('stops the provider child when closing a chat the setting no longer admits', async () => {
     const response = await call('agentSession.close', { sessionId: SESSION }, STRUCTURED_CLIENT, {
       ...SETTING_OFF
@@ -101,8 +179,18 @@ describe('admission revoked while a session is still open', () => {
     async ({ method, params }) => {
       const response = await call(method, params, STRUCTURED_CLIENT, SETTING_OFF)
 
-      // Asserting the gate's own code, not merely `ok: false`: a params-validation failure would
-      // pass a bare falsy check and hide a gate that had stopped refusing.
+      // Asserting the gate's own code, not merely a falsy check: a params-validation failure
+      // would pass a bare falsy check and hide a gate that had stopped refusing.
+      //
+      // 1.4.201 answers `agentSession.reveal` with a TYPED refusal in the result instead of an
+      // RPC error, deliberately, so a genuine fault is not laundered into "no such chat". The
+      // property under test is the same either way — the session is not revealed — so this
+      // accepts both shapes and still pins the gate's own code.
+      const refusal = (response as { result?: { refusal?: { code?: string } } }).result?.refusal
+      if (refusal) {
+        expect(refusal.code).toContain('structured_agent_session_unsupported')
+        return
+      }
       expect(response).toMatchObject({
         ok: false,
         error: { message: expect.stringContaining('structured_agent_session_unsupported') }

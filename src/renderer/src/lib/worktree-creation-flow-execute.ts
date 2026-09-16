@@ -24,6 +24,11 @@ import {
   type WorktreeCreationStructuredSessionResult
 } from '@/lib/worktree-creation-structured-session'
 import { completeWorktreeCreation } from '@/lib/worktree-creation-completion'
+import {
+  markStructuredWorktreeLaunchUnconfirmed,
+  markStructuredWorktreePromptDeliveryFailed,
+  markStructuredWorktreePromptDeliveryUnconfirmed
+} from '@/lib/worktree-creation-structured-recovery'
 import { ensureWebRuntimeWorktreeTerminalAfterWake } from '@/lib/web-runtime-worktree-terminal-after-wake'
 
 // Why: activePendingCreationId can outlive the terminal route when the user
@@ -299,6 +304,18 @@ export async function executeWorktreeCreation(
       activation = structuredSession.activation
       primaryTabId = structuredSession.primaryTabId
       if (structuredSession.cancelled) {
+        return
+      }
+      if (structuredSession.visibilityUnknown) {
+        markStructuredWorktreeLaunchUnconfirmed(creationId, worktree.id)
+        return
+      }
+      if (structuredSession.promptDeliveryUnknown) {
+        markStructuredWorktreePromptDeliveryUnconfirmed(creationId, worktree.id)
+        return
+      }
+      if (structuredSession.failure === 'prompt-delivery') {
+        markStructuredWorktreePromptDeliveryFailed(creationId, worktree.id)
         return
       }
     }

@@ -1,3 +1,5 @@
+import { workItemStartStrictPreflightBlocks } from '@/lib/work-item-start-precreate-preflight'
+import { structuredWorkItemLaunchUnavailableMessage } from '@/lib/launch-work-item-direct-messages'
 import { toast } from 'sonner'
 import { useAppStore } from '@/store'
 import {
@@ -34,7 +36,11 @@ import type { LaunchWorkItemDirectArgs } from '@/lib/launch-work-item-direct-typ
 import { resolveSourceControlLaunchPlatform } from '@/lib/source-control-launch-platform'
 import { getSettingsForRepoRuntimeOwner } from '@/lib/repo-runtime-owner'
 import { getLocalRepoProjectExecutionRuntimeContext } from '@/lib/local-preflight-context'
-import { beginDirectWorkItemStructuredLaunch } from '@/lib/launch-work-item-direct-agent-routing'
+import {
+  beginDirectWorkItemStructuredLaunch,
+  settleStrictDirectWorkItemDelivery
+} from '@/lib/launch-work-item-direct-agent-routing'
+import type { StructuredAgentSessionProvisionalLaunch } from '@/lib/structured-agent-session-provisional-tab'
 import { prepareDirectWorkItemAgentLaunch } from '@/lib/launch-work-item-direct-route-preparation'
 import {
   planAgentSessionLaunch,
@@ -76,6 +82,10 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
   // matches the owner-routed createWorktree below, not the focused runtime.
   const repoOwnerSettings = getSettingsForRepoRuntimeOwner(store, repoId)
   const promptDelivery = args.promptDelivery ?? 'draft'
+  // Estrito por padrão quando a entrega é `submit-after-ready`: só um opt-in explícito
+  // aceita que um writer de terminal receba o prompt no lugar da sessão estruturada.
+  const structuredSessionRequired =
+    promptDelivery === 'submit-after-ready' && args.allowLegacyTerminalPromptSubmission !== true
   const repoConnectionId = repo.connectionId?.trim() || null
   const githubIdentity =
     item.number !== null && (item.type === 'issue' || item.type === 'pr')
@@ -166,7 +176,24 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
   let draftLaunchedNatively = false
   let plan: AgentSessionLaunchPlan | null = null
   let structuredLaunchCompleted = false
+  let strictLaunch: StructuredAgentSessionProvisionalLaunch | undefined
   const draftContent = await getDirectWorkItemDraftContent(item, repoConnectionId)
+
+  if (
+    structuredSessionRequired &&
+    (await workItemStartStrictPreflightBlocks({
+      agentOverride,
+      draftContent,
+      detectedAgentsPromise,
+      repo,
+      repoConnectionId,
+      repoId,
+      settings
+    }))
+  ) {
+    toast.error(structuredWorkItemLaunchUnavailableMessage())
+    return false
+  }
   let startupPlanFailed = false
   try {
     const result = await store.createWorktree(
@@ -201,6 +228,7 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
 
     const latestStore = useAppStore.getState()
     const launchPreparation = await prepareDirectWorkItemAgentLaunch({
+      structuredSessionRequired,
       worktreeId,
       worktreePath,
       repoId,
@@ -233,6 +261,8 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
     const activationHolder: { value: ReturnType<typeof activateAndRevealWorktree> } = {
       value: false
     }
+    // Strict Start never falls back to a terminal writer, even if the route changed after preflight.
+    const strictRouteLost = structuredSessionRequired && !launchPreparation.structuredLaunch
     const revealWorkspace = (): boolean => {
       activationHolder.value = activateAndRevealWorktree(worktreeId, {
         sidebarRevealBehavior: 'auto',
@@ -240,12 +270,14 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
         defaultTabs: result.defaultTabs,
         ...(launchPreparation.structuredLaunch
           ? { providesInitialSurface: true }
-          : buildDirectWorkItemStartupOpts(
-              effectiveAgent,
-              startupPlan,
-              launchSource,
-              promptDelivery === 'draft' ? draftContent : undefined
-            ))
+          : strictRouteLost
+            ? {}
+            : buildDirectWorkItemStartupOpts(
+                effectiveAgent,
+                startupPlan,
+                launchSource,
+                promptDelivery === 'draft' ? draftContent : undefined
+              ))
       })
       return activationHolder.value !== false
     }
@@ -264,6 +296,16 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
       toast.error(workspaceActivationErrorMessage())
       return false
     }
+    if (strictRouteLost) {
+      toast.error(structuredWorkItemLaunchUnavailableMessage())
+      return false
+    }
+    if (structuredSessionRequired) {
+      if (!structuredResult.launch) {
+        return false
+      }
+      strictLaunch = structuredResult.launch
+    }
     structuredLaunchCompleted = structuredResult.completed
     primaryTabId = structuredResult.completed
       ? structuredResult.primaryTabId
@@ -276,6 +318,14 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
 
   store.setSidebarOpen(true)
 
+  if (strictLaunch) {
+    // Why: callers hang irreversible follow-up work off a `true` here, so a strict Start only
+    // reports started once the host confirmed its prompt.
+    return settleStrictDirectWorkItemDelivery({
+      launch: strictLaunch,
+      hasPrompt: promptDelivery === 'submit-after-ready' && Boolean(draftContent.trim())
+    })
+  }
   if (structuredLaunchCompleted) {
     return true
   }

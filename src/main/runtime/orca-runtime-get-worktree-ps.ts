@@ -1,4 +1,6 @@
 // @ts-nocheck -- mechanically split from OrcaRuntimeService; behavior is covered by AST equivalence and characterization tests.
+import { attachRuntimeWorktreeStructuredAgentRows } from './runtime-worktree-structured-agent-rows'
+import { getStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
 import { collectRuntimeWorktreeAgentSources } from './runtime-worktree-agent-sources'
 import { OrcaRuntimeWithStructuredAgentSessionRecoverTuiOwner } from './orca-runtime-structured-agent-session-recover-tui-owner'
 import { DEFAULT_WORKTREE_PS_LIMIT } from './orca-runtime-postlude'
@@ -107,6 +109,18 @@ export class OrcaRuntimeWithGetWorktreePs extends OrcaRuntimeWithStructuredAgent
         hookSnapshots: this.getAgentStatusSnapshotFn?.() ?? []
       }),
       orchestrationByPaneKey: this.agentOrchestrationProjection.buildByPaneKey(),
+      getSummary: (summaryMap, pathIndex, missingIds, worktreeId) =>
+        this.getSummaryForRuntimeWorktreeId(summaryMap, pathIndex, missingIds, worktreeId)
+    })
+
+    // As linhas estruturadas vêm do host, não do store de PTY: uma sessão sem terminal
+    // não tem linha nenhuma nas fontes acima, e é justamente essa a execução que o Core
+    // precisa enxergar para adotá-la.
+    attachRuntimeWorktreeStructuredAgentRows({
+      summaries,
+      pathIndex: runtimeWorktreeSummaryPathIndex,
+      missingWorktreeIds: missingRuntimeWorktreeIds,
+      statuses: getStructuredAgentSessionHost()?.listStatusSummaries?.() ?? [],
       getSummary: (summaryMap, pathIndex, missingIds, worktreeId) =>
         this.getSummaryForRuntimeWorktreeId(summaryMap, pathIndex, missingIds, worktreeId)
     })

@@ -208,13 +208,28 @@ export function hostStub(): StructuredAgentSessionHost {
     subscribe: vi.fn(() => () => undefined),
     // A real feed, so the snapshot this method hands back is a genuine projection rather
     // than a shape the stub restated.
-    subscribeStatus: vi.fn((subscriber: StructuredAgentSessionStatusSubscriber) =>
-      statusFeed().subscribe(subscriber)
+    getRecord: vi.fn(() => null),
+    listRecords: vi.fn(() => []),
+    subscribeStatus: vi.fn(
+      (
+        subscriber: StructuredAgentSessionStatusSubscriber,
+        includeSession?: (sessionId: string) => boolean
+      ) => statusFeed().subscribe(subscriber, includeSession)
     ),
     unsubscribe: vi.fn(),
     release: vi.fn()
   })
-  return hostCalls as unknown as StructuredAgentSessionHost
+  // O gate escopado do Work Item Start lê o registro pelo store do host; sem expor
+  // `deps.store` a fixture não consegue exercer nem a admissão nem a recusa.
+  return {
+    ...hostCalls,
+    deps: {
+      store: {
+        getRecord: hostCalls.getRecord,
+        listRecords: hostCalls.listRecords
+      }
+    }
+  } as unknown as StructuredAgentSessionHost
 }
 
 export function dispatcher(runtimeOverrides: Record<string, unknown> = {}): RpcDispatcher {
@@ -267,6 +282,10 @@ export async function call(
     clientId?: string
     clientKind?: 'mobile' | 'runtime'
     clientCapabilities?: string[]
+    // O gate do Work Item Start decide por estes dois; sem eles a fixture não consegue
+    // exercer nem a autoridade local nem a de device pareado.
+    localDesktopAuthority?: true
+    pairedDeviceId?: string
     signal?: AbortSignal
   },
   runtimeOverrides: Record<string, unknown> = {}

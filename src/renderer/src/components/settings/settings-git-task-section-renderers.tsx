@@ -59,7 +59,14 @@ export function renderTasksSettingsSection(context: SettingsRenderContext): Reac
       searchEntries={navigation.getSectionSearchEntries('tasks')}
     >
       {view.isSectionMounted('tasks') ? (
-        <TasksPane settings={model.settings} updateSettings={model.updateSettings} />
+        <TasksPane
+          settings={model.settings}
+          updateSettings={model.updateSettings}
+          // The host owns this one and can refuse it. `updateSettings` logs and returns, so a
+          // refusal would look identical to a save — and a client that believes a value the
+          // host rejected drops the terminal startup for a session the host then refuses.
+          updateHostOwnedSettings={model.updateSettingsOrThrow}
+        />
       ) : null}
     </SettingsSection>
   )

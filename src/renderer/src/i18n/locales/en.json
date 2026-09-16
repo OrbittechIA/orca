@@ -701,7 +701,12 @@
               "8bc45efdbc": "Failed to resolve PR head.",
               "agent": {
                 "ceeeb509b5": "Agent took too long to start. The workspace is ready — paste the {{value0}} when the agent is idle."
-              }
+              },
+              "structuredUnavailable": "Submit after ready requires a local structured Codex or Claude session without custom launch arguments. The workspace was created, but no agent or prompt was started.",
+              "structuredPromptDeliveryFailed": "The structured agent session did not accept the work item prompt. Orca did not retry or start another writer."
+            },
+            "composer": {
+              "structuredUnavailable": "Submit after ready requires a local structured Codex or Claude session without custom launch arguments. No workspace, terminal, or prompt was started."
             }
           }
         }
@@ -853,6 +858,10 @@
             "structured": {
               "launch": {
                 "unknown": "Could not confirm whether {{value0}} chat opened. Retry to check again."
+              },
+              "prompt": {
+                "unknown": "Could not confirm whether the work item prompt was delivered. Retry to reconcile the same message.",
+                "failed": "The structured agent session did not accept the work item prompt. Orca did not retry or start another writer."
               }
             }
           }
@@ -8588,7 +8597,12 @@
           "integrationsHint": "Credentials for all providers also live under",
           "integrationsLink": "Integrations",
           "skillHint": ". After Linear is connected, usage examples stay under Settings → Linear.",
-          "incompleteBannerBodyWithLinear": "Hide providers you do not use, or expand a card and finish its steps. For Linear: API access, the agent skill, and Show in Tasks."
+          "incompleteBannerBodyWithLinear": "Hide providers you do not use, or expand a card and finish its steps. For Linear: API access, the agent skill, and Show in Tasks.",
+          "workItemStartSaveFailed": "Could not save this setting. The host decides how a work item Start begins, so it keeps the value it already had.",
+          "workItemStartBehavior": "Work item Start behavior",
+          "workItemStartBehaviorDescription": "Choose whether Start leaves the work item prompt editable or submits it after the agent is ready.",
+          "workItemStartDraft": "Draft",
+          "workItemStartSubmit": "Submit after ready"
         },
         "TerminalAppearanceSection": {
           "a14a427ae4": "Thickness of the pane divider line.",
@@ -10389,7 +10403,16 @@
             "setup": "setup",
             "apiKey": "api key",
             "skill": "skill",
-            "connect": "connect"
+            "connect": "connect",
+            "start": "start",
+            "prompt": "prompt",
+            "draft": "draft",
+            "submit": "submit",
+            "ready": "ready",
+            "issue": "issue",
+            "workItem": "work item",
+            "workItemStartBehavior": "Work item Start behavior",
+            "workItemStartBehaviorDescription": "Choose whether Start leaves the work item prompt editable or submits it after the agent is ready."
           }
         },
         "terminal": {

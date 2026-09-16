@@ -66,6 +66,7 @@ describe('structured launch cancellation retirement', () => {
         worktreeId: WORKTREE_ID,
         sessionId: SESSION_ID,
         agent: 'codex',
+        target: { kind: 'local' },
         params: {
           envelope: {
             sessionId: SESSION_ID,

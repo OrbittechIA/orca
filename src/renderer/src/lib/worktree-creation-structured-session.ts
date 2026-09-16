@@ -9,6 +9,11 @@ import { beginStructuredAgentSessionProvisionalLaunch } from '@/lib/structured-a
 export type WorktreeCreationStructuredSessionResult = {
   accepted: boolean
   cancelled: boolean
+  visibilityUnknown?: boolean
+  /** Strict delivery without confirmation: reconcile the SAME message, never send another. */
+  promptDeliveryUnknown?: boolean
+  /** Definitive delivery refusal: the workspace stays, the retry does not. */
+  failure?: 'prompt-delivery'
   activation: ActivateAndRevealResult | false
   primaryTabId: string | null
 }
@@ -47,15 +52,17 @@ export async function launchStructuredWorktreeSession(
     prompt: args.request.launchDraftPrompt ?? args.request.quickPrompt,
     ...(args.request.promptDelivery ? { promptDelivery: args.request.promptDelivery } : {})
   })
+  const strict = args.request.workItemStartPromptDelivery === 'submit-after-ready'
   const abandoned = new AbortController()
   let ownershipTransferred = false
+  let launch: ReturnType<typeof beginStructuredAgentSessionProvisionalLaunch> = null
   const unsubscribe = useAppStore.subscribe((state) => {
     if (!ownershipTransferred && !state.pendingWorktreeCreations[args.creationId]) {
       abandoned.abort()
     }
   })
   try {
-    const launch = beginStructuredAgentSessionProvisionalLaunch({
+    launch = beginStructuredAgentSessionProvisionalLaunch({
       plan,
       hooks: { signal: abandoned.signal },
       target: { worktreeId: args.worktreeId },
@@ -96,5 +103,27 @@ export async function launchStructuredWorktreeSession(
   } finally {
     unsubscribe()
   }
-  return { ...settled, activation, primaryTabId }
+  if (!strict || !launch) {
+    return { ...settled, activation, primaryTabId }
+  }
+  // Strict delivery is proof: without confirmation the create does not complete, and uncertainty
+  // (reconcilable) is never treated as a refusal (definitive).
+  const settlement = await launch.settlement
+  if (settlement.kind === 'cancelled') {
+    return { ...settled, cancelled: true, activation, primaryTabId }
+  }
+  if (settlement.kind === 'visibility-unknown') {
+    return { ...settled, visibilityUnknown: true, activation, primaryTabId }
+  }
+  if (settlement.kind === 'failed') {
+    // Why: a failed launch has always reported as accepted here; the launch layer toasts it.
+    return { ...settled, activation, primaryTabId }
+  }
+  const delivery = await settlement.promptDeliveryResult
+  if (!delivery || delivery.delivered) {
+    return { ...settled, activation, primaryTabId }
+  }
+  return delivery.deliveryUnknown === true
+    ? { ...settled, promptDeliveryUnknown: true, activation, primaryTabId }
+    : { ...settled, failure: 'prompt-delivery' as const, activation, primaryTabId }
 }

@@ -194,7 +194,8 @@ function structuredAgentLaunchState(
         group: existing.callers,
         launchResult: existing.promise,
         options: callerOptions,
-        stagedEntry: stagedPrompt
+        stagedEntry: stagedPrompt,
+        target: existing.intent.target
       })
     }
   }
@@ -202,9 +203,15 @@ function structuredAgentLaunchState(
   // Only pass the third argument when adopting: every ordinary launch keeps the two-argument call
   // it has always made, so this change adds no trailing `undefined` for call-site assertions to
   // absorb.
-  const intent = options.resumeFrom
-    ? createStructuredAgentSessionLaunchIntent(worktreeId, agent, options.resumeFrom)
-    : createStructuredAgentSessionLaunchIntent(worktreeId, agent)
+  const intent =
+    options.resumeFrom || options.launchOrigin
+      ? createStructuredAgentSessionLaunchIntent(
+          worktreeId,
+          agent,
+          options.resumeFrom,
+          options.launchOrigin
+        )
+      : createStructuredAgentSessionLaunchIntent(worktreeId, agent)
   const text = outboxPromptText(options)
   const stagedPrompt = text
     ? enqueueStructuredAgentSessionLaunchPrompt(intent.sessionId, text)
@@ -234,7 +241,8 @@ function structuredAgentLaunchState(
     group: state.callers,
     launchResult: state.promise,
     options,
-    stagedEntry: stagedPrompt
+    stagedEntry: stagedPrompt,
+    target: state.intent.target
   })
   setStructuredLaunchState(state)
   notifyStructuredLaunchListeners()

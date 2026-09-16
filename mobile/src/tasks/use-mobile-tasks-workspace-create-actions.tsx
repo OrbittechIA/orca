@@ -24,6 +24,11 @@ import {
   worktreeMrBaseResolve,
   worktreePrBaseResolve
 } from './mobile-workspace-create-operations'
+import {
+  startWorkItemStructuredSession,
+  workItemStartAgentSupportsStructuredSession,
+  workItemStartShouldUseStructuredSession
+} from './work-item-start-structured-session'
 
 export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateModel) {
   const {
@@ -103,6 +108,27 @@ export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateMod
           setWorkspaceAgent(selectedAgent)
           setWorkspaceAgentOverridden(false)
           throw new Error('Selected agent is disabled. Choose an enabled agent before creating.')
+        }
+        // A `submit-after-ready` host starts the agent as a structured session, which is the only
+        // surface that carries an authoritative identity into `worktree.ps`.
+        //
+        // The host decides whether this pairing may take that route at all: the capability says
+        // the build has it, the device scope says this pairing is admitted. Against a host that
+        // says no to either, the terminal startup stays exactly as it is today — dropping it
+        // would leave an agentless workspace on every Start.
+        const structuredStart =
+          selectedAgent !== 'blank' &&
+          (await workItemStartShouldUseStructuredSession({
+            client,
+            settings: latestRuntimeTaskSettings,
+            agent: selectedAgent
+          }))
+        // Only once the host admits the route does an agent without a structured session become
+        // a refusal; otherwise it is simply a terminal Start, as before.
+        if (structuredStart && !workItemStartAgentSupportsStructuredSession(selectedAgent)) {
+          throw new Error(
+            `Work Item Start is set to submit after ready, which needs a structured agent session. ${selectedAgent} does not have one — choose Claude or Codex, or set Work Item Start back to draft.`
+          )
         }
         const setupResolution = await resolveCreateSetupDecision(targetRepo, setupOverride)
         const comment = noteOverride?.trim()
@@ -200,7 +226,8 @@ export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateMod
             branchNameOverride,
             sparseCheckout: sparseCheckoutOverride,
             hostedStartPoint: prStartPoint,
-            nameIsAutoManaged
+            nameIsAutoManaged,
+            structuredStart
           })
         } else if (item.provider === 'gitlab') {
           const source = item.source
@@ -241,7 +268,8 @@ export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateMod
             branchNameOverride,
             sparseCheckout: sparseCheckoutOverride,
             hostedStartPoint: mrStartPoint,
-            nameIsAutoManaged
+            nameIsAutoManaged,
+            structuredStart
           })
         } else {
           params = buildTaskWorkspaceCreateParams({
@@ -254,7 +282,8 @@ export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateMod
             baseBranch: baseBranchOverride,
             branchNameOverride,
             sparseCheckout: sparseCheckoutOverride,
-            nameIsAutoManaged
+            nameIsAutoManaged,
+            structuredStart
           })
         }
         const createReply = await worktreeCreateRun.request(client, params, {
@@ -264,6 +293,26 @@ export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateMod
         setActionItem(null)
         setWorkspaceCreateDraft(null)
         setSetupPrompt(null)
+        // The workspace already exists, so a failed session start is reported on the workspace
+        // rather than thrown away — but nothing opens a terminal in the session's place.
+        const structuredOutcome = structuredStart
+          ? await startWorkItemStructuredSession({
+              client,
+              worktreeId: result.worktree.id,
+              agent: selectedAgent,
+              prompt: item.source.url
+            })
+          : null
+        // Both are real: a setup-script failure and a failed session start are different
+        // facts, and dropping either leaves the user with half the story.
+        const warning = [
+          structuredOutcome && structuredOutcome.kind !== 'started'
+            ? structuredOutcome.message
+            : undefined,
+          result.warning
+        ]
+          .filter(Boolean)
+          .join(' ')
         // The shared builder, not a template: it encodes the host id, which this did not, and a
         // host id carrying `/`, `#` or whitespace reaches the wire as an href the bridge refuses.
         router.push(
@@ -271,7 +320,7 @@ export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateMod
             hostId,
             result.worktree.id,
             result.worktree.displayName ?? item.title,
-            result.warning
+            warning || undefined
           )
         )
       } catch (err) {

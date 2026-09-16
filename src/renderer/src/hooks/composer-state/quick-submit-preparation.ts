@@ -1,3 +1,6 @@
+import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
+import { prepareQuickWorkItemStartRoute } from '@/hooks/composer-state/quick-work-item-start-route'
+import { structuredWorkItemComposerPreflightUnavailableMessage } from '@/lib/launch-work-item-direct-messages'
 import type { QuickSubmitPreparationInput } from './quick-submit-input-contract'
 
 import { useCallback } from 'react'
@@ -247,7 +250,28 @@ export function useQuickSubmitPreparation(input: QuickSubmitPreparationInput) {
 
       const trimmedNote = note.trim()
 
+      // A entrega do Work Item Start e a recusa estrita são decididas ANTES de existir
+      // workspace: um bloqueio resolvido depois deixaria uma workspace sem writer nenhum.
+      const routeResolution = await prepareQuickWorkItemStartRoute({
+        agent: source.agent,
+        hasLinkedWorkItem: Boolean(source.submitLinkedWorkItem),
+        settings,
+        executionHostId: selectedRepoExecutionHostId ?? LOCAL_EXECUTION_HOST_ID,
+        repoId,
+        workspaceKind: selectedRepoIsGit ? 'git-worktree' : 'folder',
+        hasDraftPrompt: settings?.workItemStartPromptDelivery !== 'submit-after-ready',
+        launchText: trimmedNote,
+        nativeChatTranscriptIsLocalReadable: selectedRepo?.connectionId == null,
+        // A rota comum pertence ao planner em quick-creation-execution; aqui só a
+        // decisão estrita escapa, e ela nunca lê este valor.
+        ordinaryRoute: 'terminal-tui'
+      })
+      if (!routeResolution.ok) {
+        throw new Error(structuredWorkItemComposerPreflightUnavailableMessage())
+      }
+
       return Object.assign(source, {
+        workItemStartPromptDelivery: routeResolution.workItemPromptDelivery,
         effectiveSetupDecision,
         issueCommand,
         linkedLinearIssue,

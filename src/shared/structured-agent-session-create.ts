@@ -18,11 +18,48 @@ export type StructuredAgentSessionResumeSource = {
   providerSessionId: string
 }
 
+export type StructuredAgentSessionLaunchOrigin = 'work-item-start'
+
+/** Host-derived authority retained with a scoped Work Item Start session. */
+export type StructuredAgentSessionLaunchAuthority =
+  | { kind: 'local-desktop' }
+  | { kind: 'paired-device'; deviceId: string }
+
+export function isStructuredAgentSessionLaunchAuthority(
+  value: unknown
+): value is StructuredAgentSessionLaunchAuthority {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+  const authority = value as Partial<StructuredAgentSessionLaunchAuthority>
+  return (
+    authority.kind === 'local-desktop' ||
+    (authority.kind === 'paired-device' &&
+      typeof authority.deviceId === 'string' &&
+      authority.deviceId.length > 0 &&
+      authority.deviceId.length <= 512)
+  )
+}
+
+export function structuredAgentSessionLaunchAuthoritiesEqual(
+  left: StructuredAgentSessionLaunchAuthority | undefined,
+  right: StructuredAgentSessionLaunchAuthority | undefined
+): boolean {
+  if (left?.kind !== right?.kind) {
+    return false
+  }
+  return (
+    left?.kind !== 'paired-device' ||
+    (right?.kind === 'paired-device' && left.deviceId === right.deviceId)
+  )
+}
+
 export type StructuredAgentSessionCreateParams = {
   envelope: AgentSessionMutationEnvelope
   worktree: string
   agent: AgentSessionHandleProvider
   resumeFrom?: StructuredAgentSessionResumeSource
+  launchOrigin?: StructuredAgentSessionLaunchOrigin
 }
 
 /** Provider-prefixed so a session id names its lane on sight, and underscore-only
@@ -44,13 +81,15 @@ export function structuredAgentSessionCreateParams(args: {
   worktree: string
   agent: AgentSessionHandleProvider
   resumeFrom?: StructuredAgentSessionResumeSource
+  launchOrigin?: StructuredAgentSessionLaunchOrigin
   randomUuid: () => string
   now?: number
 }): StructuredAgentSessionCreateParams {
   const fields = {
     worktree: args.worktree,
     agent: args.agent,
-    ...(args.resumeFrom ? { resumeFrom: args.resumeFrom } : {})
+    ...(args.resumeFrom ? { resumeFrom: args.resumeFrom } : {}),
+    ...(args.launchOrigin ? { launchOrigin: args.launchOrigin } : {})
   }
   return {
     envelope: {

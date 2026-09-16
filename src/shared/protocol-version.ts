@@ -169,6 +169,13 @@ export const AGENT_SESSION_PENDING_SEND_RESULT_RUNTIME_CAPABILITY =
 // journal and lifecycle surfaces independently from Codex support.
 export const CLAUDE_STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY =
   'agent-session.structured.claude.v1' as const
+
+/** The host admits a scoped `launchOrigin: 'work-item-start'` create from a paired runtime caller.
+ *  Separate from the structured capability above: that one says structured sessions exist at all,
+ *  this one says the Work Item Start route is admitted without the global experimental setting. A
+ *  client must not drop the terminal startup from `worktree.create` against a host lacking it. */
+export const WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY =
+  'agent-session.work-item-start.v1' as const
 // Why: paired structured clients explicitly hold every visible session surface, allowing the host
 // to stop provider children after the last surface closes without tying lifetime to a transport.
 export const STRUCTURED_AGENT_SESSION_HOLD_RUNTIME_CAPABILITY =
@@ -289,7 +296,12 @@ export const ELECTRON_REMOTE_RUNTIME_CLIENT_CAPABILITIES = [
   BROWSER_CLIENT_HOST_RUNTIME_CAPABILITY,
   BROWSER_CLIENT_PAGE_METADATA_RUNTIME_CAPABILITY,
   // Why: only the renderer runs the retirement-proof ledger; CLI and mobile must keep full lists.
-  SESSION_TABS_RETIREMENT_PROOF_DELTA_RUNTIME_CAPABILITY
+  SESSION_TABS_RETIREMENT_PROOF_DELTA_RUNTIME_CAPABILITY,
+  // Why: the desktop renderer IS the structured native chat client. `requireStructuredCapability`
+  // refuses every `agentSession.*` from a `runtime`-scoped client that has not said so, so without
+  // these a paired Desktop Work Item Start is refusable by construction.
+  STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
+  CLAUDE_STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY
 ] as const
 
 export const ANTIGRAVITY_CONFIGURED_MODEL_RUNTIME_CAPABILITY =
@@ -348,6 +360,7 @@ export const RUNTIME_CAPABILITIES = [
   AGENT_SESSION_HOST_AUTHORITY_RUNTIME_CAPABILITY,
   AGENT_SESSION_OMP_RESUME_PATH_RUNTIME_CAPABILITY,
   AGENT_SESSION_KEYBOARD_RUNTIME_CAPABILITY,
+  WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY,
   STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
   AGENT_SESSION_PENDING_SEND_RESULT_RUNTIME_CAPABILITY,
   STRUCTURED_AGENT_SESSION_HOLD_RUNTIME_CAPABILITY,

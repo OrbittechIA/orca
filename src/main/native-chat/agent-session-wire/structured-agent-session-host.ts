@@ -333,8 +333,14 @@ export class StructuredAgentSessionHost {
   unsubscribe = (sessionId: string, id: string): void => this.subscribers.close(sessionId, id)
 
   /** Every session's projected status for session lists; unlike `subscribe`, retains nothing. */
-  subscribeStatus = (subscriber: StructuredAgentSessionStatusSubscriber): (() => void) =>
-    this.clientDelivery.subscribeStatus(subscriber)
+  subscribeStatus = (
+    subscriber: StructuredAgentSessionStatusSubscriber,
+    includeSession?: (sessionId: string) => boolean
+  ): (() => void) => this.clientDelivery.subscribeStatus(subscriber, includeSession)
+
+  /** Todo o status projetado, para listas de sessão. É a leitura que o `worktree ps`
+   *  faz para enxergar execuções estruturadas, que não têm linha no store de PTY. */
+  listStatusSummaries = () => this.clientDelivery.listStatusSummaries()
 
   private requireSession(sessionId: string): StructuredAgentSessionHostSession {
     const session = this.sessions.get(sessionId)

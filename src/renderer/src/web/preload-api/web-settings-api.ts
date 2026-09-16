@@ -4,6 +4,7 @@ import {
   normalizeComputerAwakeMode
 } from '../../../../shared/computer-awake-mode'
 import { normalizeTerminalCursorStyleDefault } from '../../../../shared/terminal-cursor-style-settings'
+import { HOST_ENFORCED_SETTING_KEYS } from './web-runtime-settings-crossing'
 import { mergeSettings } from './web-preference-normalization'
 import {
   getRuntimeBackedStoredSettings,
@@ -78,13 +79,28 @@ export function createWebSettingsApi(): Partial<PreloadApi> {
         if (runtimeEnvironment) {
           delete localUpdates.worktreeVisibilityDefaults
         }
-        const next = mergeSettings(getStoredSettings(), localUpdates, {
+        const previous = getStoredSettings()
+        const next = mergeSettings(previous, localUpdates, {
           preserveAutoRenameBranchFromWorkUpdate: 'autoRenameBranchFromWork' in sanitizedUpdates
         })
         writeStoredSettings(next)
-        return settingsForActiveVisibilityOwner(
-          await syncRuntimeBackedSettings(sanitizedUpdates, next)
-        )
+        try {
+          return settingsForActiveVisibilityOwner(
+            await syncRuntimeBackedSettings(sanitizedUpdates, next)
+          )
+        } catch (error) {
+          // The optimistic write has to come back out — but only for the settings the HOST
+          // owns. Leaving the local copy ahead of the host on one of those is the divergence
+          // that makes a Work Item Start drop its terminal startup for a session the host
+          // then refuses. Local-only fields in the same update were never the host's to
+          // accept, so rolling those back too would discard a change nothing rejected.
+          const restored = { ...next }
+          for (const key of HOST_ENFORCED_SETTING_KEYS) {
+            restored[key] = previous[key]
+          }
+          writeStoredSettings(restored)
+          throw error
+        }
       },
       setActiveRuntimeEnvironmentPreference: async ({ environmentId }) => {
         const requestedEnvironmentId = environmentId?.trim() || null

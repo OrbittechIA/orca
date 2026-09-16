@@ -22,6 +22,8 @@ import {
 import type { StructuredAgentLaunchOptions } from '@/lib/structured-agent-session-launch'
 
 export type AgentSessionLaunchRequest = AgentLaunchRouteArgs & {
+  /** Declara o create escopado do Work Item Start ao resolver a rota. */
+  launchOrigin?: 'work-item-start'
   resumeFrom?: StructuredAgentSessionResumeSource
   onPromptDelivered?: () => void
 }
@@ -32,6 +34,8 @@ export type AgentSessionLaunchRequest = AgentLaunchRouteArgs & {
  * (or a retry within the same session) re-enters here without re-resolving.
  */
 export type AgentSessionLaunchVerdict = {
+  /** Carregado no veredito para que o settle envie o create escopado, não um genérico. */
+  launchOrigin?: 'work-item-start'
   route: AgentLaunchRoute
   agent: TuiAgent
   worktreeId?: string
@@ -70,7 +74,8 @@ function structuredLaunchOptions(verdict: AgentSessionLaunchVerdict): Structured
     ...(verdict.prompt !== undefined ? { prompt: verdict.prompt } : {}),
     ...(verdict.promptDelivery ? { promptDelivery: verdict.promptDelivery } : {}),
     ...(verdict.resumeFrom ? { resumeFrom: verdict.resumeFrom } : {}),
-    ...(verdict.onPromptDelivered ? { onPromptDelivered: verdict.onPromptDelivered } : {})
+    ...(verdict.onPromptDelivered ? { onPromptDelivered: verdict.onPromptDelivered } : {}),
+    ...(verdict.launchOrigin ? { launchOrigin: verdict.launchOrigin } : {})
   }
 }
 
@@ -129,12 +134,16 @@ export function planAgentSessionLaunch(
   request: AgentSessionLaunchRequest
 ): AgentSessionLaunchPlan {
   return adoptAgentSessionLaunchVerdict({
-    route: resolveAgentLaunchRoute(buildAgentLaunchRouteInput(store, request)),
+    route: resolveAgentLaunchRoute({
+      ...buildAgentLaunchRouteInput(store, request),
+      ...(request.launchOrigin ? { launchOrigin: request.launchOrigin } : {})
+    }),
     agent: request.agent,
     ...(request.workspace.worktreeId ? { worktreeId: request.workspace.worktreeId } : {}),
     ...(request.prompt !== undefined ? { prompt: request.prompt } : {}),
     ...(request.promptDelivery ? { promptDelivery: request.promptDelivery } : {}),
     ...(request.resumeFrom ? { resumeFrom: request.resumeFrom } : {}),
-    ...(request.onPromptDelivered ? { onPromptDelivered: request.onPromptDelivered } : {})
+    ...(request.onPromptDelivered ? { onPromptDelivered: request.onPromptDelivered } : {}),
+    ...(request.launchOrigin ? { launchOrigin: request.launchOrigin } : {})
   })
 }

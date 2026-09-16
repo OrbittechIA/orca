@@ -1,3 +1,5 @@
+import type { RuntimeClientTarget } from '@/runtime/runtime-client-target'
+import { agentSessionRefusalOperationState } from '../../../shared/agent-session-refusal-retry'
 import type {
   AgentSessionMutationResult,
   AgentSessionSendResult
@@ -10,6 +12,7 @@ import {
 import { createStructuredAgentSessionOperationId } from '../../../shared/structured-agent-session-mutation'
 import {
   mutateStructuredAgentSessionLaunchPrompt,
+  readOutbox,
   type StructuredAgentSessionLaunchPromptMutation
 } from '@/components/native-chat/structured-agent-session-outbox-storage'
 import { callStructuredAgentSession } from '@/runtime/structured-agent-session-client'
@@ -17,6 +20,8 @@ import { callStructuredAgentSession } from '@/runtime/structured-agent-session-c
 export type StructuredPromptDeliveryResult = {
   delivered: boolean
   failureNotified: boolean
+  /** O host aceitou o envio mas não confirmou: incerteza, nunca recusa. */
+  deliveryUnknown?: boolean
 }
 
 export type StructuredLaunchPromptOptions = {
@@ -88,8 +93,9 @@ function mutateEntry(
 
 async function dispatchStructuredLaunchPrompt(
   entry: StructuredAgentSessionOutboxEntry,
-  receipt: LaunchReceipt
-): Promise<boolean> {
+  receipt: LaunchReceipt,
+  target: RuntimeClientTarget
+): Promise<{ delivered: boolean; unknown: boolean }> {
   if (
     !mutateEntry(entry, (current) => ({
       ...current,
@@ -97,16 +103,12 @@ async function dispatchStructuredLaunchPrompt(
       lastAttemptAt: Date.now()
     }))
   ) {
-    return false
+    return { delivered: false, unknown: false }
   }
   try {
     const result = await callStructuredAgentSession<
       AgentSessionMutationResult<AgentSessionSendResult>
-    >(
-      { kind: 'local' },
-      'agentSession.send',
-      structuredAgentSessionSendRequest(entry, receipt.fence)
-    )
+    >(target, 'agentSession.send', structuredAgentSessionSendRequest(entry, receipt.fence))
     if (!result.ok) {
       mutateEntry(entry, (current) =>
         requeueStructuredAgentSessionSendRefusal(
@@ -116,7 +118,12 @@ async function dispatchStructuredLaunchPrompt(
           entry.lastAttemptAt !== null
         )
       )
-      return false
+      // Uma recusa cujo desfecho o host não conhece é incerteza, não negativa.
+      return {
+        delivered: false,
+        unknown:
+          agentSessionRefusalOperationState('agentSession.send', result.refusal.code) === 'unknown'
+      }
     }
     const dispatchState = result.value.submission.dispatchState
     mutateEntry(entry, (current) =>
@@ -132,10 +139,13 @@ async function dispatchStructuredLaunchPrompt(
                   : 'queued'
           }
     )
-    return dispatchState === 'accepted' || dispatchState === 'pending'
+    return {
+      delivered: dispatchState === 'accepted' || dispatchState === 'pending',
+      unknown: dispatchState === 'unknown'
+    }
   } catch {
     mutateEntry(entry, (current) => ({ ...current, state: 'unconfirmed' }))
-    return false
+    return { delivered: false, unknown: true }
   }
 }
 
@@ -143,6 +153,7 @@ export function settleStructuredAgentLaunchPrompt(args: {
   launchResult: Promise<LaunchReceipt>
   options: StructuredLaunchPromptOptions
   stagedEntry: StructuredAgentSessionOutboxEntry | null
+  target: RuntimeClientTarget
 }): Promise<StructuredPromptDeliveryResult> | undefined {
   // Why: a draft has no delivery event — the composer adopts it and the user sends it — so
   // `onPromptDelivered` never fires and no result is reported.
@@ -154,16 +165,28 @@ export function settleStructuredAgentLaunchPrompt(args: {
       return { delivered: false, failureNotified: true }
     }
     const entry = args.stagedEntry
+    let unknown = false
     const dispatch = shareStructuredAgentLaunchPromptDispatch(
       entry.sessionId,
       entry.clientMessageId,
       receipt.fence,
-      () => dispatchStructuredLaunchPrompt(entry, receipt)
+      async () => {
+        const outcome = await dispatchStructuredLaunchPrompt(entry, receipt, args.target)
+        unknown = outcome.unknown
+        return outcome.delivered
+      }
     )
     const delivered = await dispatch.promise
+    // Why: when the mounted outbox ran the shared send, its disposition left the entry unconfirmed.
+    if (!delivered && !dispatch.started) {
+      unknown = readOutbox(entry.sessionId, { recoverDispatching: false }).some(
+        (current) =>
+          current.clientMessageId === entry.clientMessageId && current.state === 'unconfirmed'
+      )
+    }
     if (delivered) {
       args.options.onPromptDelivered?.()
     }
-    return { delivered, failureNotified: false }
+    return { delivered, failureNotified: false, ...(unknown ? { deliveryUnknown: true } : {}) }
   })
 }
