@@ -349,6 +349,41 @@ describe('launchStructuredWorktreeSession', () => {
       expect(mocks.updateWorktreeMeta).not.toHaveBeenCalled()
     })
 
+    it('never reads missing delivery evidence as success: no delivery state is durable unknown', async () => {
+      // Reviewer counterexample: a launch that resolves with a session but carries NO prompt
+      // delivery state at all. Strict mode must not complete the creation on that silence.
+      mocks.startStructuredAgentLaunch.mockReturnValue({
+        sessionId: 'session-1',
+        recovery: RECOVERY,
+        launchResult: Promise.resolve({ sessionId: 'session-1', fence: 1 }),
+        isVisibilityUnknown: () => false,
+        releaseCallerAfterUnknownOutcome: vi.fn(),
+        claimDefinitiveRefusalFallback: vi.fn(() => Promise.resolve(false))
+      })
+      const result = await launchStructuredWorktreeSession({
+        creationId: 'creation-1',
+        request: strictRequest,
+        agentLaunchRoute: 'structured-native-chat',
+        worktreeId: 'worktree-1',
+        shouldActivateOnCompletion: true,
+        fallbackStartupOpt: undefined,
+        activation: false,
+        primaryTabId: null
+      })
+      expect(result.promptDeliveryUnknown === true || result.failure !== undefined).toBe(true)
+      expect(result).toMatchObject({ promptDeliveryUnknown: true, recovery: RECOVERY })
+      // One launch, no fallback: nothing mints a second session or a terminal. The only
+      // activation is the structured chat's own (`providesInitialSurface`), never a startup terminal.
+      expect(mocks.startStructuredAgentLaunch).toHaveBeenCalledTimes(1)
+      expect(mocks.activateAndRevealWorktree).toHaveBeenCalledTimes(1)
+      expect(mocks.activateAndRevealWorktree).toHaveBeenCalledWith('worktree-1', {
+        providesInitialSurface: true
+      })
+      expect(mocks.ensureWorktreeHasInitialTerminal).not.toHaveBeenCalled()
+      expect(mocks.ensureWebRuntimeWorktreeTerminalAfterWake).not.toHaveBeenCalled()
+      expect(mocks.preflightAgentTrust).not.toHaveBeenCalled()
+    })
+
     it('reports an unconfirmed delivery with the intent and operation a retry must reuse', async () => {
       mocks.startStructuredAgentLaunch.mockReturnValue({
         sessionId: 'session-1',
