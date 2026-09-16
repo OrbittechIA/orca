@@ -12,8 +12,14 @@ import path from 'node:path'
  */
 export const WORK_ITEM_START_CAPABILITY = 'agent-session.work-item-start.v1'
 
-/** A baseline vinculante do owner: Desktop e servidor sobem juntos, ambos em 1.4.201. */
-export const WORK_ITEM_START_E2E_BASELINE_VERSION = '1.4.201'
+/**
+ * A baseline vinculante do owner: Desktop e servidor sobem juntos, ambos em 1.4.203.
+ *
+ * Fixa aqui, e não derivada do manifest: o manifest diz o que foi EMPACOTADO, esta constante
+ * diz o que o owner CERTIFICA. Um manifest 1.4.201 casado com processos 1.4.201 é um par
+ * coerente e ainda assim fora da baseline — e é o validador que precisa recusá-lo.
+ */
+export const WORK_ITEM_START_E2E_BASELINE_VERSION = '1.4.203'
 
 /** O que cada lado declara de si mesmo. `provenance` nomeia a superfície que o declarou. */
 export type WorkItemStartE2eSide = {
@@ -172,7 +178,7 @@ function sideDefects(label: string, side: WorkItemStartE2eSide): string[] {
 }
 
 /**
- * Um E2E só conta como positivo quando os DOIS lados são 1.4.201, o cliente é o Desktop
+ * Um E2E só conta como positivo quando os DOIS lados são 1.4.203, o cliente é o Desktop
  * Windows, cada lado amarra o próprio binário, e um único writer entregou o prompt uma vez.
  */
 export function workItemStartE2eDefects(evidence: WorkItemStartE2eEvidence): string[] {

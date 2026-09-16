@@ -7,10 +7,18 @@ import {
   workItemStartE2eDefects
 } from './work-item-start-e2e-evidence'
 
-const COMMIT = '2b19f21adab5907697ef76ce429bafcd2cfea9ec'
-const TREE = '798d7351c73012b7319dc4d83b8a2905ac1877c9'
+// A base oficial v1.4.203; o `buildId` é o que `build-provenance.mjs` deriva de commit:árvore.
+const COMMIT = '776e424e76405a06851dd9ec9ff3b58ffbdb3eea'
+const TREE = 'df262ab6a9de98ef6b271b94c5aafd2da7f153f8'
+const BUILD_ID = '7bbdd813f784'
 
-const BUILD_ID = '238ae8dfd818'
+// O checkpoint 1.4.201 anterior: um par casado e coerente que a baseline 1.4.203 recusa.
+const PREVIOUS_BASELINE = {
+  version: '1.4.201',
+  commit: '2b19f21adab5907697ef76ce429bafcd2cfea9ec',
+  tree: '798d7351c73012b7319dc4d83b8a2905ac1877c9',
+  buildId: '17a4aae22bfc'
+}
 
 const MANIFEST: CandidateManifest = {
   version: WORK_ITEM_START_E2E_BASELINE_VERSION,
@@ -107,7 +115,11 @@ function collect(overrides?: {
 }
 
 describe('Work Item Start E2E evidence binds running processes to the candidate', () => {
-  it('reads both sides and accepts a matched 1.4.201 pair', async () => {
+  it('binds the certification to the 1.4.203 candidate baseline', () => {
+    expect(WORK_ITEM_START_E2E_BASELINE_VERSION).toBe('1.4.203')
+  })
+
+  it('reads both sides and accepts a matched 1.4.203 pair', async () => {
     const { readClientProcess, readServerStatus, promise } = collect()
     const evidence = await promise
 
@@ -154,17 +166,44 @@ describe('Work Item Start E2E evidence binds running processes to the candidate'
     )
   })
 
-  it('refuses a matched pair that is not the 1.4.201 baseline', async () => {
-    const older = { ...EMBEDDED, version: '1.4.199' }
-    const { promise } = collect({
-      client: { appVersion: '1.4.199', buildProvenance: older },
-      server: { appVersion: '1.4.199', buildProvenance: older },
-      manifest: { ...MANIFEST, version: '1.4.199' }
-    })
-    // Versões iguais não bastam: 1.4.199 ↔ 1.4.199 é um par casado fora da baseline.
-    const defects = await promise.then(workItemStartE2eDefects)
-    expect(defects).toContain('server is 1.4.199, not the 1.4.201 baseline')
-    expect(defects).toContain('client is 1.4.199, not the 1.4.201 baseline')
+  it.each([
+    ['1.4.199', { ...EMBEDDED, version: '1.4.199' }, { ...MANIFEST, version: '1.4.199' }],
+    ['1.4.201', PREVIOUS_BASELINE, { ...MANIFEST, ...PREVIOUS_BASELINE }]
+  ])(
+    'refuses a matched %s pair that is not the 1.4.203 baseline',
+    async (version, embedded, manifest) => {
+      const { promise } = collect({
+        client: { appVersion: version, buildProvenance: embedded },
+        server: { appVersion: version, buildProvenance: embedded },
+        attestation: { buildProvenance: embedded },
+        manifest
+      })
+      const evidence = await promise
+      // O par é coerente consigo mesmo — identidade embutida casa com o próprio manifest —
+      // e mesmo assim não é a baseline: só a versão o recusa, e recusa os dois lados.
+      expect(evidence.client.manifestArtifact).toBe('Orca-Setup-x64.exe')
+      expect(evidence.server.manifestArtifact).toBe('orca-linux.AppImage')
+      const defects = workItemStartE2eDefects(evidence)
+      expect(defects).toContain(`server is ${version}, not the 1.4.203 baseline`)
+      expect(defects).toContain(`client is ${version}, not the 1.4.203 baseline`)
+    }
+  )
+
+  it('refuses a 1.4.201 server behind a 1.4.203 client, and the reverse', async () => {
+    for (const side of ['server', 'client'] as const) {
+      const { promise } = collect({
+        [side]: { appVersion: PREVIOUS_BASELINE.version, buildProvenance: PREVIOUS_BASELINE },
+        ...(side === 'server' ? { attestation: { buildProvenance: PREVIOUS_BASELINE } } : {})
+      })
+      const defects = workItemStartE2eDefects(await promise)
+      expect(defects).toContain(`${side} is 1.4.201, not the 1.4.203 baseline`)
+      // A identidade 1.4.201 não casa com o manifest 1.4.203: o vínculo por commit/árvore
+      // continua a segunda barreira, independente da versão.
+      expect(defects).toContain(
+        `${side} embedded build identity does not match the candidate manifest`
+      )
+      expect(defects.some((defect) => defect.endsWith('differ'))).toBe(true)
+    }
   })
 
   it('refuses a client that is not the Windows Desktop', async () => {

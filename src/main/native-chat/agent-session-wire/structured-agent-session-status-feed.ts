@@ -141,8 +141,11 @@ export class StructuredAgentSessionStatusFeed {
     subscriber: StructuredAgentSessionStatusSubscriber,
     includeSession?: (sessionId: string) => boolean
   ): () => void {
+    // A re-subscribe under the same id must not inherit an earlier filter, nor keep one it dropped.
     if (includeSession) {
       this.filters.set(subscriber.id, includeSession)
+    } else {
+      this.filters.delete(subscriber.id)
     }
     // Re-project before registering: a change found here has to reach the subscribers that
     // already read the old value, and the arriving one carries it in its snapshot instead.
@@ -150,16 +153,14 @@ export class StructuredAgentSessionStatusFeed {
       this.publish(sessionId, undefined, { replay: true })
     }
     this.subscribers.set(subscriber.id, subscriber)
-    this.emit(subscriber, {
-      type: 'snapshot',
-      sessions: [...this.published.values()].filter(
-        (session) => includeSession?.(session.sessionId) ?? true
-      )
-    })
-    return () => {
-      this.filters.delete(subscriber.id)
-      this.unsubscribe(subscriber.id)
+    const snapshot = scopeStatusEvent(
+      { type: 'snapshot', sessions: [...this.published.values()] },
+      includeSession
+    )
+    if (snapshot) {
+      this.emit(subscriber, snapshot)
     }
+    return () => this.unsubscribe(subscriber.id)
   }
 
   /** The host stopped holding the session: ownership leaves the retained projection, and the
@@ -183,7 +184,7 @@ export class StructuredAgentSessionStatusFeed {
     if (!subscriber) {
       return
     }
-    this.subscribers.delete(id)
+    this.drop(id)
     try {
       subscriber.emit({ type: 'end' })
     } catch {
@@ -304,14 +305,19 @@ export class StructuredAgentSessionStatusFeed {
 
   private readonly filters = new Map<string, (sessionId: string) => boolean>()
 
+  /** The filter lives and dies with its subscriber, whichever path removes it. */
+  private drop(id: string): void {
+    this.subscribers.delete(id)
+    this.filters.delete(id)
+  }
+
   private broadcast(event: AgentSessionStatusEvent): void {
     // A Map skips entries deleted mid-iteration, so a failing subscriber can drop itself here.
     for (const subscriber of this.subscribers.values()) {
-      const include = this.filters.get(subscriber.id)
-      if (include && 'sessionId' in event && !include(event.sessionId as string)) {
-        continue
+      const scoped = scopeStatusEvent(event, this.filters.get(subscriber.id))
+      if (scoped) {
+        this.emit(subscriber, scoped)
       }
-      this.emit(subscriber, event)
     }
   }
 
@@ -320,7 +326,33 @@ export class StructuredAgentSessionStatusFeed {
     try {
       subscriber.emit(event)
     } catch {
-      this.subscribers.delete(subscriber.id)
+      this.drop(subscriber.id)
     }
+  }
+}
+
+/**
+ * Every session-bearing event passes the subscriber's filter, not only the opening snapshot:
+ * a later `status` (a publish, an ownership revoke) names its session at `event.session`,
+ * and a scoped session must be as invisible there as it was at subscribe time. `end` carries
+ * no session and always reaches the subscriber. Returns `null` when nothing may be sent.
+ */
+export function scopeStatusEvent(
+  event: AgentSessionStatusEvent,
+  includeSession: ((sessionId: string) => boolean) | undefined
+): AgentSessionStatusEvent | null {
+  if (!includeSession) {
+    return event
+  }
+  switch (event.type) {
+    case 'status':
+      return includeSession(event.session.sessionId) ? event : null
+    case 'snapshot':
+      return {
+        type: 'snapshot',
+        sessions: event.sessions.filter((session) => includeSession(session.sessionId))
+      }
+    case 'end':
+      return event
   }
 }
