@@ -17,8 +17,8 @@ import { createWorktreeWithNameRetry, type WorktreeCreateResult } from './worktr
 import type { RuntimeTaskSettings } from './mobile-tasks-view-state-types'
 import {
   startWorkItemStructuredSession,
-  workItemStartAgentSupportsStructuredSession,
-  workItemStartShouldUseStructuredSession
+  resolveWorkItemStartRoute,
+  workItemStartAgentSupportsStructuredSession
 } from './work-item-start-structured-session'
 import type { WorktreeCreateIdempotencyProbe } from './worktree-create-idempotency-policy'
 
@@ -111,13 +111,18 @@ async function createWorkItemWorkspace(args: {
   // The composer's work-item Start is the same Start as the Tasks tab's, so it takes the same
   // route: a structured session carries identity, a seeded terminal does not.
   const agentChoice = agent.choice
-  const structuredStart =
-    agentChoice !== 'blank' &&
-    (await workItemStartShouldUseStructuredSession({
-      client,
-      settings: args.runtimeSettings,
-      agent: agentChoice
-    }))
+  const route = await resolveWorkItemStartRoute({
+    client,
+    settings: args.runtimeSettings,
+    agent: agentChoice
+  })
+  // A strict Start that the host refused or never answered stops HERE, before any workspace
+  // exists: creating one and seeding a terminal would be exactly the silent degradation.
+  if (route.kind === 'refused' || route.kind === 'unknown') {
+    return { error: route.message }
+  }
+  // `agentChoice !== 'blank'` first: an aliased condition is what lets TS narrow the agent below.
+  const structuredStart = agentChoice !== 'blank' && route.kind === 'structured'
   if (structuredStart && !workItemStartAgentSupportsStructuredSession(agentChoice)) {
     return {
       error: `Work Item Start is set to submit after ready, which needs a structured agent session. ${agentChoice} does not have one — choose Claude or Codex, or set Work Item Start back to draft.`

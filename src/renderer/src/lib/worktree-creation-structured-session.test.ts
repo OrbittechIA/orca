@@ -89,6 +89,27 @@ const request = {
 
 const idle = { accepted: true, cancelled: false, visibilityUnknown: false }
 
+const RECOVERY = {
+  intent: {
+    sessionId: 'session-1',
+    worktreeId: 'worktree-1',
+    agent: 'codex' as const,
+    target: { kind: 'local' as const },
+    params: {
+      envelope: {
+        sessionId: 'session-1',
+        clientOperationId: 'create-op-1',
+        expectedRuntimeFence: null,
+        payloadFingerprint: 'f'.repeat(64)
+      },
+      worktree: 'id:worktree-1',
+      agent: 'codex' as const,
+      launchOrigin: 'work-item-start' as const
+    }
+  },
+  clientMessageId: 'message-op-1'
+}
+
 /** Mirrors the callers layer: a refusal runs the claimed fallback once and resolves true. */
 function refusedLaunch(sessionId = 'session-refused') {
   const launchResult = Promise.reject(new StructuredAgentSessionCreateRefusalError('unsupported'))
@@ -208,16 +229,17 @@ describe('launchStructuredWorktreeSession', () => {
     expect(mocks.activateStructuredAgentSessionById).not.toHaveBeenCalled()
   })
 
-  it('retries an unknown launch with no prompt so the outbox is not re-staged', async () => {
+  it('retries an unknown launch with its persisted intent and staged operation, never a new one', async () => {
     mocks.startStructuredAgentLaunch.mockReturnValue({
       sessionId: 'session-1',
+      recovery: RECOVERY,
       launchResult: Promise.resolve({ sessionId: 'session-1', fence: 1 }),
       isVisibilityUnknown: () => false,
       releaseCallerAfterUnknownOutcome: vi.fn(),
       claimDefinitiveRefusalFallback: vi.fn(() => Promise.resolve(false))
     })
 
-    await launchStructuredWorktreeSession({
+    const result = await launchStructuredWorktreeSession({
       creationId: 'creation-1',
       request,
       agentLaunchRoute: 'structured-native-chat',
@@ -226,9 +248,133 @@ describe('launchStructuredWorktreeSession', () => {
       fallbackStartupOpt: undefined,
       activation: false,
       primaryTabId: null,
-      recoverUnknownLaunch: true
+      recover: RECOVERY
     })
-    expect(mocks.startStructuredAgentLaunch).toHaveBeenCalledWith('worktree-1', 'codex', {})
+    // The prompt travels with the retry so its delivery is settled, and the launch layer looks
+    // the staged operation up by `recover` instead of staging a second copy.
+    expect(mocks.startStructuredAgentLaunch).toHaveBeenCalledWith('worktree-1', 'codex', {
+      prompt: 'Fix the route',
+      recover: RECOVERY
+    })
+    expect(result.recovery).toEqual(RECOVERY)
+  })
+
+  it('hands every launch its recovery intent so an unknown outcome can be re-entered', async () => {
+    mocks.startStructuredAgentLaunch.mockReturnValue({
+      sessionId: 'session-1',
+      recovery: RECOVERY,
+      launchResult: Promise.reject(new Error('lost reply')),
+      isVisibilityUnknown: () => true,
+      releaseCallerAfterUnknownOutcome: vi.fn(),
+      claimDefinitiveRefusalFallback: vi.fn(() => Promise.resolve(false))
+    })
+    const result = await launchStructuredWorktreeSession({
+      creationId: 'creation-1',
+      request,
+      agentLaunchRoute: 'structured-native-chat',
+      worktreeId: 'worktree-1',
+      shouldActivateOnCompletion: true,
+      fallbackStartupOpt: undefined,
+      activation: false,
+      primaryTabId: null
+    })
+    expect(result).toMatchObject({ visibilityUnknown: true, recovery: RECOVERY })
+  })
+
+  describe('strict Work Item Start (submit-after-ready)', () => {
+    const strictRequest = { ...request, workItemStartPromptDelivery: 'submit-after-ready' as const }
+
+    it('keeps the scoped launch origin the preflight was admitted under', async () => {
+      mocks.startStructuredAgentLaunch.mockReturnValue({
+        sessionId: 'session-1',
+        recovery: RECOVERY,
+        launchResult: Promise.resolve({ sessionId: 'session-1', fence: 1 }),
+        promptDeliveryResult: Promise.resolve({ delivered: true, failureNotified: false }),
+        isVisibilityUnknown: () => false,
+        releaseCallerAfterUnknownOutcome: vi.fn(),
+        claimDefinitiveRefusalFallback: vi.fn(() => Promise.resolve(false))
+      })
+      await launchStructuredWorktreeSession({
+        creationId: 'creation-1',
+        request: { ...strictRequest, promptDelivery: 'auto-submit' },
+        agentLaunchRoute: 'structured-native-chat',
+        worktreeId: 'worktree-1',
+        shouldActivateOnCompletion: true,
+        fallbackStartupOpt: undefined,
+        activation: false,
+        primaryTabId: null
+      })
+      expect(mocks.startStructuredAgentLaunch).toHaveBeenCalledWith('worktree-1', 'codex', {
+        prompt: 'Fix the route',
+        promptDelivery: 'auto-submit',
+        launchOrigin: 'work-item-start'
+      })
+    })
+
+    it('opens no legacy terminal after a definitive refusal: fail closed, retry allowed', async () => {
+      // Counterexample the review gave: the strict preflight admitted the scoped capability while
+      // global structured chat is off; a generic create is refused; a declared fallback then
+      // started the terminal writer strict mode forbids.
+      storeWithWorktree()
+      refusedLaunch()
+      mocks.activateAndRevealWorktree.mockReturnValue({ primaryTabId: 'terminal-tab' })
+
+      const result = await launchStructuredWorktreeSession({
+        creationId: 'creation-1',
+        request: strictRequest,
+        agentLaunchRoute: 'structured-native-chat',
+        worktreeId: 'worktree-1',
+        shouldActivateOnCompletion: true,
+        fallbackStartupOpt: { paste: 'x' } as never,
+        activation: false,
+        primaryTabId: null
+      })
+
+      expect(result).toMatchObject({
+        accepted: false,
+        cancelled: false,
+        failure: 'structured-refused',
+        activation: false,
+        primaryTabId: null
+      })
+      // No fallback was even offered to the launch layer, so no path can reach a terminal.
+      const launch = mocks.startStructuredAgentLaunch.mock.results[0]?.value as {
+        claimDefinitiveRefusalFallback: ReturnType<typeof vi.fn>
+      }
+      expect(launch.claimDefinitiveRefusalFallback).not.toHaveBeenCalled()
+      expect(mocks.activateAndRevealWorktree).not.toHaveBeenCalled()
+      expect(mocks.ensureWorktreeHasInitialTerminal).not.toHaveBeenCalled()
+      expect(mocks.ensureWebRuntimeWorktreeTerminalAfterWake).not.toHaveBeenCalled()
+      expect(mocks.preflightAgentTrust).not.toHaveBeenCalled()
+      expect(mocks.updateWorktreeMeta).not.toHaveBeenCalled()
+    })
+
+    it('reports an unconfirmed delivery with the intent and operation a retry must reuse', async () => {
+      mocks.startStructuredAgentLaunch.mockReturnValue({
+        sessionId: 'session-1',
+        recovery: RECOVERY,
+        launchResult: Promise.resolve({ sessionId: 'session-1', fence: 1 }),
+        promptDeliveryResult: Promise.resolve({
+          delivered: false,
+          failureNotified: false,
+          deliveryUnknown: true
+        }),
+        isVisibilityUnknown: () => false,
+        releaseCallerAfterUnknownOutcome: vi.fn(),
+        claimDefinitiveRefusalFallback: vi.fn(() => Promise.resolve(false))
+      })
+      const result = await launchStructuredWorktreeSession({
+        creationId: 'creation-1',
+        request: strictRequest,
+        agentLaunchRoute: 'structured-native-chat',
+        worktreeId: 'worktree-1',
+        shouldActivateOnCompletion: false,
+        fallbackStartupOpt: undefined,
+        activation: false,
+        primaryTabId: null
+      })
+      expect(result).toMatchObject({ promptDeliveryUnknown: true, recovery: RECOVERY })
+    })
   })
 
   it('returns cancelled without starting a launch when the creation is already gone', async () => {

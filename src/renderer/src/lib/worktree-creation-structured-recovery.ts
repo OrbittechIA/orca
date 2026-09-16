@@ -3,11 +3,17 @@ import { useAppStore } from '@/store'
 import type { WorktreeCreationRequest } from '@/lib/pending-worktree-creation'
 import { completeWorktreeCreation } from '@/lib/worktree-creation-completion'
 import { buildWorktreeCreationStartupOpt } from '@/lib/worktree-creation-flow-startup'
-import { launchStructuredWorktreeSession } from '@/lib/worktree-creation-structured-session'
+import {
+  launchStructuredWorktreeSession,
+  type WorktreeCreationStructuredSessionResult
+} from '@/lib/worktree-creation-structured-session'
+
+type StructuredRecovery = Pick<WorktreeCreationStructuredSessionResult, 'recovery'>
 
 export function markStructuredWorktreeLaunchUnconfirmed(
   creationId: string,
-  worktreeId: string
+  worktreeId: string,
+  { recovery }: StructuredRecovery = {}
 ): void {
   useAppStore.getState().updatePendingWorktreeCreation(creationId, {
     status: 'error',
@@ -16,6 +22,8 @@ export function markStructuredWorktreeLaunchUnconfirmed(
       'Could not confirm whether Codex chat opened. Retry to check again.'
     ),
     structuredLaunchRecoveryWorktreeId: worktreeId,
+    // The retry must reconcile THIS session and THIS prompt operation, not mint new ones.
+    ...(recovery ? { structuredLaunchRecoveryIntent: recovery } : {}),
     // Explícito: um retry anterior pode tê-lo desligado, e reconciliar é permitido.
     structuredLaunchRetryDisabled: false
   })
@@ -24,7 +32,8 @@ export function markStructuredWorktreeLaunchUnconfirmed(
 /** Entrega sem confirmação: a MESMA mensagem é reconciliada, nunca reenviada. */
 export function markStructuredWorktreePromptDeliveryUnconfirmed(
   creationId: string,
-  worktreeId: string
+  worktreeId: string,
+  { recovery }: StructuredRecovery = {}
 ): void {
   useAppStore.getState().updatePendingWorktreeCreation(creationId, {
     status: 'error',
@@ -33,6 +42,22 @@ export function markStructuredWorktreePromptDeliveryUnconfirmed(
       'Could not confirm whether the work item prompt was delivered. Retry to reconcile the same message.'
     ),
     structuredLaunchRecoveryWorktreeId: worktreeId,
+    ...(recovery ? { structuredLaunchRecoveryIntent: recovery } : {}),
+    structuredLaunchRetryDisabled: false
+  })
+}
+
+/** Recusa definitiva do create estrito: a workspace existe sem writer, nada abriu no lugar.
+ *  O host provou que não criou nada, então o retry pode tentar uma sessão nova. */
+export function markStructuredWorktreeLaunchRefused(creationId: string, worktreeId: string): void {
+  useAppStore.getState().updatePendingWorktreeCreation(creationId, {
+    status: 'error',
+    error: translate(
+      'auto.lib.worktree.creation.flow.structured.launch.refused',
+      'The host refused the structured agent session for this work item. The workspace was created without an agent; no terminal was started in its place. Retry to try the session again.'
+    ),
+    structuredLaunchRecoveryWorktreeId: worktreeId,
+    structuredLaunchRecoveryIntent: undefined,
     structuredLaunchRetryDisabled: false
   })
 }
@@ -53,10 +78,35 @@ export function markStructuredWorktreePromptDeliveryFailed(
   })
 }
 
+/**
+ * Every non-completing outcome of a structured quick-create launch, marked on the pending entry
+ * so Retry re-enters the right lane. Returns `false` when the launch completed (or was cancelled)
+ * and the caller should proceed.
+ */
+export function markStructuredWorktreeLaunchOutcome(
+  creationId: string,
+  worktreeId: string,
+  result: WorktreeCreationStructuredSessionResult
+): boolean {
+  if (result.visibilityUnknown) {
+    markStructuredWorktreeLaunchUnconfirmed(creationId, worktreeId, result)
+  } else if (result.promptDeliveryUnknown) {
+    markStructuredWorktreePromptDeliveryUnconfirmed(creationId, worktreeId, result)
+  } else if (result.failure === 'prompt-delivery') {
+    markStructuredWorktreePromptDeliveryFailed(creationId, worktreeId)
+  } else if (result.failure === 'structured-refused') {
+    markStructuredWorktreeLaunchRefused(creationId, worktreeId)
+  } else {
+    return false
+  }
+  return true
+}
+
 export async function retryStructuredWorktreeLaunch(
   creationId: string,
   request: WorktreeCreationRequest,
-  worktreeId: string
+  worktreeId: string,
+  recover?: WorktreeCreationStructuredSessionResult['recovery']
 ): Promise<void> {
   if (!useAppStore.getState().pendingWorktreeCreations[creationId]) {
     return
@@ -76,21 +126,12 @@ export async function retryStructuredWorktreeLaunch(
     fallbackStartupOpt: buildWorktreeCreationStartupOpt(request, false),
     activation: false,
     primaryTabId: null,
-    recoverUnknownLaunch: true
+    ...(recover ? { recover } : {})
   })
-  if (structuredSession.cancelled) {
-    return
-  }
-  if (structuredSession.visibilityUnknown) {
-    markStructuredWorktreeLaunchUnconfirmed(creationId, worktreeId)
-    return
-  }
-  if (structuredSession.promptDeliveryUnknown) {
-    markStructuredWorktreePromptDeliveryUnconfirmed(creationId, worktreeId)
-    return
-  }
-  if (structuredSession.failure === 'prompt-delivery') {
-    markStructuredWorktreePromptDeliveryFailed(creationId, worktreeId)
+  if (
+    structuredSession.cancelled ||
+    markStructuredWorktreeLaunchOutcome(creationId, worktreeId, structuredSession)
+  ) {
     return
   }
   await completeWorktreeCreation({

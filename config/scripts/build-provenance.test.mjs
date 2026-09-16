@@ -1,21 +1,28 @@
 import { describe, expect, it } from 'vitest'
-import { readBuildProvenanceLiteral } from './build-provenance.mjs'
+import {
+  BuildProvenanceError,
+  dirtyBuildInputs,
+  readBuildProvenanceLiteral
+} from './build-provenance.mjs'
 
 const GIT = {
   'rev-parse,HEAD': 'a'.repeat(40),
-  'rev-parse,HEAD^{tree}': 'b'.repeat(40)
+  'rev-parse,HEAD^{tree}': 'b'.repeat(40),
+  'status,--porcelain,--untracked-files=all': ''
 }
 
-function fakeGit(seen) {
+function fakeGit(seen, overrides = {}) {
   return (command, args, options) => {
     seen?.push({ command, cwd: options?.cwd })
-    const answer = GIT[args.join(',')]
+    const answer = { ...GIT, ...overrides }[args.join(',')]
     if (answer === undefined) {
       throw new Error('fatal: not a git repository')
     }
     return answer
   }
 }
+
+const quiet = { warn: () => {} }
 
 describe('build provenance is read from the repo, whatever loaded this module', () => {
   it('reads git in the current working directory by default', () => {
@@ -44,12 +51,72 @@ describe('build provenance is read from the repo, whatever loaded this module', 
     expect(literal).toBe('null')
   })
 
-  it('takes commit and tree from the environment when the packager names them', () => {
+  it('accepts an environment override only when the repository agrees with it', () => {
     const literal = readBuildProvenanceLiteral({
-      env: { ORCA_BUILD_COMMIT: 'c'.repeat(40), ORCA_BUILD_TREE: 'd'.repeat(40) },
+      env: { ORCA_BUILD_COMMIT: 'a'.repeat(40), ORCA_BUILD_TREE: 'b'.repeat(40) },
       run: fakeGit()
     })
-    expect(JSON.parse(literal)).toMatchObject({ commit: 'c'.repeat(40), tree: 'd'.repeat(40) })
+    expect(JSON.parse(literal)).toMatchObject({ commit: 'a'.repeat(40), tree: 'b'.repeat(40) })
+  })
+
+  it('refuses an environment override that contradicts the repository', () => {
+    // An override is an assertion of what CI expects to package, never a source of identity:
+    // accepting it would embed a commit that was not built.
+    expect(() =>
+      readBuildProvenanceLiteral({
+        env: { ORCA_BUILD_COMMIT: 'c'.repeat(40) },
+        run: fakeGit()
+      })
+    ).toThrow(BuildProvenanceError)
+    expect(() =>
+      readBuildProvenanceLiteral({
+        env: { ORCA_BUILD_TREE: 'd'.repeat(40) },
+        run: fakeGit()
+      })
+    ).toThrow(/ORCA_BUILD_TREE/)
+  })
+
+  it('refuses an environment override that no repository can confirm', () => {
+    expect(() =>
+      readBuildProvenanceLiteral({
+        env: { ORCA_BUILD_COMMIT: 'c'.repeat(40) },
+        run: () => {
+          throw new Error('fatal: not a git repository')
+        }
+      })
+    ).toThrow(BuildProvenanceError)
+  })
+
+  it('declares no identity when a tracked source file differs from HEAD', () => {
+    // Independent reproduction of the finding: edit a tracked source, package, and get the
+    // same provenance as the untouched commit. A dirty tree now yields `null`, which every
+    // certification gate refuses.
+    const warnings = []
+    const literal = readBuildProvenanceLiteral({
+      env: {},
+      run: fakeGit(undefined, {
+        'status,--porcelain,--untracked-files=all': ' M src/main/index.ts\n'
+      }),
+      warn: (message) => warnings.push(message)
+    })
+    expect(literal).toBe('null')
+    expect(warnings[0]).toContain('src/main/index.ts')
+  })
+
+  it('declares no identity for an untracked file that is not ignored', () => {
+    const literal = readBuildProvenanceLiteral({
+      env: {},
+      run: fakeGit(undefined, {
+        'status,--porcelain,--untracked-files=all': '?? src/main/injected.ts\n'
+      }),
+      ...quiet
+    })
+    expect(literal).toBe('null')
+  })
+
+  it('lists every dirty input it saw', () => {
+    expect(dirtyBuildInputs(' M a.ts\n?? b.ts\n\n')).toEqual([' M a.ts', '?? b.ts'])
+    expect(dirtyBuildInputs('')).toEqual([])
   })
 
   it('derives one build id from commit and tree, stable across calls', () => {

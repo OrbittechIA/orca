@@ -10,14 +10,14 @@ import { readBuildProvenanceLiteral } from './build-provenance.mjs'
  * quando o portão da evidência recusa um candidato já publicado. Este gate lê os bytes que
  * foram empacotados e compara com o git.
  */
-export function verifyBundledBuildProvenance({ bundlePath, expectedLiteral }) {
+export function verifyBundledBuildProvenance({ bundlePath, expectedLiteral, bundle }) {
   if (expectedLiteral === 'null') {
     throw new Error(
       'no build provenance for this tree: refusing to certify a bundle nothing can be matched to'
     )
   }
   const expected = JSON.parse(expectedLiteral)
-  const bundle = readFileSync(bundlePath, 'utf8')
+  bundle ??= readFileSync(bundlePath, 'utf8')
   const missing = ['commit', 'tree', 'buildId', 'version'].filter(
     (field) => !bundle.includes(expected[field])
   )
@@ -30,6 +30,10 @@ export function verifyBundledBuildProvenance({ bundlePath, expectedLiteral }) {
 }
 
 if (import.meta.filename === process.argv[1]) {
+  if (process.env.ORCA_BUILD_UNCERTIFIED === '1') {
+    console.warn('[build-provenance] ORCA_BUILD_UNCERTIFIED=1: bundle not verified, cannot certify')
+    process.exit(0)
+  }
   const root = resolve(import.meta.dirname, '../..')
   const bundlePath = process.argv[2] ?? join(root, 'out', 'main', 'index.js')
   const expected = verifyBundledBuildProvenance({

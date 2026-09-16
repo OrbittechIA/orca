@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { computeAgentSessionPayloadFingerprint } from '../../../../shared/agent-session-mutation-envelope'
 import { projectSessionTabsForContext } from './session-tabs-inventory'
-import { structuredAgentSessionCreateWorktreeTarget } from '../../structured-agent-session-create-worktree-target'
+import {
+  structuredAgentSessionCreateWorktreeTarget,
+  structuredAgentSessionCreateWorktreeTargetsEqual
+} from '../../structured-agent-session-create-worktree-target'
 import {
   call,
   callStreaming,
@@ -110,6 +113,67 @@ describe('Web Work Item Start authority', () => {
       ok: false,
       error: { message: expect.stringContaining('structured_agent_session_unsupported') }
     })
+  })
+
+  it('hands the admitted worktree target to the resolver and refuses a replaced checkout', async () => {
+    const client = { ...STRUCTURED_CLIENT, clientId: 'device-token', pairedDeviceId: 'device-web' }
+    const admitted = createTarget({ kind: 'paired-device', deviceId: 'device-web' })
+    // The resolver compares the admitted target against the worktree RECORD it resolves now.
+    // Between admission and create the same id on the same host can be re-created at another
+    // path, by another instance, or by another device; only the full comparison catches that.
+    const current = { value: admitted }
+    const resolveIntent = vi.fn(async (params: { expectedWorktreeTarget?: typeof admitted }) => {
+      if (
+        params.expectedWorktreeTarget &&
+        !structuredAgentSessionCreateWorktreeTargetsEqual(
+          params.expectedWorktreeTarget,
+          current.value
+        )
+      ) {
+        throw new Error('structured_agent_session_unsupported')
+      }
+      return {
+        envelope: { sessionId: SESSION, clientOperationId: 'op' },
+        location: {
+          executionHostId: 'local',
+          wslDistro: null,
+          workspaceId: 'workspace-1',
+          workspaceKind: 'git-worktree'
+        },
+        provider: 'codex',
+        agent: 'codex',
+        runtimeKind: 'native',
+        accountHome: { variable: 'CODEX_HOME', path: '/home/codex' },
+        journalRoot: '/journals'
+      }
+    })
+    const runtime = {
+      ...SETTINGS,
+      resolveStructuredAgentSessionCreateWorktreeTarget: async () => admitted,
+      resolveStructuredAgentSessionCreateIntent: resolveIntent
+    }
+
+    await expect(
+      call('agentSession.create', createParams(), client, runtime)
+    ).resolves.toMatchObject({ ok: true, result: { ok: true } })
+    expect(resolveIntent).toHaveBeenCalledWith(
+      expect.objectContaining({ expectedWorktreeTarget: admitted })
+    )
+    hostCalls.attach.mockClear()
+
+    for (const replaced of [
+      { ...admitted, workspacePath: '/workspaces/workspace-1-recreated' },
+      { ...admitted, instanceId: 'instance-2' },
+      { ...admitted, creatorKind: 'paired-device' as const, creatorDeviceId: 'device-other' }
+    ]) {
+      current.value = replaced
+      const response = await call('agentSession.create', createParams(), client, runtime)
+      expect(response).toMatchObject({
+        ok: true,
+        result: { ok: false, refusal: { code: 'structured_agent_session_unsupported' } }
+      })
+    }
+    expect(hostCalls.attach).not.toHaveBeenCalled()
   })
 
   it('admits a folder workspace, which the managed-worktree resolver cannot name', async () => {

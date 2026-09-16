@@ -1,4 +1,19 @@
 import { describe, expect, it, vi } from 'vitest'
+
+// The Start persists its send envelope before dispatching it; an in-memory AsyncStorage is enough.
+const asyncStorage = vi.hoisted(() => {
+  const store = new Map<string, string>()
+  return {
+    getItem: vi.fn(async (key: string) => store.get(key) ?? null),
+    setItem: vi.fn(async (key: string, value: string) => {
+      store.set(key, value)
+    }),
+    removeItem: vi.fn(async (key: string) => {
+      store.delete(key)
+    })
+  }
+})
+vi.mock('@react-native-async-storage/async-storage', () => ({ default: asyncStorage }))
 import { WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY } from '../../../src/shared/protocol-version'
 import type { RpcClient } from '../transport/rpc-client'
 import { createWorkspaceFromComposerSource } from './source-workspace-create'
@@ -103,7 +118,30 @@ describe('composer work item Start', () => {
     expect(support.launchOrigin).toBe('work-item-start')
   })
 
-  it('keeps the terminal draft when the host does not admit the route', async () => {
+  it.each([
+    [
+      'an old host without the route',
+      { ok: true, result: { capabilities: [], deviceScope: 'runtime' } }
+    ],
+    [
+      'a pairing scoped mobile',
+      { ok: true, result: { capabilities: [CAP], deviceScope: 'mobile' } }
+    ],
+    ['a status probe that failed', new Error('status.get timed out')],
+    ['a status probe the host refused', { ok: false, error: { code: 'runtime_busy' } }]
+  ] as const)('stops a strict Start before worktree.create against %s', async (_name, status) => {
+    const client = routedClient({ 'status.get': [status], 'worktree.create': [CREATED] })
+    const result = await createWorkspaceFromComposerSource(
+      composerArgs(client, 'submit-after-ready')
+    )
+    expect(result).toMatchObject({ error: expect.stringContaining('submit after ready') })
+    // Nothing exists: no workspace, so no terminal could have been seeded in the session's place.
+    expect(client.sendRequest.mock.calls.map((call) => call[0])).toEqual(['status.get'])
+  })
+
+  it('never substitutes the terminal draft for a strict Start the host does not admit', async () => {
+    // This used to "keep the terminal draft": a strict Start silently degraded to the legacy
+    // terminal writer whenever the host said no. Now nothing is created.
     const client = routedClient({
       'status.get': [{ ok: true, result: { capabilities: [], deviceScope: 'runtime' } }],
       'worktree.create': [CREATED]
@@ -111,9 +149,9 @@ describe('composer work item Start', () => {
 
     await expect(
       createWorkspaceFromComposerSource(composerArgs(client, 'submit-after-ready'))
-    ).resolves.toEqual({ worktreeId: 'wt-1', name: 'Caderno' })
+    ).resolves.toMatchObject({ error: expect.stringContaining('no terminal was started') })
 
-    expect(createParams(client).startupDraft).toBe(ISSUE_URL)
+    expect(createParams(client)).toEqual({})
   })
 
   it('keeps the terminal draft in draft mode without probing the host', async () => {

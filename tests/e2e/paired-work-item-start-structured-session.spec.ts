@@ -282,12 +282,14 @@ test('a paired Work Item Start opens one structured session and delivers its pro
       execPath: process.execPath
     }))
     expect(clientAttestation?.sha256).toMatch(/^[0-9a-f]{64}$/)
-    const manifestPath = process.env.ORCA_CANDIDATE_MANIFEST
-    const manifest: CandidateManifest | null = manifestPath
-      ? (await import('./work-item-start-candidate-manifest')).readCandidateManifest(manifestPath)
-      : null
+    // Obrigatório, não opcional: sem manifest a evidência não amarra os processos a nenhum
+    // artefato, e o spec falha aqui em vez de passar sem prova.
+    const manifestModule = await import('./work-item-start-candidate-manifest')
+    const manifest: CandidateManifest = manifestModule.readCandidateManifest(
+      manifestModule.requireCandidateManifestPath(process.env)
+    )
 
-    if (manifest) {
+    {
       const evidence = await collectWorkItemStartE2eEvidence({
         now: () => new Date().toISOString(),
         readClientProcess: async () => ({
@@ -332,17 +334,15 @@ test('a paired Work Item Start opens one structured session and delivers its pro
         path: written,
         contentType: 'application/json'
       })
-      // The candidate gate itself. It is only meaningful against a packaged pair, which is why the
-      // manifest is opt-in: without it this lab still proves the behaviour above, and with it the
-      // same run also proves WHICH binaries proved it.
-      expect(workItemStartE2eDefects(evidence)).toEqual([])
-    } else {
-      // No manifest: still assert the collection reads live values rather than constants.
+      // The collection reads live values rather than constants.
       expect(clientProcess.appVersion).toMatch(/^\d+\.\d+\.\d+/)
       expect(clientProcess.execPath.length).toBeGreaterThan(0)
       expect(serverAttestation?.sha256).toMatch(/^[0-9a-f]{64}$/)
       // Dois hosts, dois binários: um único hash para ambos denunciaria coleta de um lado só.
       expect(serverAttestation?.sha256).not.toBe(clientAttestation?.sha256)
+      // The candidate gate itself: the run proves WHICH binaries proved the behaviour above, and
+      // without that binding it is not a pass (see `requireCandidateManifestPath`).
+      expect(workItemStartE2eDefects(evidence)).toEqual([])
     }
   } finally {
     await client?.dispose()

@@ -227,6 +227,7 @@ export type WorktreeSlice = {
       request?: PendingWorktreeCreation['request']
       provisioningLog?: string
       structuredLaunchRecoveryWorktreeId?: string
+      structuredLaunchRecoveryIntent?: PendingWorktreeCreation['structuredLaunchRecoveryIntent']
       structuredLaunchRetryDisabled?: boolean
     }
   ) => void

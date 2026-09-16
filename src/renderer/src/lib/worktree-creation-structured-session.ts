@@ -1,7 +1,12 @@
 import { useAppStore } from '@/store'
 import { ensureWorktreeHasInitialTerminal } from '@/lib/worktree-initial-terminal-seeding'
 import { activateAndRevealWorktree, type ActivateAndRevealResult } from '@/lib/worktree-activation'
-import type { StructuredAgentLegacyFallbackResult } from '@/lib/structured-agent-launch-settlement'
+import type {
+  StructuredAgentLaunchHooks,
+  StructuredAgentLegacyFallbackResult
+} from '@/lib/structured-agent-launch-settlement'
+import type { StructuredAgentLaunchRecovery } from '@/lib/structured-agent-session-launch-callers'
+import { StructuredAgentSessionCreateRefusalError } from '@/lib/launch-structured-agent-session'
 import { isAgentSessionHandleProvider } from '../../../shared/agent-session-provider-handle'
 import { adoptAgentSessionLaunchVerdict } from '@/lib/agent-session-launch-plan'
 import type { AgentLaunchRoute } from '@/lib/agent-launch-routing'
@@ -20,8 +25,12 @@ export type WorktreeCreationStructuredSessionResult = {
   visibilityUnknown: boolean
   /** Entrega estrita sem confirmação: reconciliar a MESMA mensagem, nunca reenviar outra. */
   promptDeliveryUnknown?: boolean
-  /** Recusa definitiva da entrega: a workspace fica, o retry não. */
-  failure?: 'prompt-delivery'
+  /** `prompt-delivery`: recusa definitiva da entrega — a workspace fica, o retry não.
+   *  `structured-refused`: o host recusou o create estrito — a workspace fica sem writer e
+   *  nenhum terminal abre no lugar; o retry pode tentar a sessão de novo. */
+  failure?: 'prompt-delivery' | 'structured-refused'
+  /** The exact intent and staged prompt of the launch, for a retry after an unknown outcome. */
+  recovery?: StructuredAgentLaunchRecovery
   activation: ActivateAndRevealResult | false
   primaryTabId: string | null
 }
@@ -36,7 +45,8 @@ type LaunchStructuredWorktreeSessionArgs = {
   fallbackStartupOpt: WorktreeStartupPayload | undefined
   activation: ActivateAndRevealResult | false
   primaryTabId: string | null
-  recoverUnknownLaunch?: boolean
+  /** Re-enter the launch this creation already made, with its persisted intent and prompt. */
+  recover?: StructuredAgentLaunchRecovery
 }
 
 async function retireCancelledStructuredSession(
@@ -129,18 +139,23 @@ export async function launchStructuredWorktreeSession(
     return { ...settled, cancelled: true, activation, primaryTabId }
   }
   let refused = false
+  // Strict Work Item Start: the preflight admitted the SCOPED create (`launchOrigin`), which an
+  // older host, or a host with global structured chat off, only admits under that origin. A
+  // generic create there is refused, and with a `legacyFallback` that refusal opened the very
+  // terminal writer strict mode exists to prevent. So: keep the origin, declare no fallback.
+  const strict = args.request.workItemStartPromptDelivery === 'submit-after-ready'
   // Why: the composer decided route and delivery mode before the worktree existed, and the request
   // carries that verdict in renderer memory for the life of the create; re-entering with it is what
-  // keeps a retry from re-resolving against a host that has changed since.
+  // keeps a retry from re-resolving against a host that has changed since. A retry re-enters with
+  // the same prompt AND the persisted intent: the launch layer finds the staged operation instead
+  // of staging another.
   const plan = adoptAgentSessionLaunchVerdict({
     route: args.agentLaunchRoute,
     agent,
-    ...(args.recoverUnknownLaunch
-      ? {}
-      : {
-          prompt: args.request.launchDraftPrompt ?? args.request.quickPrompt,
-          ...(args.request.promptDelivery ? { promptDelivery: args.request.promptDelivery } : {})
-        })
+    ...(strict ? { launchOrigin: 'work-item-start' as const } : {}),
+    prompt: args.request.launchDraftPrompt ?? args.request.quickPrompt,
+    ...(args.request.promptDelivery ? { promptDelivery: args.request.promptDelivery } : {}),
+    ...(args.recover ? { recover: args.recover } : {})
   })
   const abandoned = new AbortController()
   const unsubscribe = useAppStore.subscribe((state) => {
@@ -149,14 +164,19 @@ export async function launchStructuredWorktreeSession(
     }
   })
   let settlement: Awaited<ReturnType<typeof plan.launch>>
+  const legacyFallback: Pick<StructuredAgentLaunchHooks, 'legacyFallback'> = strict
+    ? {}
+    : {
+        legacyFallback: () => {
+          refused = true
+          return openLegacyWorktreeSurface(args, isCancelled)
+        }
+      }
   try {
     settlement = await plan.launch(
       {
         signal: abandoned.signal,
-        legacyFallback: () => {
-          refused = true
-          return openLegacyWorktreeSurface(args, isCancelled)
-        },
+        ...legacyFallback,
         onStructuredReady: (sessionId) => {
           if (!args.shouldActivateOnCompletion) {
             return
@@ -208,22 +228,40 @@ export async function launchStructuredWorktreeSession(
         primaryTabId: settlement.primaryTabId
       }
     case 'visibility-unknown':
-      return { ...settled, visibilityUnknown: true, activation, primaryTabId }
+      return {
+        ...settled,
+        visibilityUnknown: true,
+        recovery: settlement.recovery,
+        activation,
+        primaryTabId
+      }
     case 'structured': {
+      const { recovery } = settlement
       // Entrega estrita é prova: sem confirmação o create não conclui, e incerteza
       // (reconciliável) nunca é tratada como recusa (definitiva).
-      if (args.request.workItemStartPromptDelivery !== 'submit-after-ready') {
-        return { ...settled, activation, primaryTabId }
+      if (!strict) {
+        return { ...settled, recovery, activation, primaryTabId }
       }
       const delivery = await settlement.promptDeliveryResult
       if (!delivery || delivery.delivered) {
-        return { ...settled, activation, primaryTabId }
+        return { ...settled, recovery, activation, primaryTabId }
       }
       return delivery.deliveryUnknown === true
-        ? { ...settled, promptDeliveryUnknown: true, activation, primaryTabId }
-        : { ...settled, failure: 'prompt-delivery' as const, activation, primaryTabId }
+        ? { ...settled, promptDeliveryUnknown: true, recovery, activation, primaryTabId }
+        : { ...settled, failure: 'prompt-delivery' as const, recovery, activation, primaryTabId }
     }
     case 'failed':
+      // A strict create the host refused settles here (no fallback was declared): the
+      // workspace exists with no writer, and that is reported, never papered over.
+      if (strict && settlement.error instanceof StructuredAgentSessionCreateRefusalError) {
+        return {
+          ...settled,
+          accepted: false,
+          failure: 'structured-refused' as const,
+          activation,
+          primaryTabId
+        }
+      }
       // Why: a failed launch has always reported as accepted here; the launch layer toasts it.
       return { ...settled, activation, primaryTabId }
   }

@@ -69,15 +69,18 @@ export async function prepareStructuredAgentSessionCreateForWorktree(args: {
 }): Promise<PreparedStructuredAgentSessionCreate> {
   // Adoption replay may need the record loaded from disk before source discovery can be skipped.
   let host = args.resumeFrom ? await args.ensureHost() : null
+  // The authoritative comparison lives in the resolver: it sees the worktree RECORD (path,
+  // instance, identity, creator), so a workspace replaced under the same id and host between
+  // admission and create is refused there. The location check below is the coarse second
+  // barrier for a resolver that answers without a record.
   const resolved = await args.runtime.resolveStructuredAgentSessionCreateIntent({
     envelope: args.envelope,
     worktree: args.worktree,
     agent: args.agent,
     callerKey: args.caller.callerKey,
-    ...(args.resumeFrom ? { resumeFrom: args.resumeFrom } : {})
+    ...(args.resumeFrom ? { resumeFrom: args.resumeFrom } : {}),
+    ...(args.expectedWorktreeTarget ? { expectedWorktreeTarget: args.expectedWorktreeTarget } : {})
   })
-  // A worktree resolvida tem de ser a que a autoridade escopada autorizou; senão o
-  // create escapava do escopo que o admitiu.
   if (
     args.expectedWorktreeTarget &&
     !structuredAgentSessionCreateLocationMatchesTarget(

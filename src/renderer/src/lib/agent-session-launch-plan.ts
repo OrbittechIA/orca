@@ -42,6 +42,8 @@ export type AgentSessionLaunchVerdict = {
   promptDelivery?: NativeChatLaunchPromptDelivery
   resumeFrom?: StructuredAgentSessionResumeSource
   onPromptDelivered?: () => void
+  /** Re-enter an unknown launch with the exact intent and staged prompt it persisted. */
+  recover?: StructuredAgentLaunchOptions['recover']
 }
 
 export type AgentSessionStructuredFeasibilityRequest = AgentLaunchRouteArgs & {
@@ -69,7 +71,8 @@ function structuredLaunchOptions(verdict: AgentSessionLaunchVerdict): Structured
     ...(verdict.promptDelivery ? { promptDelivery: verdict.promptDelivery } : {}),
     ...(verdict.resumeFrom ? { resumeFrom: verdict.resumeFrom } : {}),
     ...(verdict.onPromptDelivered ? { onPromptDelivered: verdict.onPromptDelivered } : {}),
-    ...(verdict.launchOrigin ? { launchOrigin: verdict.launchOrigin } : {})
+    ...(verdict.launchOrigin ? { launchOrigin: verdict.launchOrigin } : {}),
+    ...(verdict.recover ? { recover: verdict.recover } : {})
   }
 }
 
