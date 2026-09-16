@@ -16,8 +16,10 @@ export type WorktreeCreationStructuredSessionResult = {
   promptDeliveryUnknown?: boolean
   /** `prompt-delivery`: definitive delivery refusal — the workspace stays, the retry does not.
    *  `structured-refused`: the host refused the strict create — the workspace stays with no writer
-   *  and no terminal opens in its place; the retry may try the session again. */
-  failure?: 'prompt-delivery' | 'structured-refused'
+   *  and no terminal opens in its place; the retry may try the session again.
+   *  `structured-launch`: the strict launch never reached a session (a throw before the create,
+   *  or a generic `failed` settlement) — same discipline: no writer, no terminal, no completion. */
+  failure?: 'prompt-delivery' | 'structured-refused' | 'structured-launch'
   /** The exact intent and staged prompt of the launch, for a retry after an unknown outcome. */
   recovery?: StructuredAgentLaunchRecovery
   activation: ActivateAndRevealResult | false
@@ -113,12 +115,20 @@ export async function launchStructuredWorktreeSession(
   } catch {
     // Why: nothing awaits this creation's caller, so an escaped throw would strand the panel
     // mid-create. Report it the way a failed launch already does; the launch layer toasts it.
-    return { ...settled, activation, primaryTabId }
+    // Strict: a launch that threw (an ambiguous runtime owner, a failed intent) started no
+    // session and delivered no prompt, and "accepted" would complete the creation on nothing.
+    return strict ? structuredLaunchFailed() : { ...settled, activation, primaryTabId }
   } finally {
     unsubscribe()
   }
-  if (!strict || !launch) {
+  if (!strict) {
     return { ...settled, activation, primaryTabId }
+  }
+  if (!launch) {
+    // Why: a strict launch that opened no surface only completes as a cancel, never as a Start.
+    return abandoned.signal.aborted || isCancelled()
+      ? { ...settled, cancelled: true, activation, primaryTabId }
+      : structuredLaunchFailed()
   }
   // Strict delivery is proof: without confirmation the create does not complete, and uncertainty
   // (reconcilable) is never treated as a refusal (definitive).
@@ -142,8 +152,9 @@ export async function launchStructuredWorktreeSession(
         primaryTabId
       }
     }
-    // Why: a failed launch has always reported as accepted here; the launch layer toasts it.
-    return { ...settled, activation, primaryTabId }
+    // Any other strict failure is the same discipline under another name: no session, no proof,
+    // no completion.
+    return structuredLaunchFailed()
   }
   const { recovery } = settlement
   const delivery = await settlement.promptDeliveryResult
@@ -156,4 +167,8 @@ export async function launchStructuredWorktreeSession(
     return { ...settled, promptDeliveryUnknown: true, recovery, activation, primaryTabId }
   }
   return { ...settled, failure: 'prompt-delivery' as const, recovery, activation, primaryTabId }
+
+  function structuredLaunchFailed(): WorktreeCreationStructuredSessionResult {
+    return { ...settled, accepted: false, failure: 'structured-launch', activation, primaryTabId }
+  }
 }

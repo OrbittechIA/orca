@@ -245,6 +245,32 @@ describe('structured worktree creation unknown outcome', () => {
     })
   })
 
+  it('keeps a strict launch failure on its retry surface instead of completing the creation', async () => {
+    mocks.launchStructuredWorktreeSession.mockResolvedValueOnce({
+      accepted: false,
+      cancelled: false,
+      visibilityUnknown: false,
+      failure: 'structured-launch',
+      activation: false,
+      primaryTabId: null
+    })
+
+    await executeWorktreeCreation('creation-1', request)
+
+    // The workspace exists with no writer: reported as an error the user can retry, never
+    // completed, never handed a terminal.
+    expect(store.removePendingWorktreeCreation).not.toHaveBeenCalled()
+    expect(store.updatePendingWorktreeCreation).toHaveBeenCalledWith('creation-1', {
+      status: 'error',
+      error: expect.stringContaining('no terminal was started in its place'),
+      structuredLaunchRecoveryWorktreeId: 'worktree-1',
+      structuredLaunchRecoveryIntent: undefined,
+      structuredLaunchRetryDisabled: false
+    })
+    expect(mocks.ensureWorktreeHasInitialTerminal).not.toHaveBeenCalled()
+    expect(mocks.activateAndRevealWorktree).not.toHaveBeenCalled()
+  })
+
   it('keeps a definitive delivery failure on the existing worktree without retry', async () => {
     mocks.launchStructuredWorktreeSession.mockResolvedValue({
       accepted: true,

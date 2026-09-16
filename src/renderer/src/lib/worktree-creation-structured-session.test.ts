@@ -252,6 +252,32 @@ describe('launchStructuredWorktreeSession under a strict Work Item Start', () =>
     })
   })
 
+  it('fails closed on a generic failed settlement and on a launch that throws', async () => {
+    settlesAs({ kind: 'failed', error: new Error('boom') })
+    await expect(launchStructuredWorktreeSession(strictArgs)).resolves.toMatchObject({
+      accepted: false,
+      failure: 'structured-launch'
+    })
+
+    mocks.beginStructuredAgentSessionProvisionalLaunch.mockImplementation(() => {
+      throw new Error('ambiguous owner')
+    })
+    await expect(launchStructuredWorktreeSession(strictArgs)).resolves.toMatchObject({
+      accepted: false,
+      failure: 'structured-launch'
+    })
+  })
+
+  it('fails closed when the chat surface could not open', async () => {
+    mocks.beginStructuredAgentSessionProvisionalLaunch.mockReturnValue(null)
+
+    await expect(launchStructuredWorktreeSession(strictArgs)).resolves.toMatchObject({
+      accepted: false,
+      cancelled: false,
+      failure: 'structured-launch'
+    })
+  })
+
   it('never reads missing delivery evidence as success', async () => {
     settlesAs({ kind: 'structured', sessionId: 'session-1', recovery: RECOVERY })
 
