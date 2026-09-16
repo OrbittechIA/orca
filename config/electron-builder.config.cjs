@@ -26,11 +26,12 @@ const { verifySkillsCliRuntime } = require('./scripts/verify-skills-cli-runtime.
 const { verifyStaticAppImagePackage } = require('./scripts/static-appimage-package-contract.cjs')
 const { dirname } = require('node:path')
 
-/** Set only for a throwaway local package: it embeds no identity and can never certify. */
-const UNCERTIFIED_BUILD = process.env.ORCA_BUILD_UNCERTIFIED === '1'
+/** Set only for a throwaway local package: it embeds no identity and can never certify.
+ *  Read per call, not at load: the gate must answer for the process that packages. */
+const uncertifiedBuild = () => process.env.ORCA_BUILD_UNCERTIFIED === '1'
 
 async function verifyPackagedBuildProvenance(asarPath) {
-  if (UNCERTIFIED_BUILD) {
+  if (uncertifiedBuild()) {
     console.warn('[build-provenance] ORCA_BUILD_UNCERTIFIED=1: packaged bundle not verified')
     return
   }
@@ -49,7 +50,7 @@ async function verifyPackagedBuildProvenance(asarPath) {
 }
 
 async function writeCandidateManifestForPackaging(distDir) {
-  if (UNCERTIFIED_BUILD) {
+  if (uncertifiedBuild()) {
     return
   }
   const { readBuildProvenanceLiteral } = await import('./scripts/build-provenance.mjs')
@@ -339,14 +340,15 @@ module.exports = {
     'node_modules/zod/**',
     'node_modules/yaml/**'
   ],
-  artifactBuildCompleted: async ({ file, arch }) => {
+  artifactBuildCompleted: ({ file, arch }) => {
+    // Synchronous on purpose: an invalid AppImage throws before anything else runs.
     if (file.endsWith('.AppImage')) {
       verifyStaticAppImagePackage(file, arch)
     }
     // The manifest is regenerated after EVERY artifact rather than once at the end, so a
     // later target failing on this host (rpm without rpmbuild) never leaves the finished
     // artifacts without the manifest that binds them to the commit.
-    await writeCandidateManifestForPackaging(dirname(file))
+    return writeCandidateManifestForPackaging(dirname(file))
   },
   // electron-builder calls this with the context alone. The second parameter is the bundle root,
   // so a test can point the guard at a scratch bundle instead of needing the repo's out/ built.

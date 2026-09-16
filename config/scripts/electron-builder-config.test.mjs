@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -296,6 +296,10 @@ describe('electron-builder config', () => {
 
   it('validates each AppImage before electron-builder publishes it', async () => {
     const root = await mkdtemp(join(tmpdir(), 'orca-electron-builder-appimage-'))
+    // This test exercises the AppImage contract, not certification: a throwaway package
+    // writes no manifest (the manifest gate has its own tests below).
+    const previous = process.env.ORCA_BUILD_UNCERTIFIED
+    process.env.ORCA_BUILD_UNCERTIFIED = '1'
     try {
       const appImage = join(root, 'orca-linux.AppImage')
       await writeFile(appImage, 'not an ELF')
@@ -304,9 +308,66 @@ describe('electron-builder config', () => {
       expect(() =>
         electronBuilderConfig.artifactBuildCompleted({ file: appImage, arch: 1 })
       ).toThrow(/ELF header is outside/)
-      expect(() =>
+      await expect(
         electronBuilderConfig.artifactBuildCompleted({ file: join(root, 'orca-ide.deb') })
-      ).not.toThrow()
+      ).resolves.toBeUndefined()
+    } finally {
+      if (previous === undefined) {
+        delete process.env.ORCA_BUILD_UNCERTIFIED
+      } else {
+        process.env.ORCA_BUILD_UNCERTIFIED = previous
+      }
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses to write a candidate manifest for an identity the repository contradicts', async () => {
+    // Deterministic in a clean or dirty checkout: the override never matches HEAD.
+    const root = await mkdtemp(join(tmpdir(), 'orca-electron-builder-manifest-'))
+    const previous = process.env.ORCA_BUILD_COMMIT
+    process.env.ORCA_BUILD_COMMIT = 'c'.repeat(40)
+    try {
+      await writeFile(join(root, 'orca-ide.deb'), 'deb bytes')
+      await expect(
+        electronBuilderConfig.artifactBuildCompleted({ file: join(root, 'orca-ide.deb') })
+      ).rejects.toThrow(/does not match the repository/)
+      expect(existsSync(join(root, 'candidate-manifest.json'))).toBe(false)
+    } finally {
+      if (previous === undefined) {
+        delete process.env.ORCA_BUILD_COMMIT
+      } else {
+        process.env.ORCA_BUILD_COMMIT = previous
+      }
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses a packaged bundle whose embed site carries null, before anything else in afterPack', async () => {
+    // A real app.asar whose main bundle has the embed site with `null`: the shape a silent
+    // packager failure produces. Whatever the checkout state, this never passes.
+    const root = await mkdtemp(join(tmpdir(), 'orca-electron-builder-null-identity-'))
+    try {
+      const resourcesDir = join(root, 'linux-unpacked', 'resources')
+      const stage = join(root, 'stage', 'out', 'main')
+      await mkdir(stage, { recursive: true })
+      await writeFile(
+        join(stage, 'index.js'),
+        'function V(){return B({site:`orca:build-provenance:embed`,value:null})}\n'
+      )
+      await mkdir(resourcesDir, { recursive: true })
+      await require('@electron/asar').createPackage(
+        join(root, 'stage'),
+        join(resourcesDir, 'app.asar')
+      )
+      await expect(
+        electronBuilderConfig.afterPack({
+          electronPlatformName: 'linux',
+          arch: 1,
+          appOutDir: join(root, 'linux-unpacked'),
+          packager: { appInfo: { version: '1.4.203', productFilename: 'Orca' } }
+        })
+      ).rejects.toThrow(/refusing to certify|embeds no build identity at its read site/)
+      expect(existsSync(join(resourcesDir, 'package-type'))).toBe(false)
     } finally {
       await rm(root, { recursive: true, force: true })
     }

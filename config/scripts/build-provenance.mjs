@@ -22,18 +22,98 @@ export class BuildProvenanceError extends Error {
   }
 }
 
-/** electron-vite bundles its config into the working directory while loading it — which is
- *  exactly when this module runs — and removes the file afterwards. It is derived from the
- *  tracked config, so it is not an input; it is also gitignored, this is the belt to that brace. */
-const TRANSIENT_CONFIG_BUNDLE = /^\?\? electron\.vite\.config\.\d+\.mjs$/
-
 /** Working-tree entries that make the commit an unreliable name for what was built. Ignored
- *  paths (`dist`, `out`, `node_modules`) never appear here; anything else does. */
+ *  paths (`dist`, `out`, `node_modules`) never appear here; EVERYTHING else does — including
+ *  a file shaped like electron-vite's transient config bundle. That bundle is kept out of this
+ *  observation by timing (see `readBuildProvenanceLiteralForConfigLoad`), never by name. */
 export function dirtyBuildInputs(statusPorcelain) {
   return statusPorcelain
     .split('\n')
     .map((line) => line.trimEnd())
-    .filter((line) => line.length > 0 && !TRANSIENT_CONFIG_BUNDLE.test(line))
+    .filter((line) => line.length > 0)
+}
+
+/**
+ * electron-vite bundles its config into `electron.vite.config.<timestamp>.mjs` in the working
+ * directory while the config loads — which is exactly when the config asks for provenance —
+ * and deletes it afterwards. Whitelisting that name would let any file hide under it, so the
+ * identity is read BEFORE electron-vite starts, by the build wrapper, and handed to the config
+ * through this variable. The config does not trust it blindly: it must still name the commit
+ * and tree git reports at load time.
+ */
+export const ELECTRON_VITE_BUILD_PROVENANCE_ENV = 'ORCA_ELECTRON_VITE_BUILD_PROVENANCE'
+
+export function provenanceEnvironmentForElectronVite({
+  cwd,
+  env = process.env,
+  run = execFileSync,
+  warn
+} = {}) {
+  return {
+    ...env,
+    [ELECTRON_VITE_BUILD_PROVENANCE_ENV]: readBuildProvenanceLiteral({
+      cwd,
+      env,
+      run,
+      ...(warn ? { warn } : {})
+    })
+  }
+}
+
+const IDENTITY_FIELDS = ['version', 'commit', 'tree', 'buildId']
+
+/** The literal the config embeds. With the wrapper's handoff present it is validated against
+ *  the repository and used; without it (a direct `electron-vite` invocation) the strict read
+ *  runs here, where the transient bundle makes the tree dirty and the answer `null`. */
+export function readBuildProvenanceLiteralForConfigLoad({
+  cwd = process.cwd(),
+  env = process.env,
+  run = execFileSync,
+  warn = (message) => console.warn(`[build-provenance] ${message}`)
+} = {}) {
+  const handed = env[ELECTRON_VITE_BUILD_PROVENANCE_ENV]
+  if (handed === undefined) {
+    return readBuildProvenanceLiteral({ cwd, env, run, warn })
+  }
+  if (handed === 'null') {
+    return 'null'
+  }
+  let identity
+  try {
+    identity = JSON.parse(handed)
+  } catch {
+    throw new BuildProvenanceError(`${ELECTRON_VITE_BUILD_PROVENANCE_ENV} is not JSON`)
+  }
+  if (
+    !identity ||
+    typeof identity !== 'object' ||
+    IDENTITY_FIELDS.some((field) => typeof identity[field] !== 'string' || !identity[field]) ||
+    Object.keys(identity).length !== IDENTITY_FIELDS.length
+  ) {
+    throw new BuildProvenanceError(`${ELECTRON_VITE_BUILD_PROVENANCE_ENV} is not a build identity`)
+  }
+  const git = (args) => String(run('git', args, { cwd, encoding: 'utf8' })).trim()
+  let commit
+  let tree
+  try {
+    commit = git(['rev-parse', 'HEAD'])
+    tree = git(['rev-parse', 'HEAD^{tree}'])
+  } catch {
+    throw new BuildProvenanceError(
+      `${ELECTRON_VITE_BUILD_PROVENANCE_ENV} was handed over but no git repository can confirm it`
+    )
+  }
+  if (identity.commit !== commit || identity.tree !== tree) {
+    throw new BuildProvenanceError(
+      `${ELECTRON_VITE_BUILD_PROVENANCE_ENV} names ${identity.commit}/${identity.tree}, the repository is at ${commit}/${tree}`
+    )
+  }
+  return JSON.stringify({
+    version: identity.version,
+    commit: identity.commit,
+    tree: identity.tree,
+    buildId: identity.buildId
+  })
 }
 
 export function readBuildProvenanceLiteral({

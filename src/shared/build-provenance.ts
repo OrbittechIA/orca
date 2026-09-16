@@ -49,12 +49,29 @@ export function parseBuildProvenance(value: unknown): BuildProvenance | null {
   }
 }
 
+/**
+ * O sentinela EXATO a que o verificador de empacotamento se amarra: o valor que vem logo
+ * depois dele no bundle é o que o empacotador substituiu, não importa onde mais as mesmas
+ * strings apareçam. Mantido em `config/scripts/verify-build-provenance.mjs` byte a byte.
+ */
+export const BUILD_PROVENANCE_EMBED_SITE = 'orca:build-provenance:embed'
+
+type BuildProvenanceEmbed = { site: string; value: unknown }
+
+function embeddedBuildProvenance(embed: BuildProvenanceEmbed): unknown {
+  // Uma checagem real do sentinela, para que nenhum minificador o descarte como não lido.
+  return embed.site === BUILD_PROVENANCE_EMBED_SITE ? embed.value : null
+}
+
 /** `null` num build de contribuidor: ausência declarada, nunca um valor de cortesia. */
 export function readBuildProvenance(): BuildProvenance | null {
   // Lido de `globalThis` e não do identificador direto: o define do empacotador escreve os
   // dois, e só este resolve igual em todos os tsconfigs do repositório.
   return parseBuildProvenance(
-    (globalThis as { ORCA_BUILD_PROVENANCE?: unknown }).ORCA_BUILD_PROVENANCE
+    embeddedBuildProvenance({
+      site: BUILD_PROVENANCE_EMBED_SITE,
+      value: (globalThis as { ORCA_BUILD_PROVENANCE?: unknown }).ORCA_BUILD_PROVENANCE
+    })
   )
 }
 
