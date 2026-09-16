@@ -119,6 +119,17 @@ describe('build provenance is read from the repo, whatever loaded this module', 
     expect(dirtyBuildInputs('')).toEqual([])
   })
 
+  it("does not count electron-vite's transient config bundle, which exists only while packaging", () => {
+    // Found by the first fail-closed package: electron-vite writes `electron.vite.config.<ts>.mjs`
+    // into the working directory while the config (this module's caller) loads.
+    expect(dirtyBuildInputs('?? electron.vite.config.1789594574002.mjs\n')).toEqual([])
+    // A modified or differently named file is still an input.
+    expect(dirtyBuildInputs(' M electron.vite.config.ts\n')).toEqual([' M electron.vite.config.ts'])
+    expect(dirtyBuildInputs('?? electron.vite.config.evil.mjs\n')).toEqual([
+      '?? electron.vite.config.evil.mjs'
+    ])
+  })
+
   it('derives one build id from commit and tree, stable across calls', () => {
     const first = JSON.parse(readBuildProvenanceLiteral({ env: {}, run: fakeGit() }))
     const second = JSON.parse(readBuildProvenanceLiteral({ env: {}, run: fakeGit() }))
