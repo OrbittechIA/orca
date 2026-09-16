@@ -252,6 +252,17 @@ describe('launchStructuredWorktreeSession under a strict Work Item Start', () =>
     })
   })
 
+  it('never reads missing delivery evidence as success', async () => {
+    settlesAs({ kind: 'structured', sessionId: 'session-1', recovery: RECOVERY })
+
+    await expect(launchStructuredWorktreeSession(strictArgs)).resolves.toMatchObject({
+      accepted: true,
+      promptDeliveryUnknown: true,
+      recovery: RECOVERY
+    })
+    expect(mocks.beginStructuredAgentSessionProvisionalLaunch).toHaveBeenCalledTimes(1)
+  })
+
   it('treats an unconfirmed prompt as unknown and a refused one as a definitive failure', async () => {
     settlesAs({
       kind: 'structured',

@@ -147,10 +147,13 @@ export async function launchStructuredWorktreeSession(
   }
   const { recovery } = settlement
   const delivery = await settlement.promptDeliveryResult
-  if (!delivery || delivery.delivered) {
+  if (delivery?.delivered) {
     return { ...settled, recovery, activation, primaryTabId }
   }
-  return delivery.deliveryUnknown === true
-    ? { ...settled, promptDeliveryUnknown: true, recovery, activation, primaryTabId }
-    : { ...settled, failure: 'prompt-delivery' as const, recovery, activation, primaryTabId }
+  // No delivery evidence at all is not evidence of delivery. A strict Start only completes on
+  // proof; silence is reconciled later under the same intent, never completed or replaced.
+  if (!delivery || delivery.deliveryUnknown === true) {
+    return { ...settled, promptDeliveryUnknown: true, recovery, activation, primaryTabId }
+  }
+  return { ...settled, failure: 'prompt-delivery' as const, recovery, activation, primaryTabId }
 }
