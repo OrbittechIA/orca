@@ -22,13 +22,18 @@ export class BuildProvenanceError extends Error {
   }
 }
 
+/** electron-vite bundles its config into the working directory while loading it — which is
+ *  exactly when this module runs — and removes the file afterwards. It is derived from the
+ *  tracked config, so it is not an input; it is also gitignored, this is the belt to that brace. */
+const TRANSIENT_CONFIG_BUNDLE = /^\?\? electron\.vite\.config\.\d+\.mjs$/
+
 /** Working-tree entries that make the commit an unreliable name for what was built. Ignored
  *  paths (`dist`, `out`, `node_modules`) never appear here; anything else does. */
 export function dirtyBuildInputs(statusPorcelain) {
   return statusPorcelain
     .split('\n')
     .map((line) => line.trimEnd())
-    .filter((line) => line.length > 0)
+    .filter((line) => line.length > 0 && !TRANSIENT_CONFIG_BUNDLE.test(line))
 }
 
 export function readBuildProvenanceLiteral({
