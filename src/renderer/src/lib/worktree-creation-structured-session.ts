@@ -27,8 +27,11 @@ export type WorktreeCreationStructuredSessionResult = {
   promptDeliveryUnknown?: boolean
   /** `prompt-delivery`: recusa definitiva da entrega — a workspace fica, o retry não.
    *  `structured-refused`: o host recusou o create estrito — a workspace fica sem writer e
-   *  nenhum terminal abre no lugar; o retry pode tentar a sessão de novo. */
-  failure?: 'prompt-delivery' | 'structured-refused'
+   *  nenhum terminal abre no lugar; o retry pode tentar a sessão de novo.
+   *  `structured-launch`: o launch estrito não chegou a uma sessão (erro lançado antes do
+   *  create, ou um settlement `failed` genérico) — mesma disciplina: sem writer, sem
+   *  terminal, sem completar; o retry tenta de novo. */
+  failure?: 'prompt-delivery' | 'structured-refused' | 'structured-launch'
   /** The exact intent and staged prompt of the launch, for a retry after an unknown outcome. */
   recovery?: StructuredAgentLaunchRecovery
   activation: ActivateAndRevealResult | false
@@ -196,12 +199,14 @@ export async function launchStructuredWorktreeSession(
   } catch {
     // Why: nothing awaits this creation's caller, so an escaped throw would strand the panel
     // mid-create. Report it the way a failed launch already does; the launch layer toasts it.
-    return { ...settled, activation, primaryTabId }
+    // Strict: a launch that threw (an ambiguous runtime owner, a failed intent) started no
+    // session and delivered no prompt, and "accepted" would complete the creation on nothing.
+    return strict ? structuredLaunchFailed() : { ...settled, activation, primaryTabId }
   } finally {
     unsubscribe()
   }
   if (!settlement) {
-    return { ...settled, activation, primaryTabId }
+    return strict ? structuredLaunchFailed() : { ...settled, activation, primaryTabId }
   }
   switch (settlement.kind) {
     case 'cancelled': {
@@ -255,17 +260,19 @@ export async function launchStructuredWorktreeSession(
     }
     case 'failed':
       // A strict create the host refused settles here (no fallback was declared): the
-      // workspace exists with no writer, and that is reported, never papered over.
-      if (strict && settlement.error instanceof StructuredAgentSessionCreateRefusalError) {
-        return {
-          ...settled,
-          accepted: false,
-          failure: 'structured-refused' as const,
-          activation,
-          primaryTabId
-        }
+      // workspace exists with no writer, and that is reported, never papered over. Any other
+      // strict failure is the same discipline under another name: no session, no proof, no
+      // completion.
+      if (strict) {
+        return settlement.error instanceof StructuredAgentSessionCreateRefusalError
+          ? { ...settled, accepted: false, failure: 'structured-refused', activation, primaryTabId }
+          : structuredLaunchFailed()
       }
       // Why: a failed launch has always reported as accepted here; the launch layer toasts it.
       return { ...settled, activation, primaryTabId }
+  }
+
+  function structuredLaunchFailed(): WorktreeCreationStructuredSessionResult {
+    return { ...settled, accepted: false, failure: 'structured-launch', activation, primaryTabId }
   }
 }

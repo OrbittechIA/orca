@@ -78,6 +78,20 @@ export function markStructuredWorktreePromptDeliveryFailed(
   })
 }
 
+/** O launch estrito não chegou a uma sessão: sem writer, sem terminal; o retry tenta de novo. */
+export function markStructuredWorktreeLaunchFailed(creationId: string, worktreeId: string): void {
+  useAppStore.getState().updatePendingWorktreeCreation(creationId, {
+    status: 'error',
+    error: translate(
+      'auto.lib.worktree.creation.flow.structured.launch.failed',
+      'The structured agent session for this work item could not be started. The workspace was created without an agent; no terminal was started in its place. Retry to try the session again.'
+    ),
+    structuredLaunchRecoveryWorktreeId: worktreeId,
+    structuredLaunchRecoveryIntent: undefined,
+    structuredLaunchRetryDisabled: false
+  })
+}
+
 /**
  * Every non-completing outcome of a structured quick-create launch, marked on the pending entry
  * so Retry re-enters the right lane. Returns `false` when the launch completed (or was cancelled)
@@ -96,6 +110,8 @@ export function markStructuredWorktreeLaunchOutcome(
     markStructuredWorktreePromptDeliveryFailed(creationId, worktreeId)
   } else if (result.failure === 'structured-refused') {
     markStructuredWorktreeLaunchRefused(creationId, worktreeId)
+  } else if (result.failure === 'structured-launch') {
+    markStructuredWorktreeLaunchFailed(creationId, worktreeId)
   } else {
     return false
   }
