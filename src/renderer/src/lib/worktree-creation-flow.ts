@@ -164,7 +164,8 @@ export function retryBackgroundWorktreeCreation(creationId: string): void {
     void retryStructuredWorktreeLaunch(
       creationId,
       entry.request,
-      entry.structuredLaunchRecoveryWorktreeId
+      entry.structuredLaunchRecoveryWorktreeId,
+      entry.structuredLaunchRecoveryIntent
     ).finally(() => reconcilingStructuredCreations.delete(creationId))
     return
   }

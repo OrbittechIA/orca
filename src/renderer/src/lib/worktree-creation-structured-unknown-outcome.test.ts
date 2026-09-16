@@ -21,6 +21,27 @@ const request: WorktreeCreationRequest = {
   quickTelemetry: null
 }
 
+const RECOVERY = {
+  intent: {
+    sessionId: 'session-1',
+    worktreeId: 'worktree-1',
+    agent: 'codex' as const,
+    target: { kind: 'local' as const },
+    params: {
+      envelope: {
+        sessionId: 'session-1',
+        clientOperationId: 'create-op-1',
+        expectedRuntimeFence: null,
+        payloadFingerprint: 'f'.repeat(64)
+      },
+      worktree: 'id:worktree-1',
+      agent: 'codex' as const,
+      launchOrigin: 'work-item-start' as const
+    }
+  },
+  clientMessageId: 'message-op-1'
+}
+
 const store = {
   activeView: 'terminal',
   activePendingCreationId: 'creation-1' as string | null,
@@ -148,6 +169,7 @@ describe('structured worktree creation unknown outcome', () => {
         accepted: true,
         cancelled: false,
         visibilityUnknown: true,
+        recovery: RECOVERY,
         activation: false,
         primaryTabId: null
       })
@@ -160,15 +182,22 @@ describe('structured worktree creation unknown outcome', () => {
       })
 
     await executeWorktreeCreation('creation-1', request)
+    // The pending entry persists the exact intent the retry must re-enter with.
+    expect(store.pendingWorktreeCreations['creation-1']).toMatchObject({
+      structuredLaunchRecoveryWorktreeId: 'worktree-1',
+      structuredLaunchRecoveryIntent: RECOVERY
+    })
     retryBackgroundWorktreeCreation('creation-1')
 
     await vi.waitFor(() => expect(mocks.launchStructuredWorktreeSession).toHaveBeenCalledTimes(2))
+    // One worktree, and the retry names the same session id and prompt operation.
     expect(store.createWorktree).toHaveBeenCalledTimes(1)
     expect(mocks.launchStructuredWorktreeSession).toHaveBeenLastCalledWith(
       expect.objectContaining({
         creationId: 'creation-1',
         request,
-        worktreeId: 'worktree-1'
+        worktreeId: 'worktree-1',
+        recover: RECOVERY
       })
     )
     expect(store.removePendingWorktreeCreation).toHaveBeenCalledWith('creation-1', {
@@ -249,6 +278,7 @@ describe('structured worktree creation unknown outcome', () => {
         cancelled: false,
         visibilityUnknown: false,
         promptDeliveryUnknown: true,
+        recovery: RECOVERY,
         activation: false,
         primaryTabId: null
       })
@@ -267,6 +297,7 @@ describe('structured worktree creation unknown outcome', () => {
       error:
         'Could not confirm whether the work item prompt was delivered. Retry to reconcile the same message.',
       structuredLaunchRecoveryWorktreeId: 'worktree-1',
+      structuredLaunchRecoveryIntent: RECOVERY,
       structuredLaunchRetryDisabled: false
     })
 
@@ -278,7 +309,8 @@ describe('structured worktree creation unknown outcome', () => {
       expect.objectContaining({
         creationId: 'creation-1',
         request,
-        worktreeId: 'worktree-1'
+        worktreeId: 'worktree-1',
+        recover: RECOVERY
       })
     )
     expect(store.removePendingWorktreeCreation).toHaveBeenCalledWith('creation-1', {

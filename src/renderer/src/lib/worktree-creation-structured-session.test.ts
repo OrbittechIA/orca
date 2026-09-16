@@ -6,6 +6,11 @@ type BeginArgs = {
   beforeOpen?: (sessionId: string) => boolean | void
   hooks?: { signal?: AbortSignal }
 }
+type ProvisionalLaunch = {
+  sessionId: string
+  tab: { id: string }
+  settlement?: Promise<unknown>
+}
 const mocks = vi.hoisted(() => {
   let listener: PendingCreationListener | null = null
   return {
@@ -21,7 +26,7 @@ const mocks = vi.hoisted(() => {
     },
     unsubscribe: vi.fn<() => void>(),
     beginStructuredAgentSessionProvisionalLaunch:
-      vi.fn<(args: BeginArgs) => { sessionId: string; tab: { id: string } } | null>(),
+      vi.fn<(args: BeginArgs) => ProvisionalLaunch | null>(),
     activateAndRevealWorktree: vi.fn<(worktreeId: string, options?: unknown) => unknown>()
   }
 })
@@ -46,6 +51,11 @@ vi.mock('@/lib/worktree-activation', () => ({
   activateAndRevealWorktree: mocks.activateAndRevealWorktree
 }))
 
+vi.mock('@/lib/launch-structured-agent-session', () => ({
+  StructuredAgentSessionCreateRefusalError: class extends Error {}
+}))
+
+import { StructuredAgentSessionCreateRefusalError } from '@/lib/launch-structured-agent-session'
 import { launchStructuredWorktreeSession } from './worktree-creation-structured-session'
 
 const request = {
@@ -159,5 +169,113 @@ describe('launchStructuredWorktreeSession', () => {
       primaryTabId: null
     })
     expect(mocks.activateAndRevealWorktree).not.toHaveBeenCalled()
+  })
+})
+
+const RECOVERY = {
+  intent: {
+    sessionId: 'session-1',
+    worktreeId: 'worktree-1',
+    agent: 'codex' as const,
+    target: { kind: 'local' as const },
+    params: {
+      envelope: {
+        sessionId: 'session-1',
+        clientOperationId: 'create-op-1',
+        expectedRuntimeFence: null,
+        payloadFingerprint: 'f'.repeat(64)
+      },
+      worktree: 'id:worktree-1',
+      agent: 'codex' as const,
+      launchOrigin: 'work-item-start' as const
+    }
+  },
+  clientMessageId: 'message-op-1'
+}
+
+const strictArgs = {
+  ...baseArgs,
+  request: { ...request, workItemStartPromptDelivery: 'submit-after-ready' as const }
+}
+
+function settlesAs(settlement: unknown): void {
+  mocks.beginStructuredAgentSessionProvisionalLaunch.mockImplementation((args) => {
+    args.beforeOpen?.('session-1')
+    return {
+      sessionId: 'session-1',
+      tab: { id: 'agent-session:session-1' },
+      settlement: Promise.resolve(settlement)
+    }
+  })
+}
+
+describe('launchStructuredWorktreeSession under a strict Work Item Start', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.state.pendingWorktreeCreations = Object.fromEntries([['creation-1', {}]])
+    mocks.activateAndRevealWorktree.mockReturnValue({ primaryTabId: null })
+  })
+
+  it('re-enters with the scoped origin and the persisted recovery, and completes on proof', async () => {
+    settlesAs({
+      kind: 'structured',
+      sessionId: 'session-1',
+      recovery: RECOVERY,
+      promptDeliveryResult: Promise.resolve({ delivered: true, failureNotified: false })
+    })
+
+    await expect(
+      launchStructuredWorktreeSession({ ...strictArgs, recover: RECOVERY })
+    ).resolves.toMatchObject({ accepted: true, cancelled: false, recovery: RECOVERY })
+    expect(mocks.beginStructuredAgentSessionProvisionalLaunch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        plan: expect.objectContaining({ launchOrigin: 'work-item-start', recover: RECOVERY })
+      })
+    )
+  })
+
+  it('keeps an unknown launch outcome reconcilable under its recovery', async () => {
+    settlesAs({ kind: 'visibility-unknown', sessionId: 'session-1', recovery: RECOVERY })
+
+    await expect(launchStructuredWorktreeSession(strictArgs)).resolves.toMatchObject({
+      visibilityUnknown: true,
+      recovery: RECOVERY
+    })
+  })
+
+  it('reports a refused strict create without accepting it', async () => {
+    settlesAs({ kind: 'failed', error: new StructuredAgentSessionCreateRefusalError('refused') })
+
+    await expect(launchStructuredWorktreeSession(strictArgs)).resolves.toMatchObject({
+      accepted: false,
+      failure: 'structured-refused'
+    })
+  })
+
+  it('treats an unconfirmed prompt as unknown and a refused one as a definitive failure', async () => {
+    settlesAs({
+      kind: 'structured',
+      sessionId: 'session-1',
+      recovery: RECOVERY,
+      promptDeliveryResult: Promise.resolve({
+        delivered: false,
+        failureNotified: false,
+        deliveryUnknown: true
+      })
+    })
+    await expect(launchStructuredWorktreeSession(strictArgs)).resolves.toMatchObject({
+      promptDeliveryUnknown: true,
+      recovery: RECOVERY
+    })
+
+    settlesAs({
+      kind: 'structured',
+      sessionId: 'session-1',
+      recovery: RECOVERY,
+      promptDeliveryResult: Promise.resolve({ delivered: false, failureNotified: false })
+    })
+    await expect(launchStructuredWorktreeSession(strictArgs)).resolves.toMatchObject({
+      failure: 'prompt-delivery'
+    })
   })
 })

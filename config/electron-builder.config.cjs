@@ -24,6 +24,44 @@ const {
 } = require('./scripts/verify-packaged-node-pty-job-ownership.cjs')
 const { verifySkillsCliRuntime } = require('./scripts/verify-skills-cli-runtime.cjs')
 const { verifyStaticAppImagePackage } = require('./scripts/static-appimage-package-contract.cjs')
+const { dirname } = require('node:path')
+
+/** Set only for a throwaway local package: it embeds no identity and can never certify. */
+const UNCERTIFIED_BUILD = process.env.ORCA_BUILD_UNCERTIFIED === '1'
+
+async function verifyPackagedBuildProvenance(asarPath) {
+  if (UNCERTIFIED_BUILD) {
+    console.warn('[build-provenance] ORCA_BUILD_UNCERTIFIED=1: packaged bundle not verified')
+    return
+  }
+  const { readBuildProvenanceLiteral } = await import('./scripts/build-provenance.mjs')
+  const { verifyBundledBuildProvenance } = await import('./scripts/verify-build-provenance.mjs')
+  const asar = require('@electron/asar')
+  const bundle = asar.extractFile(asarPath, 'out/main/index.js').toString('utf8')
+  const expected = verifyBundledBuildProvenance({
+    bundlePath: `${asarPath}:out/main/index.js`,
+    bundle,
+    expectedLiteral: readBuildProvenanceLiteral({ cwd: resolve(__dirname, '..') })
+  })
+  console.log(
+    `[build-provenance] packaged bundle carries ${expected.version} ${expected.commit} build ${expected.buildId}`
+  )
+}
+
+async function writeCandidateManifestForPackaging(distDir) {
+  if (UNCERTIFIED_BUILD) {
+    return
+  }
+  const { readBuildProvenanceLiteral } = await import('./scripts/build-provenance.mjs')
+  const { buildCandidateManifest } = await import('./scripts/write-candidate-manifest.mjs')
+  const manifest = buildCandidateManifest({
+    distDir,
+    provenanceLiteral: readBuildProvenanceLiteral({ cwd: resolve(__dirname, '..') })
+  })
+  const target = join(distDir, 'candidate-manifest.json')
+  writeFileSync(target, `${JSON.stringify(manifest, null, 2)}\n`)
+  console.log(`[build-provenance] wrote ${target} (${manifest.artifacts.length} artifact(s))`)
+}
 const { signWindowsUninstallerViaSignPath } = require('./scripts/windows-uninstaller-signing.cjs')
 
 // Why: dev-channel builds must carry the *release* identity — same bundle id,
@@ -301,10 +339,14 @@ module.exports = {
     'node_modules/zod/**',
     'node_modules/yaml/**'
   ],
-  artifactBuildCompleted: ({ file, arch }) => {
+  artifactBuildCompleted: async ({ file, arch }) => {
     if (file.endsWith('.AppImage')) {
       verifyStaticAppImagePackage(file, arch)
     }
+    // The manifest is regenerated after EVERY artifact rather than once at the end, so a
+    // later target failing on this host (rpm without rpmbuild) never leaves the finished
+    // artifacts without the manifest that binds them to the commit.
+    await writeCandidateManifestForPackaging(dirname(file))
   },
   // electron-builder calls this with the context alone. The second parameter is the bundle root,
   // so a test can point the guard at a scratch bundle instead of needing the repo's out/ built.
@@ -325,6 +367,9 @@ module.exports = {
     if (!existsSync(resourcesDir)) {
       throw new Error(`Missing packaged resources directory: ${resourcesDir}`)
     }
+    // Certification reads the PACKAGED bundle, so this is where the identity is proved: the
+    // literal electron-vite substituted must be this repo's clean HEAD, or packaging stops.
+    await verifyPackagedBuildProvenance(join(resourcesDir, 'app.asar'))
     // FpmTarget replaces this with deb/rpm while building those artifacts from the shared app tree.
     if (context.electronPlatformName === 'linux') {
       writeFileSync(join(resourcesDir, 'package-type'), 'AppImage')

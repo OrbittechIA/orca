@@ -4,6 +4,10 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { parsePairingCode } from '../../shared/pairing'
 import { structuredAgentSessionCreateWorktreeTarget } from './structured-agent-session-create-worktree-target'
+import {
+  structuredAgentSessionPaneKey,
+  structuredAgentSessionTabId
+} from '../../shared/structured-agent-session-projection'
 import { STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY } from '../../shared/protocol-version'
 import { RemoteRuntimeRequestConnection } from '../../shared/remote-runtime-request-connection'
 import { setStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
@@ -182,7 +186,10 @@ function rendererWorkItemStore(): Record<string, unknown> {
     ensureRemoteDetectedAgents: launchMocks.ensureDetectedAgents,
     createWorktree: launchMocks.createWorktree,
     updateWorktreeMeta: vi.fn().mockResolvedValue(undefined),
-    setSidebarOpen: vi.fn()
+    setSidebarOpen: vi.fn(),
+    // The provisional chat tab opens before the launch settles.
+    createUnifiedTab: vi.fn((_worktreeId: string, _type: string, tab: { id: string }) => tab),
+    setActiveTabType: vi.fn()
   }
 }
 
@@ -470,6 +477,57 @@ describe('structured agent worktree.ps projection', () => {
     expect(summary?.agents[0]?.providerSession).toEqual({
       key: 'session_id',
       id: 'codex-thread-1'
+    })
+  })
+
+  it('projects one row when the hook store and the host both hold the same session', async () => {
+    // Production shape: the host publishes every projection into the hook store through the
+    // status sink under the derived structured pane key, and that row has no `sessionId`.
+    // Dedup by session id alone missed it, so `worktree ps` listed the session twice.
+    const sessionId = 'native-session-dup'
+    const paneKey = structuredAgentSessionPaneKey(structuredAgentSessionTabId(sessionId), sessionId)
+    setStructuredAgentSessionHost({
+      listStatusSummaries: () => [
+        {
+          sessionId,
+          workspaceId: TEST_WORKTREE_ID,
+          agent: 'codex',
+          status: 'working',
+          latestPrompt: 'Implement the task',
+          hostExecutionOwned: true,
+          providerSession: { key: 'session_id', id: 'codex-thread-dup' },
+          updatedAt: 1_000
+        }
+      ]
+    } as never)
+    const runtime = new OrcaRuntimeService(store, undefined, {
+      getAgentStatusSnapshot: () => [
+        {
+          paneKey,
+          state: 'working',
+          prompt: 'Implement the task',
+          agentType: 'codex',
+          connectionId: null,
+          receivedAt: 1_000,
+          stateStartedAt: 1_000,
+          tabId: structuredAgentSessionTabId(sessionId),
+          worktreeId: TEST_WORKTREE_ID,
+          structuredHost: 'owned'
+        }
+      ]
+    })
+
+    const result = await runtime.getWorktreePs()
+    const summary = result.worktrees.find((entry) => entry.worktreeId === TEST_WORKTREE_ID)
+
+    expect(summary?.agents).toHaveLength(1)
+    expect(summary?.agents[0]).toMatchObject({
+      paneKey,
+      sessionId,
+      providerSession: { key: 'session_id', id: 'codex-thread-dup' },
+      structuredHostOwned: true,
+      state: 'working',
+      agentType: 'codex'
     })
   })
 

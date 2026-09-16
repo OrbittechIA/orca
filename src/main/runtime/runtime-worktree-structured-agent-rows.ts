@@ -43,8 +43,18 @@ export function attachRuntimeWorktreeStructuredAgentRows(args: {
       continue
     }
     const tabId = structuredAgentSessionTabId(status.sessionId)
+    const paneKey = structuredAgentSessionPaneKey(tabId, status.sessionId)
+    // The hook store already holds this session under the SAME pane key (the host publishes
+    // every projection into it through the status sink), but that row carries no `sessionId`.
+    // One session, one row: the host's projection wins on identity and status, and keeps what
+    // only the hook-store row knows (orchestration naming, host ownership).
+    const existing = summary.agents.find(
+      (entry) => entry.paneKey === paneKey || entry.sessionId === status.sessionId
+    )
     const row: RuntimeWorktreeAgentRow = {
-      paneKey: structuredAgentSessionPaneKey(tabId, status.sessionId),
+      ...(existing?.workingMode ? { workingMode: existing.workingMode } : {}),
+      ...(existing?.structuredHostOwned ? { structuredHostOwned: true as const } : {}),
+      paneKey,
       sessionId: status.sessionId,
       ...(status.providerSession
         ? {
@@ -54,12 +64,12 @@ export function attachRuntimeWorktreeStructuredAgentRows(args: {
             }
           }
         : {}),
-      parentPaneKey: null,
+      parentPaneKey: existing?.parentPaneKey ?? null,
       state: runtimeStateForStructuredStatus(status.status),
       agentType: status.agent,
       prompt: status.latestPrompt,
-      taskTitle: null,
-      displayName: null,
+      taskTitle: existing?.taskTitle ?? null,
+      displayName: existing?.displayName ?? null,
       lastAssistantMessage: status.lastAssistantMessage ?? null,
       toolName: status.toolName ?? null,
       toolInput: status.toolInput ?? null,
@@ -67,10 +77,7 @@ export function attachRuntimeWorktreeStructuredAgentRows(args: {
       stateStartedAt: status.updatedAt,
       updatedAt: status.updatedAt
     }
-    summary.agents = [
-      ...summary.agents.filter((entry) => entry.sessionId !== status.sessionId),
-      row
-    ]
+    summary.agents = [...summary.agents.filter((entry) => entry !== existing), row]
     summary.agents.sort((a, b) => a.stateStartedAt - b.stateStartedAt)
     if (status.status === 'working') {
       summary.hasHostSidebarActivity = true

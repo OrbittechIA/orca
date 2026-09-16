@@ -1,3 +1,4 @@
+import type { StructuredAgentLaunchRecovery } from '@/lib/structured-agent-session-launch-callers'
 import type { WorkItemStartPromptDelivery } from '../../../shared/agent-session-options'
 import type { TuiAgent } from '../../../shared/tui-agent'
 import type { WorkspaceSource as WorkspaceCreateTelemetrySource } from '../../../shared/workspace-source'
@@ -143,6 +144,9 @@ export type PendingWorktreeCreation = {
   provisioningLog?: string
   /** Existing worktree whose uncertain structured launch must be reconciled instead of recreated. */
   structuredLaunchRecoveryWorktreeId?: string
+  /** The exact session intent and staged prompt operation that launch had. Retry re-enters with
+   *  these, so the host replays the same create and the same send; nothing is minted twice. */
+  structuredLaunchRecoveryIntent?: StructuredAgentLaunchRecovery
   request: WorktreeCreationRequest
   /** Captured linked-item behavior; strict delivery must survive background retries unchanged. */
   workItemStartPromptDelivery?: WorkItemStartPromptDelivery

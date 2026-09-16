@@ -28,6 +28,8 @@ export type StructuredLaunchPromptOptions = {
   prompt?: string
   promptDelivery?: 'auto-submit' | 'submit-after-ready' | 'draft'
   onPromptDelivered?: () => void
+  /** A re-entered launch: its staged prompt is looked up, never re-staged. */
+  recover?: { clientMessageId: string | null }
 }
 
 type LaunchReceipt = { sessionId: string; fence: number }
@@ -110,6 +112,20 @@ async function dispatchStructuredLaunchPrompt(
       AgentSessionMutationResult<AgentSessionSendResult>
     >(target, 'agentSession.send', structuredAgentSessionSendRequest(entry, receipt.fence))
     if (!result.ok) {
+      const refusalState = agentSessionRefusalOperationState(
+        'agentSession.send',
+        result.refusal.code
+      )
+      if (refusalState === 'settled-rejected') {
+        // A definitive refusal settles this launch's ONE delivery. The composer's requeue would
+        // mint a fresh operation and leave it queued, and the outbox hook sends whatever is
+        // queued the moment the chat mounts — a second writer the strict caller already said no
+        // to. Nothing durable remains, so no later mount or reconcile can send it.
+        mutateEntry(entry, () => null)
+        return { delivered: false, unknown: false }
+      }
+      // Unknown or not-yet-admitted: the same operation id is retained and replayed, never a
+      // second one.
       mutateEntry(entry, (current) =>
         requeueStructuredAgentSessionSendRefusal(
           current,
@@ -119,11 +135,7 @@ async function dispatchStructuredLaunchPrompt(
         )
       )
       // Uma recusa cujo desfecho o host não conhece é incerteza, não negativa.
-      return {
-        delivered: false,
-        unknown:
-          agentSessionRefusalOperationState('agentSession.send', result.refusal.code) === 'unknown'
-      }
+      return { delivered: false, unknown: refusalState === 'unknown' }
     }
     const dispatchState = result.value.submission.dispatchState
     mutateEntry(entry, (current) =>
@@ -162,7 +174,12 @@ export function settleStructuredAgentLaunchPrompt(args: {
   }
   return args.launchResult.then(async (receipt) => {
     if (!args.stagedEntry) {
-      return { delivered: false, failureNotified: true }
+      // A retry that cannot find the operation it staged has lost its delivery state. That is
+      // not proof of non-delivery, and a fresh operation would be a second copy of the prompt:
+      // report unknown so the caller reconciles instead of resending or completing.
+      return args.options.recover
+        ? { delivered: false, failureNotified: false, deliveryUnknown: true }
+        : { delivered: false, failureNotified: true }
     }
     const entry = args.stagedEntry
     let unknown = false

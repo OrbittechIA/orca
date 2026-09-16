@@ -129,6 +129,19 @@ export function findStructuredAgentSessionLaunchPrompt(
   )
 }
 
+/** The staged prompt a re-entered launch left behind: by its operation id when the launch
+ *  recorded one, else by text. `null` means the delivery state was lost, not that it was sent. */
+export function findStructuredAgentSessionLaunchPromptEntry(
+  sessionId: string,
+  clientMessageId: string | null,
+  text: string
+): StructuredAgentSessionOutboxEntry | null {
+  if (clientMessageId) {
+    return readOutbox(sessionId).find((entry) => entry.clientMessageId === clientMessageId) ?? null
+  }
+  return findStructuredAgentSessionLaunchPrompt(sessionId, text)
+}
+
 export function discardStructuredAgentSessionLaunchOutbox(sessionId: string): void {
   writeOutbox(sessionId, [])
 }

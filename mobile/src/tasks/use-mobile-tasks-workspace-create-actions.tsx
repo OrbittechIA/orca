@@ -26,8 +26,8 @@ import {
 } from './mobile-workspace-create-operations'
 import {
   startWorkItemStructuredSession,
-  workItemStartAgentSupportsStructuredSession,
-  workItemStartShouldUseStructuredSession
+  resolveWorkItemStartRoute,
+  workItemStartAgentSupportsStructuredSession
 } from './work-item-start-structured-session'
 
 export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateModel) {
@@ -116,13 +116,17 @@ export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateMod
         // the build has it, the device scope says this pairing is admitted. Against a host that
         // says no to either, the terminal startup stays exactly as it is today — dropping it
         // would leave an agentless workspace on every Start.
-        const structuredStart =
-          selectedAgent !== 'blank' &&
-          (await workItemStartShouldUseStructuredSession({
-            client,
-            settings: latestRuntimeTaskSettings,
-            agent: selectedAgent
-          }))
+        const route = await resolveWorkItemStartRoute({
+          client,
+          settings: latestRuntimeTaskSettings,
+          agent: selectedAgent
+        })
+        // Refused or unanswered admission stops before `worktree.create`; the terminal Start is
+        // never substituted for a strict one.
+        if (route.kind === 'refused' || route.kind === 'unknown') {
+          throw new Error(route.message)
+        }
+        const structuredStart = selectedAgent !== 'blank' && route.kind === 'structured'
         // Only once the host admits the route does an agent without a structured session become
         // a refusal; otherwise it is simply a terminal Start, as before.
         if (structuredStart && !workItemStartAgentSupportsStructuredSession(selectedAgent)) {

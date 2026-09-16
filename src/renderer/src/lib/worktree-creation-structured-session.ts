@@ -5,6 +5,8 @@ import { adoptAgentSessionLaunchVerdict } from '@/lib/agent-session-launch-plan'
 import type { AgentLaunchRoute } from '@/lib/agent-launch-routing'
 import type { WorktreeCreationRequest } from '@/lib/pending-worktree-creation'
 import { beginStructuredAgentSessionProvisionalLaunch } from '@/lib/structured-agent-session-provisional-tab'
+import type { StructuredAgentLaunchRecovery } from '@/lib/structured-agent-session-launch-callers'
+import { StructuredAgentSessionCreateRefusalError } from '@/lib/launch-structured-agent-session'
 
 export type WorktreeCreationStructuredSessionResult = {
   accepted: boolean
@@ -12,8 +14,12 @@ export type WorktreeCreationStructuredSessionResult = {
   visibilityUnknown?: boolean
   /** Strict delivery without confirmation: reconcile the SAME message, never send another. */
   promptDeliveryUnknown?: boolean
-  /** Definitive delivery refusal: the workspace stays, the retry does not. */
-  failure?: 'prompt-delivery'
+  /** `prompt-delivery`: definitive delivery refusal — the workspace stays, the retry does not.
+   *  `structured-refused`: the host refused the strict create — the workspace stays with no writer
+   *  and no terminal opens in its place; the retry may try the session again. */
+  failure?: 'prompt-delivery' | 'structured-refused'
+  /** The exact intent and staged prompt of the launch, for a retry after an unknown outcome. */
+  recovery?: StructuredAgentLaunchRecovery
   activation: ActivateAndRevealResult | false
   primaryTabId: string | null
 }
@@ -27,6 +33,8 @@ type LaunchStructuredWorktreeSessionArgs = {
   shouldActivateOnCompletion: boolean
   activation: ActivateAndRevealResult | false
   primaryTabId: string | null
+  /** Re-enter the launch this creation already made, with its persisted intent and prompt. */
+  recover?: StructuredAgentLaunchRecovery
 }
 
 export async function launchStructuredWorktreeSession(
@@ -43,16 +51,22 @@ export async function launchStructuredWorktreeSession(
   if (isCancelled()) {
     return { ...settled, cancelled: true, activation, primaryTabId }
   }
+  // Strict Work Item Start: the preflight admitted the SCOPED create (`launchOrigin`), which an
+  // older host, or a host with global structured chat off, only admits under that origin.
+  const strict = args.request.workItemStartPromptDelivery === 'submit-after-ready'
   // Why: the composer decided route and delivery mode before the worktree existed, and the request
   // carries that verdict in renderer memory for the life of the create; re-entering with it is what
-  // keeps a retry from re-resolving against a host that has changed since.
+  // keeps a retry from re-resolving against a host that has changed since. A retry re-enters with
+  // the same prompt AND the persisted intent: the launch layer finds the staged operation instead
+  // of staging another.
   const plan = adoptAgentSessionLaunchVerdict({
     route: args.agentLaunchRoute,
     agent,
+    ...(strict ? { launchOrigin: 'work-item-start' as const } : {}),
     prompt: args.request.launchDraftPrompt ?? args.request.quickPrompt,
-    ...(args.request.promptDelivery ? { promptDelivery: args.request.promptDelivery } : {})
+    ...(args.request.promptDelivery ? { promptDelivery: args.request.promptDelivery } : {}),
+    ...(args.recover ? { recover: args.recover } : {})
   })
-  const strict = args.request.workItemStartPromptDelivery === 'submit-after-ready'
   const abandoned = new AbortController()
   let ownershipTransferred = false
   let launch: ReturnType<typeof beginStructuredAgentSessionProvisionalLaunch> = null
@@ -113,17 +127,30 @@ export async function launchStructuredWorktreeSession(
     return { ...settled, cancelled: true, activation, primaryTabId }
   }
   if (settlement.kind === 'visibility-unknown') {
-    return { ...settled, visibilityUnknown: true, activation, primaryTabId }
+    const { recovery } = settlement
+    return { ...settled, visibilityUnknown: true, recovery, activation, primaryTabId }
   }
   if (settlement.kind === 'failed') {
+    // A strict create the host refused settles here: the workspace exists with no writer, and that
+    // is reported, never papered over.
+    if (settlement.error instanceof StructuredAgentSessionCreateRefusalError) {
+      return {
+        ...settled,
+        accepted: false,
+        failure: 'structured-refused',
+        activation,
+        primaryTabId
+      }
+    }
     // Why: a failed launch has always reported as accepted here; the launch layer toasts it.
     return { ...settled, activation, primaryTabId }
   }
+  const { recovery } = settlement
   const delivery = await settlement.promptDeliveryResult
   if (!delivery || delivery.delivered) {
-    return { ...settled, activation, primaryTabId }
+    return { ...settled, recovery, activation, primaryTabId }
   }
   return delivery.deliveryUnknown === true
-    ? { ...settled, promptDeliveryUnknown: true, activation, primaryTabId }
-    : { ...settled, failure: 'prompt-delivery' as const, activation, primaryTabId }
+    ? { ...settled, promptDeliveryUnknown: true, recovery, activation, primaryTabId }
+    : { ...settled, failure: 'prompt-delivery' as const, recovery, activation, primaryTabId }
 }

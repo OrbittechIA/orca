@@ -1,15 +1,34 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RpcClient } from '../transport/rpc-client'
+
+const asyncStorage = vi.hoisted(() => {
+  const store = new Map<string, string>()
+  return {
+    store,
+    getItem: vi.fn(async (key: string) => store.get(key) ?? null),
+    setItem: vi.fn(async (key: string, value: string) => {
+      store.set(key, value)
+    }),
+    removeItem: vi.fn(async (key: string) => {
+      store.delete(key)
+    })
+  }
+})
+
+vi.mock('@react-native-async-storage/async-storage', () => ({ default: asyncStorage }))
 import { markRpcDeliveryUnknown } from '../transport/rpc-delivery-ambiguity'
 import { buildTaskWorkspaceCreateParams } from './workspace-create-params'
 import { WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY } from '../../../src/shared/protocol-version'
 import {
   readWorkItemStartHostAdmission,
+  resolveWorkItemStartRoute,
   startWorkItemStructuredSession,
+  WORK_ITEM_START_ADMISSION_TIMEOUT_MS,
   workItemStartAgentSupportsStructuredSession,
   workItemStartHostAdmitsStructuredSession,
   workItemStartRequiresStructuredSession
 } from './work-item-start-structured-session'
+import { resetMobileStructuredSendOperationJournalForTests } from '../session/mobile-structured-send-operation-journal'
 
 function clientReturning(
   ...responses: unknown[]
@@ -88,6 +107,122 @@ function taskCreateParams(structuredStart: boolean): Record<string, unknown> {
   })
 }
 
+const SEND_JOURNAL_KEY = 'orca:mobileStructuredSendOperations:v1'
+
+function sendEnvelopes(client: { sendRequest: ReturnType<typeof vi.fn> }) {
+  return client.sendRequest.mock.calls
+    .filter((call) => call[0] === 'agentSession.send')
+    .map(
+      (call) => (call[1] as { envelope: { clientOperationId: string; sessionId: string } }).envelope
+    )
+}
+
+describe('work item start prompt delivery is durable and replays one envelope', () => {
+  beforeEach(() => {
+    asyncStorage.store.clear()
+    asyncStorage.setItem.mockClear()
+    resetMobileStructuredSendOperationJournalForTests()
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  async function start(client: RpcClient) {
+    const promise = startWorkItemStructuredSession({
+      client,
+      worktreeId: 'workspace-1',
+      agent: 'codex',
+      prompt: GITHUB_ITEM.source.url
+    })
+    // Same-envelope replays wait between attempts; drive the clock past every delay.
+    await vi.advanceTimersByTimeAsync(5_000)
+    return promise
+  }
+
+  it('persists the send envelope before the first dispatch', async () => {
+    const order: string[] = []
+    asyncStorage.setItem.mockImplementation(async (key: string, value: string) => {
+      order.push('journal')
+      asyncStorage.store.set(key, value)
+    })
+    const client = clientReturning(SUPPORTED, createdSession())
+    client.sendRequest.mockImplementation(async (method: string) => {
+      if (method === 'agentSession.send') {
+        order.push('send')
+        return ACCEPTED_SEND
+      }
+      return method === 'agentSession.createSupport' ? SUPPORTED : createdSession()
+    })
+    await start(client)
+    expect(order.slice(0, 2)).toEqual(['journal', 'send'])
+    // Settled: the durable record is gone, so nothing will replay it later.
+    expect(asyncStorage.store.has(SEND_JOURNAL_KEY)).toBe(false)
+  })
+
+  it('replays the same envelope when the accepted reply was lost', async () => {
+    const client = clientReturning(
+      SUPPORTED,
+      createdSession(),
+      markRpcDeliveryUnknown(new Error('reply lost after write')),
+      ACCEPTED_SEND
+    )
+    const result = await start(client)
+    expect(result).toEqual({ kind: 'started', sessionId: 'codex_session_1' })
+    const envelopes = sendEnvelopes(client)
+    expect(envelopes).toHaveLength(2)
+    expect(envelopes[1]).toEqual(envelopes[0])
+    expect(asyncStorage.store.has(SEND_JOURNAL_KEY)).toBe(false)
+  })
+
+  it('treats agent_session_operation_unknown as unknown and replays the same operation id', async () => {
+    const client = clientReturning(
+      SUPPORTED,
+      createdSession(),
+      {
+        ok: true,
+        result: {
+          ok: false,
+          refusal: { code: 'agent_session_operation_unknown', message: 'ledger unknown' }
+        }
+      },
+      ACCEPTED_SEND
+    )
+    const result = await start(client)
+    expect(result).toEqual({ kind: 'started', sessionId: 'codex_session_1' })
+    const envelopes = sendEnvelopes(client)
+    expect(envelopes).toHaveLength(2)
+    expect(envelopes[1]?.clientOperationId).toBe(envelopes[0]?.clientOperationId)
+  })
+
+  it('keeps the envelope persisted and names it when every replay stays unknown', async () => {
+    const lost = () => markRpcDeliveryUnknown(new Error('reply lost'))
+    const client = clientReturning(SUPPORTED, createdSession(), lost(), lost(), lost(), lost())
+    const result = await start(client)
+    const envelopes = sendEnvelopes(client)
+    // One operation id across every attempt; a bounded number of attempts.
+    expect(new Set(envelopes.map((envelope) => envelope.clientOperationId)).size).toBe(1)
+    expect(envelopes).toHaveLength(3)
+    expect(result).toMatchObject({
+      kind: 'unconfirmed',
+      sessionId: 'codex_session_1',
+      pendingSend: { clientOperationId: envelopes[0]?.clientOperationId, fence: 3 }
+    })
+    expect(asyncStorage.store.get(SEND_JOURNAL_KEY)).toContain(envelopes[0]?.clientOperationId)
+  })
+
+  it('never mints a second operation for a definitive refusal', async () => {
+    const client = clientReturning(SUPPORTED, createdSession(), {
+      ok: true,
+      result: { ok: false, refusal: { code: 'agent_session_operation_conflict', message: 'no' } }
+    })
+    const result = await start(client)
+    expect(result.kind).toBe('prompt-undelivered')
+    expect(sendEnvelopes(client)).toHaveLength(1)
+    expect(asyncStorage.store.has(SEND_JOURNAL_KEY)).toBe(false)
+  })
+})
+
 describe('work item start structured session policy', () => {
   it('requires a structured session exactly when the host submits after ready', () => {
     expect(workItemStartRequiresStructuredSession({})).toBe(false)
@@ -148,6 +283,86 @@ describe('work item start host admission', () => {
     await expect(
       readWorkItemStartHostAdmission(clientReturning(new Error('socket closed')))
     ).resolves.toBeNull()
+  })
+})
+
+describe('work item start route is decided before anything is created', () => {
+  const strict = { workItemStartPromptDelivery: 'submit-after-ready' as const }
+
+  it('is the terminal Start in draft mode or without an agent, without probing the host', async () => {
+    const client = clientReturning()
+    await expect(
+      resolveWorkItemStartRoute({
+        client,
+        settings: { workItemStartPromptDelivery: 'draft' },
+        agent: 'codex'
+      })
+    ).resolves.toEqual({ kind: 'terminal' })
+    await expect(
+      resolveWorkItemStartRoute({ client, settings: strict, agent: 'blank' })
+    ).resolves.toEqual({ kind: 'terminal' })
+    expect(client.sendRequest).not.toHaveBeenCalled()
+  })
+
+  it('is structured only when the host admits a runtime-scoped pairing with the capability', async () => {
+    const client = clientReturning({
+      ok: true,
+      result: {
+        capabilities: [WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY],
+        deviceScope: 'runtime'
+      }
+    })
+    await expect(
+      resolveWorkItemStartRoute({ client, settings: strict, agent: 'codex' })
+    ).resolves.toEqual({
+      kind: 'structured'
+    })
+    expect(client.sendRequest).toHaveBeenCalledWith('status.get', undefined, {
+      timeoutMs: WORK_ITEM_START_ADMISSION_TIMEOUT_MS
+    })
+  })
+
+  it('is refused, not terminal, against an old host without the route', async () => {
+    const client = clientReturning({
+      ok: true,
+      result: { capabilities: [], deviceScope: 'runtime' }
+    })
+    await expect(
+      resolveWorkItemStartRoute({ client, settings: strict, agent: 'codex' })
+    ).resolves.toMatchObject({
+      kind: 'refused',
+      message: expect.stringContaining('no terminal was started in its place')
+    })
+  })
+
+  it('is refused, not terminal, for a pairing scoped mobile', async () => {
+    const client = clientReturning({
+      ok: true,
+      result: {
+        capabilities: [WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY],
+        deviceScope: 'mobile'
+      }
+    })
+    await expect(
+      resolveWorkItemStartRoute({ client, settings: strict, agent: 'codex' })
+    ).resolves.toMatchObject({
+      kind: 'refused'
+    })
+  })
+
+  it('is unknown, not terminal, when the status probe times out or fails', async () => {
+    for (const failure of [
+      new Error('status.get timed out'),
+      { ok: false, error: { code: 'runtime_busy' } }
+    ]) {
+      const client = clientReturning(failure)
+      await expect(
+        resolveWorkItemStartRoute({ client, settings: strict, agent: 'codex' })
+      ).resolves.toMatchObject({
+        kind: 'unknown',
+        message: expect.stringContaining('Nothing was created')
+      })
+    }
   })
 })
 

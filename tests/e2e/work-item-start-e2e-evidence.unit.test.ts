@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { CandidateManifest } from './work-item-start-candidate-manifest'
+import {
+  requireCandidateManifestPath,
+  type CandidateManifest
+} from './work-item-start-candidate-manifest'
 import { collectWorkItemStartE2eEvidence } from './work-item-start-e2e-collect'
 import {
   WORK_ITEM_START_CAPABILITY,
@@ -113,6 +116,25 @@ function collect(overrides?: {
     })
   }
 }
+
+describe('a paired run without a candidate manifest cannot count as a pass', () => {
+  it('throws when no manifest is named', () => {
+    expect(() => requireCandidateManifestPath({})).toThrow(/cannot count as a pass/)
+    expect(() => requireCandidateManifestPath({ ORCA_CANDIDATE_MANIFEST: '  ' })).toThrow(
+      /cannot count as a pass/
+    )
+  })
+
+  it('throws when the named manifest does not exist', () => {
+    expect(() =>
+      requireCandidateManifestPath({ ORCA_CANDIDATE_MANIFEST: '/nonexistent/manifest.json' })
+    ).toThrow(/does not exist/)
+  })
+
+  it('returns the path of a manifest that exists', () => {
+    expect(requireCandidateManifestPath({ ORCA_CANDIDATE_MANIFEST: __filename })).toBe(__filename)
+  })
+})
 
 describe('Work Item Start E2E evidence binds running processes to the candidate', () => {
   it('binds the certification to the 1.4.203 candidate baseline', () => {

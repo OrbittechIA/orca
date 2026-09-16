@@ -56,6 +56,25 @@ export function readCandidateManifest(filePath: string): CandidateManifest {
 }
 
 /**
+ * O manifest é OBRIGATÓRIO para o E2E pareado contar como prova: sem ele nenhum lado pode
+ * ser amarrado a um artefato publicado, e um "passou" sem vínculo certificaria qualquer
+ * binário que estivesse rodando. Lança, em vez de devolver `null`, para que a ausência seja
+ * uma falha do teste e nunca um caminho que passa.
+ */
+export function requireCandidateManifestPath(env: Record<string, string | undefined>): string {
+  const manifestPath = env.ORCA_CANDIDATE_MANIFEST?.trim()
+  if (!manifestPath) {
+    throw new Error(
+      'ORCA_CANDIDATE_MANIFEST is required: a paired Work Item Start run without a candidate manifest cannot count as a pass'
+    )
+  }
+  if (!existsSync(manifestPath)) {
+    throw new Error(`ORCA_CANDIDATE_MANIFEST names a file that does not exist: ${manifestPath}`)
+  }
+  return manifestPath
+}
+
+/**
  * A entrada EXATA que este lado deve ter usado, nomeada pelo chamador.
  *
  * Escolher "a primeira da plataforma" é subespecificado assim que o candidato publica
