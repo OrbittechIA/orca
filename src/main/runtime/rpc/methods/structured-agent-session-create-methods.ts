@@ -164,7 +164,14 @@ export const STRUCTURED_AGENT_SESSION_CREATE_METHODS = [
           })
         }
         const { host, attachParams } = await resolveClientSuppliedAttach(params, ctx)
-        return { host, attachParams, tab: null }
+        // A client-supplied location names no workspace record to hold or re-check.
+        return {
+          host,
+          attachParams,
+          tab: null,
+          releaseWorktreeLifecycle: () => {},
+          expectedWorktreeTarget: null
+        }
       })
       if ('refusal' in prepared) {
         return { ok: false, refusal: prepared.refusal }

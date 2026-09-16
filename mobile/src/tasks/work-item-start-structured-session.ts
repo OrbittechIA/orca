@@ -4,6 +4,7 @@ import { WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY } from '../../../
 import { structuredAgentSessionSendBody } from '../../../src/shared/structured-agent-session-outbox'
 import type { TuiAgent } from '../../../src/shared/tui-agent'
 import { resolveWorkItemStartPromptDelivery } from '../../../src/shared/agent-session-options'
+import { agentSessionRefusalOperationState } from '../../../src/shared/agent-session-refusal-retry'
 import { structuredAgentSessionPayloadFingerprint } from '../../../src/shared/structured-agent-session-mutation'
 import { createMobileStructuredAgentSession } from '../session/mobile-structured-agent-session-launch'
 import { requestStructuredAgentSessionMutation } from '../session/mobile-structured-agent-session-rpc'
@@ -321,7 +322,16 @@ export async function deliverWorkItemStartPrompt(args: {
       fields: { body },
       clientOperationId
     })
-    if (delivery.status === 'unknown') {
+    // A refusal is settled only when the ledger says so. `pending-admission` (capacity, a host
+    // still reconciling) and `unknown` prove nothing about M1, which the host may already hold:
+    // the same envelope is replayed, and if still undecided it stays persisted. Only
+    // `settled-rejected` clears it.
+    if (
+      delivery.status === 'unknown' ||
+      (delivery.status === 'refused' &&
+        agentSessionRefusalOperationState('agentSession.send', delivery.code) !==
+          'settled-rejected')
+    ) {
       const replayDelayMs = SEND_UNKNOWN_REPLAY_DELAYS_MS[attempt]
       if (replayDelayMs === undefined) {
         return {

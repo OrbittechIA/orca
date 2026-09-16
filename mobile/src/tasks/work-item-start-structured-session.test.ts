@@ -211,6 +211,77 @@ describe('work item start prompt delivery is durable and replays one envelope', 
     expect(asyncStorage.store.get(SEND_JOURNAL_KEY)).toContain(envelopes[0]?.clientOperationId)
   })
 
+  it('keeps M1 persisted through a pending-admission refusal and never mints M2', async () => {
+    // Reviewer counterexample: the first reply is lost after the host may have committed M1;
+    // the same-id replay is refused with `agent_session_operation_capacity` ("try later").
+    // That is pending-admission, not a settlement: M1 may be in provider context, so the
+    // journal keeps it and the Start reports unconfirmed with the exact envelope.
+    const client = clientReturning(
+      SUPPORTED,
+      createdSession(),
+      markRpcDeliveryUnknown(new Error('reply lost after write')),
+      {
+        ok: true,
+        result: {
+          ok: false,
+          refusal: { code: 'agent_session_operation_capacity', message: 'try later' }
+        }
+      },
+      {
+        ok: true,
+        result: {
+          ok: false,
+          refusal: { code: 'agent_session_operation_capacity', message: 'try later' }
+        }
+      }
+    )
+    const result = await start(client)
+    const envelopes = sendEnvelopes(client)
+    expect(envelopes).toHaveLength(3)
+    expect(new Set(envelopes.map((envelope) => envelope.clientOperationId)).size).toBe(1)
+    expect(result).toMatchObject({
+      kind: 'unconfirmed',
+      sessionId: 'codex_session_1',
+      pendingSend: { clientOperationId: envelopes[0]?.clientOperationId, fence: 3 }
+    })
+    expect(asyncStorage.store.get(SEND_JOURNAL_KEY)).toContain(envelopes[0]?.clientOperationId)
+  })
+
+  it.each([
+    'agent_session_operation_capacity',
+    'agent_session_ownership_unknown',
+    'execution_owner_reconciling',
+    'agent_session_journal_unreadable'
+  ])('replays the same id after a %s refusal instead of clearing M1', async (code) => {
+    const client = clientReturning(
+      SUPPORTED,
+      createdSession(),
+      { ok: true, result: { ok: false, refusal: { code, message: 'not settled' } } },
+      ACCEPTED_SEND
+    )
+    const result = await start(client)
+    expect(result).toEqual({ kind: 'started', sessionId: 'codex_session_1' })
+    const envelopes = sendEnvelopes(client)
+    expect(envelopes).toHaveLength(2)
+    expect(envelopes[1]?.clientOperationId).toBe(envelopes[0]?.clientOperationId)
+    expect(asyncStorage.store.has(SEND_JOURNAL_KEY)).toBe(false)
+  })
+
+  it.each([
+    'agent_session_operation_conflict',
+    'agent_session_operation_expired',
+    'agent_session_already_resolved'
+  ])('clears M1 only for a genuinely settled %s rejection', async (code) => {
+    const client = clientReturning(SUPPORTED, createdSession(), {
+      ok: true,
+      result: { ok: false, refusal: { code, message: 'settled' } }
+    })
+    const result = await start(client)
+    expect(result.kind).toBe('prompt-undelivered')
+    expect(sendEnvelopes(client)).toHaveLength(1)
+    expect(asyncStorage.store.has(SEND_JOURNAL_KEY)).toBe(false)
+  })
+
   it('never mints a second operation for a definitive refusal', async () => {
     const client = clientReturning(SUPPORTED, createdSession(), {
       ok: true,
@@ -565,7 +636,10 @@ describe('startWorkItemStructuredSession', () => {
   it('reports an undelivered prompt against the session that does exist', async () => {
     const client = clientReturning(SUPPORTED, createdSession(), {
       ok: true,
-      result: { ok: false, refusal: { code: 'agent_session_busy', message: 'session busy' } }
+      result: {
+        ok: false,
+        refusal: { code: 'agent_session_operation_conflict', message: 'session busy' }
+      }
     })
 
     await expect(
@@ -580,5 +654,35 @@ describe('startWorkItemStructuredSession', () => {
       sessionId: 'codex_session_1',
       message: 'session busy'
     })
+  })
+
+  it('keeps M1 for a refusal code the ledger does not classify as settled', async () => {
+    // Fail closed: an unknown code proves nothing about M1, so it is replayed under the same id
+    // and, still undecided, reported unconfirmed with the envelope retained.
+    const client = clientReturning(
+      SUPPORTED,
+      createdSession(),
+      { ok: true, result: { ok: false, refusal: { code: 'agent_session_busy', message: 'busy' } } },
+      { ok: true, result: { ok: false, refusal: { code: 'agent_session_busy', message: 'busy' } } },
+      { ok: true, result: { ok: false, refusal: { code: 'agent_session_busy', message: 'busy' } } }
+    )
+    const promise = startWorkItemStructuredSession({
+      client,
+      worktreeId: 'workspace-1',
+      agent: 'codex',
+      prompt: GITHUB_ITEM.source.url
+    })
+    const result = await promise
+    expect(result).toMatchObject({ kind: 'unconfirmed', sessionId: 'codex_session_1' })
+    expect(
+      new Set(
+        client.sendRequest.mock.calls
+          .filter((call) => call[0] === 'agentSession.send')
+          .map(
+            (call) =>
+              (call[1] as { envelope: { clientOperationId: string } }).envelope.clientOperationId
+          )
+      ).size
+    ).toBe(1)
   })
 })

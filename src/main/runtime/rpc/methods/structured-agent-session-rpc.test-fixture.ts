@@ -215,7 +215,18 @@ export function dispatcher(runtimeOverrides: Record<string, unknown> = {}): RpcD
           : { model: 'gpt-5.6-sol', effort: 'medium' },
       runtimeKind: 'native'
     })),
-    publishStructuredAgentSessionTab: vi.fn()
+    publishStructuredAgentSessionTab: vi.fn(),
+    // The lifecycle hold a create keeps from resolution through attach; released per call.
+    holdWorktreeLifecycle: vi.fn(async () => () => undefined),
+    resolveStructuredAgentSessionCreateWorktreeTarget: vi.fn(async () => ({
+      worktreeId: 'workspace-1',
+      workspacePath: '/workspaces/workspace-1',
+      instanceId: null,
+      identityKey: null,
+      executionHostId: 'local',
+      creatorKind: 'host',
+      creatorDeviceId: null
+    }))
   })
   const runtime = {
     getRuntimeId: () => 'runtime-1',

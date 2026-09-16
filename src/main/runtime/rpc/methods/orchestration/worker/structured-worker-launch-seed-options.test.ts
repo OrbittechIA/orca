@@ -67,7 +67,8 @@ describe('the create the seed options land in', () => {
   async function prepare(options?: Record<string, string>) {
     const prepared = await prepareStructuredAgentSessionCreateForWorktree({
       runtime: {
-        resolveStructuredAgentSessionCreateIntent: async () => settingsResolved
+        resolveStructuredAgentSessionCreateIntent: async () => settingsResolved,
+        holdWorktreeLifecycle: async () => () => undefined
       } as never,
       ensureHost: async () => ({}) as never,
       envelope: {
