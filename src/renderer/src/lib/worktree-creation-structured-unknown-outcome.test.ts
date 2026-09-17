@@ -245,6 +245,33 @@ describe('structured worktree creation unknown outcome', () => {
     })
   })
 
+  it('fails closed when the launcher itself throws: no completion, no terminal, retryable error', async () => {
+    // Reviewer counterexample one level above the helper: the caller's catch used to log and
+    // fall through to `completeWorktreeCreation` with `structuredLaunchAccepted` still true.
+    mocks.launchStructuredWorktreeSession.mockRejectedValueOnce(
+      new Error('worktree_runtime_owner_ambiguous')
+    )
+
+    await executeWorktreeCreation('creation-1', request)
+
+    expect(store.removePendingWorktreeCreation).not.toHaveBeenCalled()
+    expect(store.pendingWorktreeCreations['creation-1']).toMatchObject({
+      status: 'error',
+      structuredLaunchRecoveryWorktreeId: 'worktree-1',
+      structuredLaunchRetryDisabled: false
+    })
+    expect(store.updatePendingWorktreeCreation).toHaveBeenCalledWith('creation-1', {
+      status: 'error',
+      error: expect.stringContaining('no terminal was started in its place'),
+      structuredLaunchRecoveryWorktreeId: 'worktree-1',
+      structuredLaunchRecoveryIntent: undefined,
+      structuredLaunchRetryDisabled: false
+    })
+    expect(mocks.ensureWorktreeHasInitialTerminal).not.toHaveBeenCalled()
+    expect(mocks.activateAndRevealWorktree).not.toHaveBeenCalled()
+    expect(mocks.launchStructuredWorktreeSession).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps a strict launch failure on its retry surface instead of completing the creation', async () => {
     mocks.launchStructuredWorktreeSession.mockResolvedValueOnce({
       accepted: false,
