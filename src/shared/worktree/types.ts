@@ -223,4 +223,6 @@ export type DetectedWorktreeListResult = {
   worktrees: DetectedWorktree[]
   /** Why a non-authoritative listing could not be scanned; additive, older hosts omit it. */
   unavailableReason?: string
+  /** Structured cause captured by the execution host when a scan fails. */
+  failureKind?: 'xcode-license' | 'developer-tools' | 'architecture-mismatch' | 'unknown'
 }
