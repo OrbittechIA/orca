@@ -24,7 +24,10 @@ import {
   type WorktreeCreationStructuredSessionResult
 } from '@/lib/worktree-creation-structured-session'
 import { completeWorktreeCreation } from '@/lib/worktree-creation-completion'
-import { markStructuredWorktreeLaunchOutcome } from '@/lib/worktree-creation-structured-recovery'
+import {
+  markStructuredWorktreeLaunchFailed,
+  markStructuredWorktreeLaunchOutcome
+} from '@/lib/worktree-creation-structured-recovery'
 import { ensureWebRuntimeWorktreeTerminalAfterWake } from '@/lib/web-runtime-worktree-terminal-after-wake'
 
 // Why: activePendingCreationId can outlive the terminal route when the user
@@ -290,9 +293,16 @@ export async function executeWorktreeCreation(
         primaryTabId
       })
     } catch (error) {
-      // Why: plan.launch is guarded inside, but its sync prologue is not; treat
-      // an escaped throw like a failed launch (accepted) and still complete.
       console.error('worktree create: structured session launch failed', worktree.id, error)
+      // Strict Work Item Start: an exception that escaped the launcher proves no session and no
+      // delivery; completing here would remove the pending creation on nothing. The workspace
+      // stays, no terminal opens, and Retry re-enters the structured lane.
+      if (preparedRequest.workItemStartPromptDelivery === 'submit-after-ready') {
+        markStructuredWorktreeLaunchFailed(creationId, worktree.id)
+        return
+      }
+      // Why (non-strict, historical): treat an escaped throw like a failed launch (accepted)
+      // and still complete.
     }
     if (structuredSession) {
       structuredLaunchAccepted = structuredSession.accepted
