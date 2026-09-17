@@ -72,7 +72,7 @@ export function registerRuntimeHandlers(runtime: OrcaRuntimeService): void {
       if (event.senderFrame !== event.sender.mainFrame) {
         throw new Error('Runtime RPC call must originate from the current main frame')
       }
-      return (await new RpcDispatcher({ runtime, methods: ALL_RPC_METHODS }).dispatch(
+      return await new RpcDispatcher({ runtime, methods: ALL_RPC_METHODS }).dispatch(
         {
           id: 'desktop-ipc',
           authToken: 'desktop-ipc',
@@ -95,7 +95,7 @@ export function registerRuntimeHandlers(runtime: OrcaRuntimeService): void {
             CLAUDE_STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY
           ]
         }
-      )) as RuntimeRpcResponse<unknown>
+      )
     }
   )
 

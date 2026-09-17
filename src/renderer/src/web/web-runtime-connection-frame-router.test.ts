@@ -1,3 +1,4 @@
+import { isUnknownRecord } from '../../../shared/unknown-record'
 import { describe, expect, it, vi } from 'vitest'
 import {
   CLAUDE_STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
@@ -56,8 +57,9 @@ describe('web runtime connection capability advertisement', () => {
       notifyUnauthorized: vi.fn()
     })
 
-    const frame = sendEncrypted.mock.calls[0]?.[0] as { clientCapabilities: string[] }
-    expect(frame.clientCapabilities).toContain(STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY)
-    expect(frame.clientCapabilities).toContain(CLAUDE_STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY)
+    const frame: unknown = sendEncrypted.mock.calls[0]?.[0]
+    const capabilities = isUnknownRecord(frame) ? frame.clientCapabilities : undefined
+    expect(capabilities).toContain(STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY)
+    expect(capabilities).toContain(CLAUDE_STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY)
   })
 })

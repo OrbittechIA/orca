@@ -267,6 +267,7 @@ function createRestartFixture() {
     })
     setStructuredAgentSessionHost(host)
   })
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the session-tab methods read runtime id, client settings, restore and inventory off the runtime; the fixture pins those and `calls` supplies the rest under test.
   const runtime = {
     getRuntimeId: () => 'test-runtime',
     getClientSettings: () => ({ experimentalStructuredNativeChat: true }),

@@ -180,6 +180,7 @@ export function hostStub(): StructuredAgentSessionHost {
   })
   // O gate escopado do Work Item Start lê o registro pelo store do host; sem expor
   // `deps.store` a fixture não consegue exercer nem a admissão nem a recusa.
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the dispatcher suites exercise the host through `hostCalls` plus `deps.store`; every member they reach is a spy declared above.
   return {
     ...hostCalls,
     deps: {

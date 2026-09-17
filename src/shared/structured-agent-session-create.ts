@@ -1,3 +1,4 @@
+import { isUnknownRecord } from './unknown-record'
 import type { AgentSessionHandleProvider } from './agent-session-provider-handle'
 import type { AgentSessionMutationEnvelope } from './agent-session-wire'
 import {
@@ -31,7 +32,10 @@ export function isStructuredAgentSessionLaunchAuthority(
   if (typeof value !== 'object' || value === null) {
     return false
   }
-  const authority = value as Partial<StructuredAgentSessionLaunchAuthority>
+  if (!isUnknownRecord(value)) {
+    return false
+  }
+  const authority = value
   return (
     authority.kind === 'local-desktop' ||
     (authority.kind === 'paired-device' &&

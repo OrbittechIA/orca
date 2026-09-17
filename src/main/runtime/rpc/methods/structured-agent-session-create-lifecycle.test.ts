@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { Worktree } from '../../../../shared/worktree/types'
 import { OrcaRuntimeService } from '../../orca-runtime'
 import { structuredAgentSessionCreateWorktreeTarget } from '../../structured-agent-session-create-worktree-target'
 import {
@@ -11,20 +12,26 @@ import {
 // child attaches in B under A's authority. Closed by the workspace lifecycle hold (removal takes
 // the exclusive side) plus a full-target re-check under that hold right before attach.
 
-const A = {
+/** The record fields the authority compares, plus the repo the resolver routes by. */
+type WorktreeRecord = Pick<
+  Worktree,
+  'id' | 'path' | 'instanceId' | 'identity' | 'hostId' | 'creatorProvenance'
+> & { repoId: string }
+
+const A: WorktreeRecord = {
   id: 'workspace-1',
   repoId: 'repo-1',
   path: '/repos/workspace-1',
   instanceId: 'instance-a',
-  identity: { key: 'identity-a', executionHostId: 'local' },
-  creatorProvenance: { kind: 'paired-device' as const, deviceId: 'device-owner' }
+  identity: { key: 'identity-a', executionHostId: 'local', instanceId: 'instance-a' },
+  creatorProvenance: { kind: 'paired-device', deviceId: 'device-owner' }
 }
 /** Same selector, same path: a re-created checkout with its own instance, identity and creator. */
-const B = {
+const B: WorktreeRecord = {
   ...A,
   instanceId: 'instance-b',
-  identity: { key: 'identity-b', executionHostId: 'local' },
-  creatorProvenance: { kind: 'paired-device' as const, deviceId: 'device-other' }
+  identity: { key: 'identity-b', executionHostId: 'local', instanceId: 'instance-b' },
+  creatorProvenance: { kind: 'paired-device', deviceId: 'device-other' }
 }
 
 function deferred<T>() {
@@ -46,6 +53,7 @@ function harness() {
   const launchPreparation = deferred<string>()
   const prepareCodexStructuredLaunch = vi.fn(() => launchPreparation.promise)
   const runtime = new OrcaRuntimeService(
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the create path reads getRepo/getSettings off the store; the fixture pins those.
     {
       getRepo: () => undefined,
       getSettings: () => ({
@@ -58,6 +66,7 @@ function harness() {
     undefined,
     { prepareCodexStructuredLaunch }
   )
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the suite replaces two protected members with fixtures: the file-target resolver and the tab publisher.
   const internal = runtime as unknown as {
     resolveRuntimeFileTarget: (selector: string) => Promise<unknown>
     publishStructuredAgentSessionTab: (args: unknown) => Promise<void>
@@ -74,8 +83,9 @@ function harness() {
     cursor: { epoch: 'e', sequence: 0 },
     value: { sessionId: 'session-1', fence: 1 }
   }))
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: commit calls `host.attach` and nothing else on the host in this suite.
   const host = { attach } as never
-  const expectedWorktreeTarget = structuredAgentSessionCreateWorktreeTarget(A as never)
+  const expectedWorktreeTarget = structuredAgentSessionCreateWorktreeTarget(A)
   const caller = { callerKey: 'caller-1' }
   const prepare = () =>
     prepareStructuredAgentSessionCreateForWorktree({

@@ -1,3 +1,4 @@
+import { isUnknownRecord } from '../../shared/unknown-record'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -24,15 +25,18 @@ import {
 import { TEST_WORKTREE_ID, TEST_WORKTREE_PATH, store } from './orca-runtime-test-fixtures.spec'
 import { OrcaRuntimeRpcServer } from './runtime-rpc'
 
-const launchMocks = vi.hoisted(() => ({
-  activateAndRevealWorktree: vi.fn(),
-  callRuntimeRpc: vi.fn(),
-  createWorktree: vi.fn(),
-  ensureDetectedAgents: vi.fn(),
-  refreshStructuredTabs: vi.fn(),
-  toastError: vi.fn(),
-  rendererStore: {} as Record<string, unknown>
-}))
+const launchMocks = vi.hoisted(() => {
+  const rendererStore: Record<string, unknown> = {}
+  return {
+    activateAndRevealWorktree: vi.fn(),
+    callRuntimeRpc: vi.fn(),
+    createWorktree: vi.fn(),
+    ensureDetectedAgents: vi.fn(),
+    refreshStructuredTabs: vi.fn(),
+    toastError: vi.fn(),
+    rendererStore
+  }
+})
 
 vi.mock('@/store', () => ({ useAppStore: { getState: () => launchMocks.rendererStore } }))
 vi.mock('sonner', () => ({ toast: { error: launchMocks.toastError, message: vi.fn() } }))
@@ -190,6 +194,14 @@ function rendererWorkItemStore(): Record<string, unknown> {
   }
 }
 
+/** A host whose only surface is the status projection `worktree ps` reads. */
+function hostProjecting(
+  statuses: ReturnType<StructuredAgentSessionHost['listStatusSummaries']>
+): void {
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: `worktree ps` reads `listStatusSummaries` off the host and nothing else.
+  setStructuredAgentSessionHost({ listStatusSummaries: () => statuses } as never)
+}
+
 describe('structured agent worktree.ps projection', () => {
   it('runs Work Item Start through one durable native writer and authoritative worktree.ps', async () => {
     vi.clearAllMocks()
@@ -234,12 +246,14 @@ describe('structured agent worktree.ps projection', () => {
       experimentalStructuredNativeChat: false,
       workItemStartPromptDelivery: 'submit-after-ready'
     }
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the launch path reads the two Work Item Start settings off `getClientSettings`; the fixture pins those.
     vi.spyOn(runtime, 'getClientSettings').mockImplementation(() => clientSettings as never)
     vi.spyOn(runtime, 'getStructuredAgentSessionCreateSupport').mockResolvedValue({
       supported: true
     })
     vi.spyOn(runtime, 'resolveStructuredAgentSessionCreateIntent').mockImplementation(
       async (params) =>
+        // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: attach reads location, provider, agent, account home and runtime kind off the resolved intent; the fixture pins those.
         ({
           location: {
             executionHostId: 'local',
@@ -295,9 +309,10 @@ describe('structured agent worktree.ps projection', () => {
     })
     launchMocks.refreshStructuredTabs.mockImplementation(() => runtime.listAllMobileSessionTabs())
     const rendererLaunchPath = '../../renderer/src/lib/' + 'launch-work-item-direct'
-    const { launchWorkItemDirect } = (await import(rendererLaunchPath)) as {
+    const rendererLaunch: {
       launchWorkItemDirect: (args: Record<string, unknown>) => Promise<boolean>
-    }
+    } = await import(rendererLaunchPath)
+    const { launchWorkItemDirect } = rendererLaunch
 
     await expect(
       launchWorkItemDirect({
@@ -359,7 +374,12 @@ describe('structured agent worktree.ps projection', () => {
 
     const result = await runtime.getWorktreePs()
     const summary = result.worktrees.find((entry) => entry.worktreeId === TEST_WORKTREE_ID)
-    const sessionId = (sendCall[2] as { envelope: { sessionId: string } }).envelope.sessionId
+    const sendParams: unknown = sendCall[2]
+    const envelope = isUnknownRecord(sendParams) ? sendParams.envelope : undefined
+    const sessionId = isUnknownRecord(envelope) ? envelope.sessionId : undefined
+    if (typeof sessionId !== 'string') {
+      throw new Error('the send envelope named no session')
+    }
     expect(summary?.agents).toEqual([
       expect.objectContaining({
         sessionId,
@@ -439,23 +459,21 @@ describe('structured agent worktree.ps projection', () => {
   })
 
   it('lists the authoritative structured session and provider identities', async () => {
-    setStructuredAgentSessionHost({
-      listStatusSummaries: () => [
-        {
-          sessionId: 'native-session-1',
-          workspaceId: TEST_WORKTREE_ID,
-          agent: 'codex',
-          status: 'working',
-          latestPrompt: 'Implement the task',
-          providerSession: {
-            key: 'session_id',
-            id: 'codex-thread-1',
-            transcriptPath: '/private/codex/thread-1.jsonl'
-          },
-          updatedAt: 1_000
-        }
-      ]
-    } as never)
+    hostProjecting([
+      {
+        sessionId: 'native-session-1',
+        workspaceId: TEST_WORKTREE_ID,
+        agent: 'codex',
+        status: 'working',
+        latestPrompt: 'Implement the task',
+        providerSession: {
+          key: 'session_id',
+          id: 'codex-thread-1',
+          transcriptPath: '/private/codex/thread-1.jsonl'
+        },
+        updatedAt: 1_000
+      }
+    ])
     const runtime = new OrcaRuntimeService(store)
 
     const result = await runtime.getWorktreePs()
@@ -483,20 +501,18 @@ describe('structured agent worktree.ps projection', () => {
     // Dedup by session id alone missed it, so `worktree ps` listed the session twice.
     const sessionId = 'native-session-dup'
     const paneKey = structuredAgentSessionPaneKey(structuredAgentSessionTabId(sessionId), sessionId)
-    setStructuredAgentSessionHost({
-      listStatusSummaries: () => [
-        {
-          sessionId,
-          workspaceId: TEST_WORKTREE_ID,
-          agent: 'codex',
-          status: 'working',
-          latestPrompt: 'Implement the task',
-          hostExecutionOwned: true,
-          providerSession: { key: 'session_id', id: 'codex-thread-dup' },
-          updatedAt: 1_000
-        }
-      ]
-    } as never)
+    hostProjecting([
+      {
+        sessionId,
+        workspaceId: TEST_WORKTREE_ID,
+        agent: 'codex',
+        status: 'working',
+        latestPrompt: 'Implement the task',
+        hostExecutionOwned: true,
+        providerSession: { key: 'session_id', id: 'codex-thread-dup' },
+        updatedAt: 1_000
+      }
+    ])
     const runtime = new OrcaRuntimeService(store, undefined, {
       getAgentStatusSnapshot: () => [
         {
@@ -529,18 +545,16 @@ describe('structured agent worktree.ps projection', () => {
   })
 
   it('lists a newly attached structured session before its first turn', async () => {
-    setStructuredAgentSessionHost({
-      listStatusSummaries: () => [
-        {
-          sessionId: 'native-session-new',
-          workspaceId: TEST_WORKTREE_ID,
-          agent: 'codex',
-          status: null,
-          latestPrompt: '',
-          updatedAt: 2_000
-        }
-      ]
-    } as never)
+    hostProjecting([
+      {
+        sessionId: 'native-session-new',
+        workspaceId: TEST_WORKTREE_ID,
+        agent: 'codex',
+        status: null,
+        latestPrompt: '',
+        updatedAt: 2_000
+      }
+    ])
     const runtime = new OrcaRuntimeService(store)
 
     const result = await runtime.getWorktreePs()
@@ -556,18 +570,16 @@ describe('structured agent worktree.ps projection', () => {
   })
 
   it('projects an authoritative structured prompt as permission attention', async () => {
-    setStructuredAgentSessionHost({
-      listStatusSummaries: () => [
-        {
-          sessionId: 'native-session-attention',
-          workspaceId: TEST_WORKTREE_ID,
-          agent: 'claude',
-          status: 'attention',
-          latestPrompt: 'Review this change',
-          updatedAt: 3_000
-        }
-      ]
-    } as never)
+    hostProjecting([
+      {
+        sessionId: 'native-session-attention',
+        workspaceId: TEST_WORKTREE_ID,
+        agent: 'claude',
+        status: 'attention',
+        latestPrompt: 'Review this change',
+        updatedAt: 3_000
+      }
+    ])
     const runtime = new OrcaRuntimeService(store)
 
     const result = await runtime.getWorktreePs()

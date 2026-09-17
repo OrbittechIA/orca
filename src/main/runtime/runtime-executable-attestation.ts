@@ -25,8 +25,9 @@ async function attest(): Promise<RuntimeBuildAttestation | null> {
   try {
     const { size } = await stat(process.execPath)
     const digest = createHash('sha256')
-    for await (const chunk of createReadStream(process.execPath)) {
-      digest.update(chunk as Buffer)
+    const executable: AsyncIterable<Buffer | string> = createReadStream(process.execPath)
+    for await (const chunk of executable) {
+      digest.update(chunk)
     }
     return {
       sha256: digest.digest('hex'),

@@ -15,6 +15,8 @@
  * de build, e num `build:win` cruzado a partir do Linux gravaria `linux/x64` dentro do
  * cliente Windows. Essas duas são lidas do processo em execução, que é quem de fato sabe.
  */
+import { isUnknownRecord } from './unknown-record'
+
 export type BuildProvenance = {
   version: string
   /** SHA completo, não abreviado. */
@@ -32,7 +34,10 @@ export function parseBuildProvenance(value: unknown): BuildProvenance | null {
   if (typeof value !== 'object' || value === null) {
     return null
   }
-  const candidate = value as Partial<Record<keyof BuildProvenance, unknown>>
+  if (!isUnknownRecord(value)) {
+    return null
+  }
+  const candidate = value
   if (
     !isNonEmpty(candidate.version) ||
     !isNonEmpty(candidate.commit) ||
@@ -70,6 +75,7 @@ export function readBuildProvenance(): BuildProvenance | null {
   return parseBuildProvenance(
     embeddedBuildProvenance({
       site: BUILD_PROVENANCE_EMBED_SITE,
+      // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the packager's define substitutes exactly this member read; the value is consumed as `unknown` and parsed, and `build-constants.d.ts` is not in the cli/mobile tsconfigs that also compile this module.
       value: (globalThis as { ORCA_BUILD_PROVENANCE?: unknown }).ORCA_BUILD_PROVENANCE
     })
   )

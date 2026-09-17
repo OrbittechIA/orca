@@ -1,3 +1,5 @@
+import { isUnknownRecord } from '../../../shared/unknown-record'
+import type { WorktreeStartupPayload } from '@/lib/worktree-startup-payload'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Strict (`submit-after-ready`) Work Item Start through quick-create: fail-closed on refusal,
@@ -138,6 +140,18 @@ function storeWithWorktree() {
   } as unknown as typeof mocks.state
 }
 
+/** A startup payload the legacy fallback WOULD paste; strict mode must never reach it. */
+const FALLBACK_STARTUP: WorktreeStartupPayload = { command: 'codex', draftPrompt: 'x' }
+
+/** What `startStructuredAgentLaunch` handed back, as the record the assertions read. */
+function firstLaunch(): Record<string, unknown> {
+  const value: unknown = mocks.startStructuredAgentLaunch.mock.results[0]?.value
+  if (!isUnknownRecord(value)) {
+    throw new Error('no structured launch was started')
+  }
+  return value
+}
+
 describe('strict Work Item Start (submit-after-ready)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -191,7 +205,7 @@ describe('strict Work Item Start (submit-after-ready)', () => {
       agentLaunchRoute: 'structured-native-chat',
       worktreeId: 'worktree-1',
       shouldActivateOnCompletion: true,
-      fallbackStartupOpt: { paste: 'x' } as never,
+      fallbackStartupOpt: FALLBACK_STARTUP,
       activation: false,
       primaryTabId: null
     })
@@ -204,9 +218,7 @@ describe('strict Work Item Start (submit-after-ready)', () => {
       primaryTabId: null
     })
     // No fallback was even offered to the launch layer, so no path can reach a terminal.
-    const launch = mocks.startStructuredAgentLaunch.mock.results[0]?.value as {
-      claimDefinitiveRefusalFallback: ReturnType<typeof vi.fn>
-    }
+    const launch = firstLaunch()
     expect(launch.claimDefinitiveRefusalFallback).not.toHaveBeenCalled()
     expect(mocks.activateAndRevealWorktree).not.toHaveBeenCalled()
     expect(mocks.ensureWorktreeHasInitialTerminal).not.toHaveBeenCalled()
@@ -231,7 +243,7 @@ describe('strict Work Item Start (submit-after-ready)', () => {
       agentLaunchRoute: 'structured-native-chat',
       worktreeId: 'worktree-1',
       shouldActivateOnCompletion: true,
-      fallbackStartupOpt: { paste: 'x' } as never,
+      fallbackStartupOpt: FALLBACK_STARTUP,
       activation: false,
       primaryTabId: null
     })
@@ -270,15 +282,13 @@ describe('strict Work Item Start (submit-after-ready)', () => {
       agentLaunchRoute: 'structured-native-chat',
       worktreeId: 'worktree-1',
       shouldActivateOnCompletion: true,
-      fallbackStartupOpt: { paste: 'x' } as never,
+      fallbackStartupOpt: FALLBACK_STARTUP,
       activation: false,
       primaryTabId: null
     })
 
     expect(result).toMatchObject({ accepted: false, failure: 'structured-launch' })
-    const launch = mocks.startStructuredAgentLaunch.mock.results[0]?.value as {
-      claimDefinitiveRefusalFallback: ReturnType<typeof vi.fn>
-    }
+    const launch = firstLaunch()
     expect(launch.claimDefinitiveRefusalFallback).not.toHaveBeenCalled()
     expect(mocks.activateAndRevealWorktree).not.toHaveBeenCalled()
     expect(mocks.ensureWorktreeHasInitialTerminal).not.toHaveBeenCalled()

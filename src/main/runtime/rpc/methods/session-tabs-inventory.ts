@@ -140,8 +140,12 @@ export async function subscribeSessionTabsInventory(
   let censusChangeSequence: number | undefined
   let censusInvalidated = false
   const withProofDelta = createSessionTabsRetirementProofDelta(context.clientCapabilities)
-  const projectChange = (snapshot: SessionTabsChange): SessionTabsChange =>
-    projectSessionTabsForContext(snapshot, context) as SessionTabsChange
+  // The projection returns the base snapshot shape; spreading it over the change keeps the
+  // change-only fields and needs no assertion.
+  const projectChange = (snapshot: SessionTabsChange): SessionTabsChange => ({
+    ...snapshot,
+    ...projectSessionTabsForContext(snapshot, context)
+  })
   const withoutNavigationIntent = (snapshot: SessionTabsChange): SessionTabsChange => {
     if (snapshot.navigationIntent === undefined) {
       return snapshot

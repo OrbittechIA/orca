@@ -67,7 +67,7 @@ export async function workItemStartStrictPreflightBlocks(args: {
   agentOverride?: TuiAgent | undefined
   agentArgs?: string | null | undefined
   draftContent?: string | undefined
-  detectedAgentsPromise: Promise<unknown> | null
+  detectedAgentsPromise: Promise<string[]> | null
   repo: Pick<Repo, 'connectionId' | 'executionHostId'> | undefined
   repoConnectionId: string | null
   repoId: string
@@ -79,7 +79,7 @@ export async function workItemStartStrictPreflightBlocks(args: {
     ...(args.agentOverride !== undefined ? { agentOverride: args.agentOverride } : {}),
     launchConnectionId: args.repoConnectionId,
     repoConnectionId: args.repoConnectionId,
-    detectedAgentsPromise: args.detectedAgentsPromise as never,
+    detectedAgentsPromise: args.detectedAgentsPromise,
     latestStore: useAppStore.getState()
   })
   return workItemStartPrecreatePreflightBlocks({

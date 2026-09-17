@@ -1,3 +1,4 @@
+import { isUnknownRecord } from '../../../src/shared/unknown-record'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RpcClient } from '../transport/rpc-client'
 
@@ -109,12 +110,19 @@ function taskCreateParams(structuredStart: boolean): Record<string, unknown> {
 
 const SEND_JOURNAL_KEY = 'orca:mobileStructuredSendOperations:v1'
 
+/** The params of one RPC call as a record; an unexpected shape reads as empty, never as a cast. */
+function paramsOf(params: unknown): Record<string, unknown> {
+  return isUnknownRecord(params) ? params : {}
+}
+
+function envelopeOf(params: unknown): Record<string, unknown> {
+  return paramsOf(paramsOf(params).envelope)
+}
+
 function sendEnvelopes(client: { sendRequest: ReturnType<typeof vi.fn> }) {
   return client.sendRequest.mock.calls
     .filter((call) => call[0] === 'agentSession.send')
-    .map(
-      (call) => (call[1] as { envelope: { clientOperationId: string; sessionId: string } }).envelope
-    )
+    .map((call) => envelopeOf(call[1]))
 }
 
 describe('work item start prompt delivery is durable and replays one envelope', () => {
@@ -469,27 +477,20 @@ describe('startWorkItemStructuredSession', () => {
     ).resolves.toEqual({ kind: 'started', sessionId: 'codex_session_1' })
 
     expect(client.sendRequest).toHaveBeenCalledTimes(3)
-    const support = client.sendRequest.mock.calls[0]?.[1] as {
-      launchOrigin?: string
-      sessionId?: string
-    }
+    const support = paramsOf(client.sendRequest.mock.calls[0]?.[1])
     expect(support.launchOrigin).toBe('work-item-start')
-    const create = client.sendRequest.mock.calls[1]?.[1] as {
-      launchOrigin?: string
-      envelope: { sessionId: string }
-    }
+    const create = paramsOf(client.sendRequest.mock.calls[1]?.[1])
     expect(create.launchOrigin).toBe('work-item-start')
     // Same durable session on both halves, so a replay reconciles instead of forking a rival.
-    expect(create.envelope.sessionId).toBe(support.sessionId)
+    expect(envelopeOf(create).sessionId).toBe(support.sessionId)
 
-    const send = client.sendRequest.mock.calls[2]?.[1] as {
-      envelope: { sessionId: string; expectedRuntimeFence: number }
-      body: { blocks: { type: string; text?: string }[] }
-    }
+    const send = client.sendRequest.mock.calls[2]?.[1]
     expect(client.sendRequest.mock.calls[2]?.[0]).toBe('agentSession.send')
-    expect(send.envelope.sessionId).toBe('codex_session_1')
-    expect(send.envelope.expectedRuntimeFence).toBe(3)
-    expect(send.body.blocks).toEqual([{ type: 'text', text: GITHUB_ITEM.source.url }])
+    expect(envelopeOf(send).sessionId).toBe('codex_session_1')
+    expect(envelopeOf(send).expectedRuntimeFence).toBe(3)
+    expect(paramsOf(paramsOf(send).body).blocks).toEqual([
+      { type: 'text', text: GITHUB_ITEM.source.url }
+    ])
   })
 
   it('refuses without starting anything when the host declines the session', async () => {
@@ -678,10 +679,7 @@ describe('startWorkItemStructuredSession', () => {
       new Set(
         client.sendRequest.mock.calls
           .filter((call) => call[0] === 'agentSession.send')
-          .map(
-            (call) =>
-              (call[1] as { envelope: { clientOperationId: string } }).envelope.clientOperationId
-          )
+          .map((call) => envelopeOf(call[1]).clientOperationId)
       ).size
     ).toBe(1)
   })

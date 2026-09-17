@@ -5,6 +5,7 @@ import { structuredAgentSessionSendBody } from '../../../src/shared/structured-a
 import type { TuiAgent } from '../../../src/shared/tui-agent'
 import { resolveWorkItemStartPromptDelivery } from '../../../src/shared/agent-session-options'
 import { agentSessionRefusalOperationState } from '../../../src/shared/agent-session-refusal-retry'
+import { isUnknownRecord } from '../../../src/shared/unknown-record'
 import { structuredAgentSessionPayloadFingerprint } from '../../../src/shared/structured-agent-session-mutation'
 import { createMobileStructuredAgentSession } from '../session/mobile-structured-agent-session-launch'
 import {
@@ -66,9 +67,15 @@ export async function readWorkItemStartHostAdmission(
     if (!response.ok || typeof response.result !== 'object' || response.result === null) {
       return null
     }
-    const result = response.result as WorkItemStartHostAdmission
+    const result: unknown = response.result
+    if (!isUnknownRecord(result)) {
+      return null
+    }
+    const capabilities = Array.isArray(result.capabilities)
+      ? result.capabilities.filter((entry): entry is string => typeof entry === 'string')
+      : null
     return {
-      ...(Array.isArray(result.capabilities) ? { capabilities: result.capabilities } : {}),
+      ...(capabilities ? { capabilities } : {}),
       ...(typeof result.deviceScope === 'string' ? { deviceScope: result.deviceScope } : {})
     }
   } catch {

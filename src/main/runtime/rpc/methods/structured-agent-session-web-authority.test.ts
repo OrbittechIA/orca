@@ -1,3 +1,4 @@
+import { isUnknownRecord } from '../../../../shared/unknown-record'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { computeAgentSessionPayloadFingerprint } from '../../../../shared/agent-session-mutation-envelope'
 import { projectSessionTabsForContext } from './session-tabs-inventory'
@@ -366,6 +367,7 @@ describe('Web Work Item Start authority', () => {
           }
         ]
       }
+      // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the tab projection reads `getClientSettings` off the runtime only.
       const context = { runtime: ENABLED_SETTINGS as never, ...other }
       expect(projectSessionTabsForContext(snapshot, context).tabs.map((tab) => tab.id)).toEqual([
         'agent-session:ordinary'
@@ -430,7 +432,9 @@ describe('Web Work Item Start authority', () => {
       statusFeedInstance().revokeLive(STATUS_SESSION)
 
       const statusEvents = (replies: typeof denied.replies) =>
-        replies.filter((reply) => reply.ok && (reply.result as { type?: string }).type === 'status')
+        replies.filter(
+          (reply) => reply.ok && isUnknownRecord(reply.result) && reply.result.type === 'status'
+        )
       expect(statusEvents(denied.replies)).toEqual([])
       expect(JSON.stringify(denied.replies)).not.toContain('scoped follow-up prompt')
       expect(statusEvents(admitted.replies)).toHaveLength(2)
@@ -462,6 +466,7 @@ describe('Web Work Item Start authority', () => {
       ]
     }
     const context = {
+      // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the tab projection reads `getClientSettings` off the runtime only.
       runtime: SETTINGS as never,
       clientKind: 'runtime' as const,
       clientCapabilities: STRUCTURED_CLIENT.clientCapabilities

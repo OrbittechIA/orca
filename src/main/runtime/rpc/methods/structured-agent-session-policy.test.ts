@@ -10,6 +10,7 @@ function runtimeWithSetting(
   experimentalStructuredNativeChat: boolean,
   workItemStartPromptDelivery: 'draft' | 'submit-after-ready' = 'draft'
 ): Pick<OrcaRuntimeService, 'getClientSettings'> {
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the policy reads the two settings under test off `getClientSettings`; the fixture returns exactly those.
   return {
     getClientSettings: () => ({ experimentalStructuredNativeChat, workItemStartPromptDelivery })
   } as unknown as Pick<OrcaRuntimeService, 'getClientSettings'>
