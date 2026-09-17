@@ -199,6 +199,26 @@ describe('structured create holds the workspace lifecycle from resolution throug
     again()
   })
 
+  it('a removal on another host neither waits for nor blocks the local create', async () => {
+    // Upstream runs same-id removals on different hosts concurrently; the lifecycle hold is
+    // scoped per host so the local create's shared side never serialises the remote removal.
+    const h = harness()
+    const preparing = h.prepare()
+    await settle()
+    const remote = await h.runtime.holdWorktreeLifecycleExclusively(
+      'workspace-1',
+      Date.now() + 20,
+      'ssh:host-b'
+    )
+    h.launchPreparation.resolve('/home/codex')
+    await expect(h.commit(await preparing)).resolves.toMatchObject({ ok: true })
+    remote()
+    expect(h.attach).toHaveBeenCalledTimes(1)
+    // The local scope is still the one the create held: a local removal had to wait for it.
+    const local = await h.runtime.holdWorktreeLifecycleExclusively('workspace-1', Date.now() + 100)
+    local()
+  })
+
   it('a removal that outwaits its deadline is refused as busy, never granted later', async () => {
     const h = harness()
     const preparing = h.prepare()

@@ -79,7 +79,10 @@ export async function prepareStructuredAgentSessionCreateForWorktree(args: {
   // and holds it first; a generic create holds the workspace it resolved.
   const expectedWorktreeTarget = args.expectedWorktreeTarget ?? null
   let releaseWorktreeLifecycle = expectedWorktreeTarget
-    ? await args.runtime.holdWorktreeLifecycle(expectedWorktreeTarget.worktreeId)
+    ? await args.runtime.holdWorktreeLifecycle(
+        expectedWorktreeTarget.worktreeId,
+        expectedWorktreeTarget.executionHostId
+      )
     : (): void => {}
   try {
     // Adoption replay may need the record loaded from disk before source discovery can be skipped.
@@ -104,7 +107,8 @@ export async function prepareStructuredAgentSessionCreateForWorktree(args: {
     }
     if (!expectedWorktreeTarget) {
       releaseWorktreeLifecycle = await args.runtime.holdWorktreeLifecycle(
-        resolved.location.workspaceId
+        resolved.location.workspaceId,
+        resolved.location.executionHostId
       )
     }
     const resolvedWithOrigin = {

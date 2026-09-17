@@ -5,6 +5,7 @@ export const WORKTREE_LIFECYCLE_BUSY_ERROR = 'worktree_lifecycle_busy'
 import { OrcaRuntimeWithResolveTerminalSplitSourceAuthority } from './orca-runtime-resolve-terminal-split-source-authority'
 import {
   runtimeWorktreeIdentityKey,
+  runtimeWorktreeLifecycleKey,
   runtimeWorktreeIdsEqual
 } from './runtime-worktree-path-identity'
 import { teardownRpcDeadline } from './worktree-teardown'
@@ -299,24 +300,20 @@ export class OrcaRuntimeWithStopTerminalsForWorktree extends OrcaRuntimeWithReso
    * attached against it. Many creates may hold at once; a removal waits for all of them, so
    * what was authorised at resolution is what the provider child attaches to.
    */
-  async holdWorktreeLifecycle(worktreeId: string): Promise<() => void> {
-    return await this.worktreeLifecycleLock.acquire(
-      runtimeWorktreeIdentityKey(worktreeId),
-      'shared'
-    )
+  async holdWorktreeLifecycle(worktreeId: string, host?: string | null): Promise<() => void> {
+    const key = runtimeWorktreeLifecycleKey(worktreeId, host)
+    return await this.worktreeLifecycleLock.acquire(key, 'shared')
   }
 
   /** The removal side: waits for in-flight creates, then keeps new ones out until released. */
   async holdWorktreeLifecycleExclusively(
     worktreeId: string,
-    deadline?: number
+    deadline?: number,
+    host?: string | null
   ): Promise<() => void> {
-    return await this.worktreeLifecycleLock.acquire(
-      runtimeWorktreeIdentityKey(worktreeId),
-      'exclusive',
-      deadline,
-      new Error(WORKTREE_LIFECYCLE_BUSY_ERROR)
-    )
+    const key = runtimeWorktreeLifecycleKey(worktreeId, host)
+    const busy = new Error(WORKTREE_LIFECYCLE_BUSY_ERROR)
+    return await this.worktreeLifecycleLock.acquire(key, 'exclusive', deadline, busy)
   }
 
   protected async acquireWorktreeTerminalMutation(
