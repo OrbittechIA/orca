@@ -1,9 +1,10 @@
 import { existsSync } from 'node:fs'
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { removeTree } from '../../src/shared/windows-transient-lock-removal.ts'
 import { buildMobileWebBundle } from './build-mobile-web-bundle.mjs'
 
 const REPO_ROOT = join(import.meta.dirname, '..', '..')
@@ -317,7 +318,7 @@ describe('electron-builder config', () => {
       } else {
         process.env.ORCA_BUILD_UNCERTIFIED = previous
       }
-      await rm(root, { recursive: true, force: true })
+      await removeTree(root)
     }
   })
 
@@ -338,7 +339,7 @@ describe('electron-builder config', () => {
       } else {
         process.env.ORCA_BUILD_COMMIT = previous
       }
-      await rm(root, { recursive: true, force: true })
+      await removeTree(root)
     }
   })
 
@@ -369,7 +370,7 @@ describe('electron-builder config', () => {
       ).rejects.toThrow(/refusing to certify|embeds no build identity at its read site/)
       expect(existsSync(join(resourcesDir, 'package-type'))).toBe(false)
     } finally {
-      await rm(root, { recursive: true, force: true })
+      await removeTree(root)
     }
   })
   it('uses a distinct AppImage name for Linux arm64 release uploads', () => {
@@ -519,7 +520,7 @@ describe('arch-aware packaging guard', () => {
     await buildMobileWebBundle({ outDir: bundleDir })
   })
   afterAll(async () => {
-    await rm(scratch, { recursive: true, force: true })
+    await removeTree(scratch)
   })
 
   const packHost = (arch) =>
