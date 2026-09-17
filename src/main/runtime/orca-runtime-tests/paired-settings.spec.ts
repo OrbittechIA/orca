@@ -19,22 +19,28 @@ describe('OrcaRuntimeService', () => {
         scope: { type: 'global' as const }
       }
     ]
-    const runtime = new OrcaRuntimeService({
-      ...store,
-      getSettings: () => ({
-        ...store.getSettings(),
-        hostSettingOverrides: {
-          'ssh:target-1': { displayLabel: 'Build host', defaultWorktreeLocation: '/srv/worktrees' }
-        },
-        experimentalNewWorktreeCardStyle: true,
-        compactWorktreeCards: true,
-        workItemStartPromptDelivery: 'submit-after-ready',
-        minimaxGroupId: 'group-42',
-        minimaxUsageModels: 'general,abab6.5',
-        minimaxEndpoint: 'cn',
-        terminalQuickCommands
-      })
-    } as never)
+    const runtime = new OrcaRuntimeService(
+      // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the paired-settings projection reads the store's settings only; the fixture extends the real test store with the overrides under test.
+      {
+        ...store,
+        getSettings: () => ({
+          ...store.getSettings(),
+          hostSettingOverrides: {
+            'ssh:target-1': {
+              displayLabel: 'Build host',
+              defaultWorktreeLocation: '/srv/worktrees'
+            }
+          },
+          experimentalNewWorktreeCardStyle: true,
+          compactWorktreeCards: true,
+          workItemStartPromptDelivery: 'submit-after-ready',
+          minimaxGroupId: 'group-42',
+          minimaxUsageModels: 'general,abab6.5',
+          minimaxEndpoint: 'cn',
+          terminalQuickCommands
+        })
+      } as never
+    )
 
     expect(runtime.getClientSettings()).toMatchObject({
       worktreeVisibilityDefaults: { external: 'hide' },

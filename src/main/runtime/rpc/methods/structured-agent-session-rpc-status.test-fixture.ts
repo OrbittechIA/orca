@@ -36,6 +36,7 @@ function statusFeed(): StructuredAgentSessionStatusFeed {
       [
         STATUS_SESSION,
         {
+          // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the status feed reads `isReadOnly`, `cursor`, `lastActivityAt` and `snapshot` off the journal; this fixture pins all four.
           journal: {
             isReadOnly: false,
             cursor: () => ({ epoch: 'epoch-status', sequence: statusJournalState.sequence }),

@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { isUnknownRecord } from '../../../shared/unknown-record'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as RecoveryModule from '@/lib/structured-agent-session-launch-recovery'
 
@@ -201,9 +202,7 @@ describe('startStructuredAgentLaunch recovery re-entry', () => {
       (call) => call[1] === 'agentSession.send'
     )
     expect(sends).toHaveLength(2)
-    expect(
-      sends.map((call) => (call[2] as { envelope: { clientOperationId: string } }).envelope)
-    ).toEqual([
+    expect(sends.map((call) => (isUnknownRecord(call[2]) ? call[2].envelope : undefined))).toEqual([
       expect.objectContaining({ sessionId: intent.sessionId, clientOperationId: M1 }),
       expect.objectContaining({ sessionId: intent.sessionId, clientOperationId: M1 })
     ])

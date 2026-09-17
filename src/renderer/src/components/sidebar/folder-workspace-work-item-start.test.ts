@@ -63,6 +63,7 @@ const linkedIssue = {
   repoId: 'repo-1'
 }
 
+// oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the Start route reads `workItemStartPromptDelivery` only; the rest of GlobalSettings is never touched here.
 const strictSettings = {
   workItemStartPromptDelivery: 'submit-after-ready'
 } as GlobalSettings

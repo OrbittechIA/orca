@@ -52,7 +52,8 @@ export function buildIdFor(sha256: string | null): string | null {
 }
 
 export function readCandidateManifest(filePath: string): CandidateManifest {
-  return JSON.parse(readFileSync(filePath, 'utf8')) as CandidateManifest
+  const manifest: CandidateManifest = JSON.parse(readFileSync(filePath, 'utf8'))
+  return manifest
 }
 
 /**

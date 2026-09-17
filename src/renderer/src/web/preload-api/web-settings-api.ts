@@ -24,6 +24,7 @@ import { noopUnsubscribe } from './web-storage'
 
 export function createWebSettingsApi(): Partial<PreloadApi> {
   return {
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the web preload implements the subset of the settings API the web client calls; `satisfies Partial<WebSettingsApi>` type-checks every member it does implement, and the unimplemented ones are never reached from the web renderer.
     settings: {
       get: async () => getRuntimeBackedStoredSettings(),
       // Why: localStorage-backed settings are synchronous, so the pre-hydration kill-switch read works the same as desktop.

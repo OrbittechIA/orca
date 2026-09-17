@@ -2,10 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { StructuredAgentSessionOutboxEntry } from '../../../shared/structured-agent-session-outbox'
 import { createStructuredAgentSessionOutboxEntry } from '../../../shared/structured-agent-session-outbox'
 
-const mocks = vi.hoisted(() => ({
-  entry: null as StructuredAgentSessionOutboxEntry | null,
-  callStructuredAgentSession: vi.fn()
-}))
+const mocks = vi.hoisted(() => {
+  // Spread from a typed holder so the property keeps its declared type instead of narrowing to `null`.
+  const staged: { entry: StructuredAgentSessionOutboxEntry | null } = { entry: null }
+  return { ...staged, callStructuredAgentSession: vi.fn() }
+})
 
 vi.mock('@/components/native-chat/structured-agent-session-outbox-storage', () => ({
   mutateStructuredAgentSessionLaunchPrompt: (

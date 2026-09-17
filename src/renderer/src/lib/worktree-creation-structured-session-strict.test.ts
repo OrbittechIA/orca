@@ -4,10 +4,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 // on a thrown launch, on a generic failed settlement, and on missing delivery evidence. Runs the
 // real plan, settle loop and provisional chat tab; only the launch registry is mocked.
 
+function newState(): Record<string, unknown> {
+  return { pendingWorktreeCreations: { 'creation-1': {} } }
+}
+
 const mocks = vi.hoisted(() => ({
-  state: {
-    pendingWorktreeCreations: { 'creation-1': {} } as Record<string, unknown>
-  } as Record<string, unknown>,
+  state: newState(),
   listener: null as ((state: { pendingWorktreeCreations: Record<string, unknown> }) => void) | null,
   unsubscribe: vi.fn(),
   startStructuredAgentLaunch: vi.fn(),

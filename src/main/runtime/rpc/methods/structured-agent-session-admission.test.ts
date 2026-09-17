@@ -1,6 +1,7 @@
 // Admission can be revoked while sessions are still open: the host setting is turned off with a
 // chat already on screen. What the caller may still do to that chat is the rule this suite pins.
 
+import { isUnknownRecord } from '../../../../shared/unknown-record'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
 import {
@@ -186,8 +187,9 @@ describe('admission revoked while a session is still open', () => {
       // RPC error, deliberately, so a genuine fault is not laundered into "no such chat". The
       // property under test is the same either way — the session is not revealed — so this
       // accepts both shapes and still pins the gate's own code.
-      const refusal = (response as { result?: { refusal?: { code?: string } } }).result?.refusal
-      if (refusal) {
+      const result: unknown = 'result' in response ? response.result : undefined
+      const refusal = isUnknownRecord(result) ? result.refusal : undefined
+      if (isUnknownRecord(refusal)) {
         expect(refusal.code).toContain('structured_agent_session_unsupported')
         return
       }

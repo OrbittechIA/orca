@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   resolvePrBase: vi.fn(),
   startStructuredAgentLaunch: vi.fn(),
   toastError: vi.fn(),
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: placeholder until `beforeEach` installs the store fixture; every read happens after that.
   store: {} as Record<string, unknown> & {
     createWorktree: ReturnType<typeof vi.fn>
     ensureDetectedAgents: ReturnType<typeof vi.fn>
@@ -156,7 +157,7 @@ describe('launchWorkItemDirect structured submission', () => {
       unifiedTabsByWorktree: {},
       createUnifiedTab: vi.fn((_worktreeId: string, _type: string, tab: { id: string }) => tab),
       setActiveTabType: vi.fn()
-    } as typeof mocks.store
+    }
     // @ts-expect-error -- test shim
     globalThis.window = { api: mockApi }
     mockApi.agentTrust.markTrusted.mockResolvedValue(undefined)

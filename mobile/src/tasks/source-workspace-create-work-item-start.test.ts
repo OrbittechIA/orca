@@ -1,3 +1,4 @@
+import { isUnknownRecord } from '../../../src/shared/unknown-record'
 import { describe, expect, it, vi } from 'vitest'
 
 // The Start persists its send envelope before dispatching it; an in-memory AsyncStorage is enough.
@@ -91,9 +92,13 @@ function composerArgs(client: RpcClient, delivery: 'draft' | 'submit-after-ready
   }
 }
 
+function paramsOf(method: string, client: { sendRequest: ReturnType<typeof vi.fn> }) {
+  const params: unknown = client.sendRequest.mock.calls.find((entry) => entry[0] === method)?.[1]
+  return isUnknownRecord(params) ? params : {}
+}
+
 function createParams(client: { sendRequest: ReturnType<typeof vi.fn> }): Record<string, unknown> {
-  const call = client.sendRequest.mock.calls.find((entry) => entry[0] === 'worktree.create')
-  return (call?.[1] ?? {}) as Record<string, unknown>
+  return paramsOf('worktree.create', client)
 }
 
 describe('composer work item Start', () => {
@@ -112,10 +117,7 @@ describe('composer work item Start', () => {
 
     expect(createParams(client).startupDraft).toBeUndefined()
     expect(createParams(client).createdWithAgent).toBe('codex')
-    const support = client.sendRequest.mock.calls.find(
-      (entry) => entry[0] === 'agentSession.createSupport'
-    )?.[1] as { launchOrigin?: string }
-    expect(support.launchOrigin).toBe('work-item-start')
+    expect(paramsOf('agentSession.createSupport', client).launchOrigin).toBe('work-item-start')
   })
 
   it.each([

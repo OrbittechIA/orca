@@ -89,6 +89,7 @@ vi.mock('@/store', () => ({
     })
 }))
 
+// oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the pane reads the three task settings under test; the rest of GlobalSettings is never touched by it.
 const baseSettings = {
   visibleTaskProviders: ['github', 'gitlab', 'linear'],
   defaultTaskSource: 'github',
@@ -177,8 +178,11 @@ describe('TasksPane', () => {
 
     expect(draft?.getAttribute('aria-checked')).toBe('true')
     expect(submit?.getAttribute('aria-checked')).toBe('false')
+    expect(submit).toBeInstanceOf(HTMLButtonElement)
     await act(async () => {
-      ;(submit as HTMLButtonElement | null)?.click()
+      if (submit instanceof HTMLButtonElement) {
+        submit.click()
+      }
     })
     expect(updateSettings).toHaveBeenCalledWith({
       workItemStartPromptDelivery: 'submit-after-ready'

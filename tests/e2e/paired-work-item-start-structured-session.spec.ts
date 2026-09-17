@@ -89,10 +89,10 @@ const INERT_FIXTURE_REFUSAL = inertFixtureRefusal()
  */
 function readInertLedger(): { turnStarts: number; spawns: number } {
   const raw = readFileSync(INERT_AGENT_LEDGER ?? '', 'utf8')
-  const entries = raw
+  const entries: { event?: string }[] = raw
     .split('\n')
     .filter((line) => line.trim().length > 0)
-    .map((line) => JSON.parse(line) as { event?: string })
+    .map((line) => JSON.parse(line))
   return {
     turnStarts: entries.filter((entry) => entry.event === 'turn-start').length,
     spawns: entries.filter((entry) => entry.event === 'spawn').length
@@ -272,13 +272,13 @@ test('a paired Work Item Start opens one structured session and delivers its pro
       call<AttestationResult>('runtime.buildAttestation', null)
     ])
     const clientAttestation: AttestationResult = clientAttestationJson
-      ? (JSON.parse(clientAttestationJson) as AttestationResult)
+      ? JSON.parse(clientAttestationJson)
       : null
     const clientProcess = await client.app.evaluate(({ app }) => ({
       appVersion: app.getVersion(),
       platform: process.platform,
       arch: process.arch,
-      osRelease: require('node:os').release() as string,
+      osRelease: String(require('node:os').release()),
       execPath: process.execPath
     }))
     expect(clientAttestation?.sha256).toMatch(/^[0-9a-f]{64}$/)

@@ -16,17 +16,20 @@ import { resolveQuickWorkItemStartRoute } from './quick-work-item-start-route'
 import { setLocalRuntimeCapabilitiesForTests } from '@/runtime/local-runtime-capabilities'
 import { resetRendererAppPlatformCacheForTests } from '@/lib/renderer-app-platform'
 
-const mocks = vi.hoisted(() => ({
-  runBackgroundWorktreeCreation: vi.fn(),
-  appState: {
-    activeRepoId: null,
-    activeWorktreeId: null,
-    projects: [],
-    repos: [] as Repo[],
-    settings: null,
-    worktreesByRepo: {}
+const mocks = vi.hoisted(() => {
+  const noRepos: Repo[] = []
+  return {
+    runBackgroundWorktreeCreation: vi.fn(),
+    appState: {
+      activeRepoId: null,
+      activeWorktreeId: null,
+      projects: [],
+      repos: noRepos,
+      settings: null,
+      worktreesByRepo: {}
+    }
   }
-}))
+})
 
 vi.mock('@/store', () => ({
   useAppStore: { getState: () => mocks.appState }
@@ -130,6 +133,7 @@ function executionInput(
 }
 
 function settingsWithDelivery(delivery?: 'draft' | 'submit-after-ready'): GlobalSettings {
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the quick-create route reads these four settings; the rest of GlobalSettings is never touched by it.
   return {
     workItemStartPromptDelivery: delivery,
     experimentalNativeChat: false,

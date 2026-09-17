@@ -132,6 +132,7 @@ describe('committed adopting create RPC replay', () => {
     let selectedHome = originalHome
     const selectAccountHome = vi.fn(() => selectedHome)
     const runtime = new OrcaRuntimeService(
+      // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the adoption-replay path reads getRepo/getSettings off the store; the fixture pins those.
       {
         // The real store always answers this; omitting it only worked while the call site
         // was optional, which is the masking this path should not do.
@@ -149,6 +150,7 @@ describe('committed adopting create RPC replay', () => {
     vi.spyOn(runtime, 'getClientSettings').mockReturnValue({
       experimentalStructuredNativeChat: true
     } as ReturnType<OrcaRuntimeService['getClientSettings']>)
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the suite replaces the protected `resolveRuntimeFileTarget` with a fixture answering the fields the resolver reads.
     const internal = runtime as unknown as {
       resolveRuntimeFileTarget: () => Promise<{
         executionHostId: string

@@ -2,10 +2,10 @@
 
 import { describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({
-  call: vi.fn(),
-  state: {} as Record<string, unknown>
-}))
+const mocks = vi.hoisted(() => {
+  const state: Record<string, unknown> = {}
+  return { call: vi.fn(), state }
+})
 
 vi.mock('@/runtime/structured-agent-session-client', () => ({
   callStructuredAgentSession: mocks.call
@@ -27,6 +27,7 @@ function stateWithOwner(
   ownerEnvironmentId: string | undefined,
   activeRuntimeEnvironmentId: string | undefined
 ): WorktreeRuntimeOwnerState {
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the owner routing reads repos, worktree rows and the active runtime environment; the fixture pins those fields of the store.
   return {
     activeRepoId: 'repo-1',
     activeWorktreeId: null,
@@ -64,6 +65,7 @@ describe('structured session routing follows the worktree owner, not the focus',
 
   it('fails closed when more than one runtime claims the worktree', async () => {
     const { AmbiguousStructuredSessionOwnerError } = await import('./worktree-runtime-owner-target')
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: two worktree rows share one id across repos on purpose; the routing reads ids, hosts and owner environments only.
     const ambiguous = {
       ...stateWithOwner('env-1', 'env-2'),
       worktreesByRepo: {
@@ -93,7 +95,7 @@ describe('the probe and the create land in the worktree owner environment', () =
     const { createStructuredAgentSessionLaunchIntent, launchStructuredAgentSession } =
       await import('./launch-structured-agent-session')
     // Foco global em env-2; a workspace pertence a env-1.
-    mocks.state = stateWithOwner('env-1', 'env-2') as unknown as Record<string, unknown>
+    mocks.state = { ...stateWithOwner('env-1', 'env-2') }
     mocks.call.mockReset()
     mocks.call
       .mockResolvedValueOnce({ supported: true })

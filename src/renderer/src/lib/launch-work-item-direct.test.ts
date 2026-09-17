@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   openModalFallback: vi.fn(),
   resolvePrBase: vi.fn(),
   getConnectionId: vi.fn(),
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: placeholder until `beforeEach` installs the store fixture; every read happens after that.
   store: {} as Record<string, unknown> & {
     ensureDetectedAgents: ReturnType<typeof vi.fn>
     ensureRemoteDetectedAgents: ReturnType<typeof vi.fn>
@@ -226,7 +227,7 @@ describe('launchWorkItemDirect', () => {
       markNativeChatLaunchPromptFailed: mocks.markNativeChatLaunchPromptFailed,
       clearNativeChatLaunchDraft: mocks.clearNativeChatLaunchDraft,
       setNativeChatLaunchDraft: mocks.setNativeChatLaunchDraft
-    } as typeof mocks.store
+    }
     // @ts-expect-error -- test shim
     globalThis.window = { api: mockApi }
     mockApi.agentTrust.markTrusted.mockResolvedValue(undefined)
