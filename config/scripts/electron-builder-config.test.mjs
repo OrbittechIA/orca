@@ -501,8 +501,11 @@ describe('arch-aware packaging guard', () => {
   const HOST_ARCH = process.arch === 'arm64' ? 3 : 1
   const OTHER_ARCH = process.arch === 'arm64' ? 1 : 3
   const OTHER_ARCH_NAME = process.arch === 'arm64' ? 'x64' : 'arm64'
-  const SHERPA_PLATFORM = process.platform === 'win32' ? 'win' : process.platform
-  const otherSherpa = `sherpa-onnx-${SHERPA_PLATFORM}-${OTHER_ARCH_NAME}`
+  // Windows uses x64 Sherpa under emulation; Parcel still needs the target architecture.
+  const otherNative =
+    process.platform === 'win32'
+      ? `@parcel/watcher-win32-${OTHER_ARCH_NAME}`
+      : `sherpa-onnx-${process.platform}-${OTHER_ARCH_NAME}`
   const packHost = (arch) =>
     electronBuilderConfig.beforePack({ electronPlatformName: process.platform, arch })
 
@@ -511,15 +514,14 @@ describe('arch-aware packaging guard', () => {
   })
 
   it('requires the other architecture natives to be installed', () => {
-    const otherSherpaInstalled = existsSync(
-      join(REPO_ROOT, 'node_modules', otherSherpa, 'package.json')
+    const otherNativeInstalled = existsSync(
+      join(REPO_ROOT, 'node_modules', otherNative, 'package.json')
     )
-    const otherSherpaExpected = Object.hasOwn(
-      require('../../package.json').optionalDependencies,
-      otherSherpa
-    )
-    if (otherSherpaExpected && !otherSherpaInstalled) {
-      expect(() => packHost(OTHER_ARCH)).toThrow(otherSherpa)
+    const otherNativeExpected =
+      process.platform === 'win32' ||
+      Object.hasOwn(require('../../package.json').optionalDependencies, otherNative)
+    if (otherNativeExpected && !otherNativeInstalled) {
+      expect(() => packHost(OTHER_ARCH)).toThrow(otherNative)
       expect(() => packHost(OTHER_ARCH)).toThrow('pnpm install:release')
       expect(() => packHost(HOST_ARCH)).not.toThrow()
     } else {
