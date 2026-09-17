@@ -19,7 +19,7 @@ const nodeOptions = appendBuildOldSpaceOption(process.env.NODE_OPTIONS)
 const child = spawn(process.execPath, [electronViteCli, 'build', ...process.argv.slice(2)], {
   stdio: 'inherit',
   env: provenanceEnvironmentForElectronVite({
-    cwd: path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..'),
+    cwd: path.resolve(import.meta.dirname, '../..'),
     env: { ...process.env, NODE_OPTIONS: nodeOptions }
   })
 })

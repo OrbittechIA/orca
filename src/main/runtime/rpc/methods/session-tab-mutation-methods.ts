@@ -1,5 +1,5 @@
 import type { RpcContext } from '../core'
-import { projectSessionTabsForContext } from './session-tabs-inventory'
+import { projectSessionTabsForContext, projectSessionTabsForClient } from './session-tabs-inventory'
 import { restoreStructuredTabsIfSupported } from './structured-session-tab-restore'
 import { resolveRuntimeNavigationTarget } from '../../../../shared/runtime-navigation'
 import { defineMethod } from '../core'
@@ -7,7 +7,6 @@ import {
   assertProjectedSessionTabVisible,
   translateProjectedSessionTabMove
 } from './session-tab-browser-placement-projection'
-import { projectSessionTabsForClient } from './session-tabs-inventory'
 import { isStructuredNativeChatEnabled } from './structured-agent-session-policy'
 import { ActivateTab, MoveTab, SetTabProps, UpdatePaneLayout } from './session-tabs-schemas'
 

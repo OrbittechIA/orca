@@ -1,6 +1,9 @@
-import { isWorkItemStartStructuredSession } from './structured-agent-session-gate'
-import { requireWorkItemStartStatusHost } from './structured-agent-session-gate'
-import { canAccessWorkItemStartStructuredSession } from './structured-agent-session-gate'
+import {
+  isWorkItemStartStructuredSession,
+  requireWorkItemStartStatusHost,
+  canAccessWorkItemStartStructuredSession,
+  requireStructuredHost as requireHost
+} from './structured-agent-session-gate'
 import { supportsStructuredAgentSessions } from './structured-agent-session-policy'
 // `agentSession.subscribeStatus` — every structured session's projected status on one stream.
 //
@@ -8,7 +11,6 @@ import { supportsStructuredAgentSessions } from './structured-agent-session-poli
 // covers every session, and unlike a transcript subscription it retains none of them.
 
 import { defineStreamingMethod, type RpcContext } from '../core'
-import { requireStructuredHost as requireHost } from './structured-agent-session-gate'
 import { structuredAgentSessionStatusSubscriptionId } from './structured-agent-session-subscription-id'
 
 /** Ties a stream to both ends that can close it — the runtime's subscription registry and the

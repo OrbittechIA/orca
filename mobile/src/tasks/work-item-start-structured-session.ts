@@ -19,6 +19,7 @@ import {
 } from '../session/mobile-structured-send-operation-journal'
 import type { RpcClient } from '../transport/rpc-client'
 import type { RuntimeTaskSettings } from './mobile-tasks-view-state-types'
+import { worktreeCreateCapabilityRead } from './mobile-workspace-create-operations'
 
 /**
  * Whether this host's Work Item Start must produce a structured agent session.
@@ -61,13 +62,14 @@ export async function readWorkItemStartHostAdmission(
   client: RpcClient
 ): Promise<WorkItemStartHostAdmission | null> {
   try {
-    const response = await client.sendRequest('status.get', undefined, {
+    const response = await worktreeCreateCapabilityRead.request(client, undefined, {
       timeoutMs: WORK_ITEM_START_ADMISSION_TIMEOUT_MS
     })
-    if (!response.ok || typeof response.result !== 'object' || response.result === null) {
+    const verdict = worktreeCreateCapabilityRead.interpret(response)
+    if (!verdict.accepted) {
       return null
     }
-    const result: unknown = response.result
+    const result = verdict.value
     if (!isUnknownRecord(result)) {
       return null
     }
