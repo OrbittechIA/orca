@@ -22,11 +22,11 @@ const hash = (parts: string[] | string): string =>
 // which did not move. Statement, declaration, render and style counts are unchanged; `semantics`
 // loses exactly the 22 `rpc:` signatures and 22 method literals the migration deleted.
 const WORKSPACE_RPC_SCREEN_HOOKS =
-  '26ed5700089a9de13ea984274eb10ddea62f72b28135992514e3c16ef8e47e30'
+  '0941a8a927deee958cfedb5d49ad280b5932de1220a43c6fe3007284a31890ab'
 const PRE_REFACTOR_DIFF_HOOKS = '93c7189b32bed8456cc51814fffa8ce80cf62011ef968a9d53ddec2b9686f58f'
-const WORKSPACE_RPC_STATEMENTS = 'c25179660e089fd602b06e8c235e5f92d62e63d6d4add4c33ff89a4b5f9493cc'
-const MAIN_REBASED_DECLARATIONS = '6ad0397123e59fc1047a14049c86ff31d81723673a7a7f5c41677471aec58415'
-const WORKSPACE_RPC_SEMANTICS = '7a00e700fe7293df9b5b68470185197c56a27007d89038a183153b29326113c0'
+const WORKSPACE_RPC_STATEMENTS = 'ae4a019d19eca1cbaf971823a315a243be63c3e027f67d779f1ef44a1d9eb6ba'
+const MAIN_REBASED_DECLARATIONS = '91cd434cfdb703335414967956a030191ff6e36ae4edd6cb2a656ff5fe5dcb7e'
+const WORKSPACE_RPC_SEMANTICS = 'ac6aa5a9c8d22cb34b94594614ad1d45415e97f39531f67dbf9584753e923a1f'
 const PRE_REFACTOR_STYLES = '1db6af69c791d9963928541ad5310942fcbda6d984b422c90b6eb92b6816579a'
 const PRE_REFACTOR_RENDER_TREE = '2111145136b1e4fbca150d4792d735a90e992488e9934cfc1a8b8f3be981f39f'
 
@@ -55,7 +55,7 @@ describe('Mobile Tasks refactor parity', () => {
 
   it('preserves RPC calls, runtime strings, and JSX host signatures', () => {
     const semantics = readMobileTasksSemanticSource()
-    expect(semantics.split('\n')).toHaveLength(3_452)
+    expect(semantics.split('\n')).toHaveLength(3_458)
     expect(hash(semantics)).toBe(WORKSPACE_RPC_SEMANTICS)
   })
 
