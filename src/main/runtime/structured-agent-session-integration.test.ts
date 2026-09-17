@@ -311,6 +311,7 @@ beforeEach(async () => {
     getRuntimeId: () => 'runtime-1',
     getClientSettings: () => ({ experimentalStructuredNativeChat: true }),
     getStructuredAgentSessionCreateSupport: async () => ({ supported: true }),
+    holdWorktreeLifecycle: async () => () => undefined,
     resolveStructuredAgentSessionCreateIntent: async () => {
       const {
         envelope: _envelope,

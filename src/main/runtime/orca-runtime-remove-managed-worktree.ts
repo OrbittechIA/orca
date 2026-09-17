@@ -67,7 +67,10 @@ export class OrcaRuntimeWithRemoveManagedWorktree extends OrcaRuntimeWithCreateM
     if (inFlightRemoval) {
       return inFlightRemoval
     }
-    const removal = removeWithWorktreeLifecycleHeld(this, removalTarget.id, () =>
+    // The hold is scoped to the host this removal runs on: a same-id record on another host
+    // keeps its own lifecycle, exactly as the in-flight coalescing above is scoped.
+    const lifecycle = { store, removalTarget, hostId: cleanupHostId }
+    const removal = removeWithWorktreeLifecycleHeld(this, lifecycle, () =>
       withWorktreeSpan({ stage: 'remove', path: removalTarget.path }, async () => {
         const repoOwner = resolveWorktreeRemovalRepoOwner(
           store,
