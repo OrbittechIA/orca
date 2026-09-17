@@ -1,5 +1,4 @@
 import { workItemStartStrictPreflightBlocks } from '@/lib/work-item-start-precreate-preflight'
-import { structuredWorkItemLaunchUnavailableMessage } from '@/lib/launch-work-item-direct-messages'
 import { toast } from 'sonner'
 import { useAppStore } from '@/store'
 import {
@@ -10,6 +9,7 @@ import { planAgentCliArgsSuffix } from '@/lib/tui-agent-startup'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
 import { CLIENT_PLATFORM, getWorkspaceIntentName, getWorkspaceSeedName } from '@/lib/new-workspace'
 import {
+  structuredWorkItemLaunchUnavailableMessage,
   agentLaunchCommandErrorMessage,
   gitLabIssueNumber,
   resolvePrHeadErrorMessage,

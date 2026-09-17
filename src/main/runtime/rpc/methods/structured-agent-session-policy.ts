@@ -4,8 +4,10 @@ import {
 } from '../../../../shared/protocol-version'
 import type { OrcaRuntimeService } from '../../orca-runtime'
 import type { RpcContext } from '../core'
-import type { StructuredAgentSessionLaunchOrigin } from '../../../../shared/structured-agent-session-create'
-import type { StructuredAgentSessionLaunchAuthority } from '../../../../shared/structured-agent-session-create'
+import type {
+  StructuredAgentSessionLaunchOrigin,
+  StructuredAgentSessionLaunchAuthority
+} from '../../../../shared/structured-agent-session-create'
 import { structuredAgentSessionsEnabled } from '../../../../shared/structured-native-chat-launch-route'
 
 type StructuredPolicyContext = Pick<RpcContext, 'clientCapabilities' | 'clientKind'> & {

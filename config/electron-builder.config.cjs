@@ -38,7 +38,7 @@ async function verifyPackagedBuildProvenance(asarPath) {
   const { readBuildProvenanceLiteral } = await import('./scripts/build-provenance.mjs')
   const { verifyBundledBuildProvenance } = await import('./scripts/verify-build-provenance.mjs')
   const asar = require('@electron/asar')
-  const bundle = asar.extractFile(asarPath, 'out/main/index.js').toString('utf8')
+  const bundle = asar.extractFile(asarPath, join('out', 'main', 'index.js')).toString('utf8')
   const expected = verifyBundledBuildProvenance({
     bundlePath: `${asarPath}:out/main/index.js`,
     bundle,

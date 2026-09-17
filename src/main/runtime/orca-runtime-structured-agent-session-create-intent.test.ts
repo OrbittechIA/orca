@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { GlobalSettings } from '../../shared/global-settings-types'
 import { OrcaRuntimeService } from './orca-runtime'
+import type { RuntimeStore } from './runtime-store-contract'
 import { structuredAgentSessionCreateWorktreeTarget } from './structured-agent-session-create-worktree-target'
 
 type RuntimeInternals = {
@@ -15,9 +17,13 @@ type RuntimeInternals = {
   }>
 }
 
+type CreateIntentStore = Partial<Pick<RuntimeStore, 'getRepo'>> & {
+  getSettings: () => Pick<GlobalSettings, 'agentDefaultEnv' | 'nativeChatSessionOptions'>
+}
+
 /** A runtime over the store fields this suite reads; nothing else is touched. */
 function runtimeOver(
-  store: object,
+  store: CreateIntentStore,
   deps?: ConstructorParameters<typeof OrcaRuntimeService>[2]
 ): OrcaRuntimeService {
   // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the create-intent path reads only getRepo/getSettings off the store; the fixture pins those.

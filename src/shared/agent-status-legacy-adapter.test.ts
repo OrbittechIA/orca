@@ -128,6 +128,8 @@ describe('legacy agent-status adapter', () => {
   it('exposes Map reads without writable methods or mutable values', () => {
     const adapter = createAgentStatusLegacyAdapter()
     const entry = status('immutable')
+    entry.providerSession = { key: 'session_id', id: 'provider-session' }
+    entry.payload.subagents = [{ id: 'child', state: 'working', startedAt: 1 }]
     adapter.admit('main-status-update', AGENT_STATUS_2A_CURRENT_PRODUCER_MODE, entry)
 
     expect(adapter.view.get('immutable')).toBe(entry)
@@ -138,6 +140,9 @@ describe('legacy agent-status adapter', () => {
     expect(Object.isFrozen(adapter.view)).toBe(true)
     expect(Object.isFrozen(entry)).toBe(true)
     expect(Object.isFrozen(entry.payload)).toBe(true)
+    expect(Object.isFrozen(entry.providerSession)).toBe(true)
+    expect(Object.isFrozen(entry.payload.subagents)).toBe(true)
+    expect(Object.isFrozen(entry.payload.subagents[0])).toBe(true)
     expect(() => {
       entry.payload.prompt = 'mutated outside the adapter'
     }).toThrow()

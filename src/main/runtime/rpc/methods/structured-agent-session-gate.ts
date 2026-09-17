@@ -12,8 +12,10 @@ import { getStructuredAgentSessionHost } from '../../../native-chat/agent-sessio
 import type { StructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-host'
 import type { StructuredAgentSessionCaller } from '../../../native-chat/agent-session-wire/structured-agent-session-host-types'
 import type { RpcContext } from '../core'
-import type { StructuredAgentSessionLaunchOrigin } from '../../../../shared/structured-agent-session-create'
-import type { StructuredAgentSessionLaunchAuthority } from '../../../../shared/structured-agent-session-create'
+import type {
+  StructuredAgentSessionLaunchOrigin,
+  StructuredAgentSessionLaunchAuthority
+} from '../../../../shared/structured-agent-session-create'
 import type { StructuredAgentSessionCreateWorktreeTarget } from '../../structured-agent-session-create-worktree-target'
 import {
   structuredWorkItemStartCallerAuthority,

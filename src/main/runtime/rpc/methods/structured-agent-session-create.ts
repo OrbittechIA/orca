@@ -1,6 +1,7 @@
 import type {
   StructuredAgentSessionLaunchAuthority,
-  StructuredAgentSessionLaunchOrigin
+  StructuredAgentSessionLaunchOrigin,
+  StructuredAgentSessionResumeSource
 } from '../../../../shared/structured-agent-session-create'
 import {
   structuredAgentSessionCreateLocationMatchesTarget,
@@ -33,7 +34,6 @@ import {
 } from '../../../native-chat/agent-session-wire/structured-agent-session-attach'
 import type { StructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-host'
 import type { StructuredAgentSessionCaller } from '../../../native-chat/agent-session-wire/structured-agent-session-host-types'
-import type { StructuredAgentSessionResumeSource } from '../../../../shared/structured-agent-session-create'
 import type { OrcaRuntimeService } from '../../orca-runtime'
 import {
   resolveUncommittedStructuredCreate,
