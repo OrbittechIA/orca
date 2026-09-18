@@ -93,12 +93,14 @@ export function useNewWorkspaceCreateSubmit(args: {
       try {
         const settingsReply = await settingsRead.request(client)
         const settings = settingsRead.interpret(settingsReply)
-        const refreshed = settings.accepted
-          ? resolveWorkItemStartSettingsRefresh(latestRuntimeSettings, settings.value)
-          : null
-        if (refreshed) {
-          latestRuntimeSettings = refreshed
-          args.setRuntimeSettings(refreshed)
+        if (settings.accepted) {
+          const refreshed = resolveWorkItemStartSettingsRefresh(
+            latestRuntimeSettings,
+            settings.value
+          )
+          // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: retain the opaque legacy settings contract after protecting known strict delivery.
+          latestRuntimeSettings = refreshed as NewWorktreeRuntimeSettings
+          args.setRuntimeSettings(latestRuntimeSettings)
         }
       } catch {
         // The runtime validates the same setting before spawning.

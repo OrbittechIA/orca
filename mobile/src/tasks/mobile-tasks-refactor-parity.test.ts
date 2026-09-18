@@ -107,9 +107,9 @@ const hash = (parts: string[] | string): string =>
 // moves. The render-token stream gains the four tokens that one attribute is, 35,203 -> 35,207.
 // Nothing else in the family moves.
 
-const SCREEN_RPC_SCREEN_HOOKS = 'fc3c07c3a34b9075486ac7cd4b70ddb732402ccba94c6d74d28f62bdfb3f50b4'
+const SCREEN_RPC_SCREEN_HOOKS = '17f6d315e0d3b48981de49858428afc2e700c2eee46d770d6c62a37ade972845'
 const PRE_REFACTOR_DIFF_HOOKS = '93c7189b32bed8456cc51814fffa8ce80cf62011ef968a9d53ddec2b9686f58f'
-const SCREEN_RPC_STATEMENTS = '5635d65e0e58eb6dcc4cb3e61c0e6a8fa86bc18be3bc0bf6ba80b66c6fa27051'
+const SCREEN_RPC_STATEMENTS = '7df52d3043f8d4a54429486f9095c2d024574aa0e1002c85f1e458ec9d581f44'
 const MAIN_REBASED_DECLARATIONS = '04ef7f34ea90f70a55e33ff9eb9e71c87edcf38547afb1e8a088f0f18e7bb0ad'
 const SCREEN_RPC_SEMANTICS = '4a2f2c17ef334cba893088db21e4ca2547ee8ed1b966bc95b1f3a2c39ba9fc17'
 const PRE_REFACTOR_STYLES = '1db6af69c791d9963928541ad5310942fcbda6d984b422c90b6eb92b6816579a'
