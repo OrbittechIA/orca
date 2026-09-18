@@ -1,4 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
+import {
+  humanGateFixture,
+  openHumanGate
+} from '../../../../orchestration/db/decision-gates/human-gate-test-fixture'
 import type { RpcContext } from '../../../core'
 import { createOrchestrationRpcHarness } from '../rpc-test-harness'
 import type { OrchestrationDb } from '../../../../orchestration/db'
@@ -81,6 +85,24 @@ describe('orchestration RPC methods', () => {
 
       const updated = db.getTask(task.id)
       expect(updated?.status).toBe('ready')
+    })
+
+    it('refuses legacy free-text resolution of a typed Human Gate in the same Run', async () => {
+      setup()
+      const task = db.createTask({ spec: 'typed owner decision' })
+      const request = humanGateFixture(db)
+      const gate = openHumanGate(db, {
+        ...request,
+        identity: { ...request.identity, run_id: task.run_id, task_id: task.id }
+      })
+      await expect(
+        call('orchestration.gateResolve', {
+          id: gate.gate_id,
+          resolution: 'approved by reviewer'
+        })
+      ).rejects.toThrow('Typed Human Gate')
+      expect(db.getTask(task.id)?.status).toBe('blocked')
+      expect(db.getGate(gate.gate_id)?.resolution).toBeNull()
     })
 
     it('throws on nonexistent gate', async () => {

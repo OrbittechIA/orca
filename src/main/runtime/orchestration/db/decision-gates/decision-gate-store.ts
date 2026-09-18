@@ -1,3 +1,5 @@
+import type { HumanGateRequest } from '../../../../../shared/human-gate-contract'
+import { persistHumanGateRequest } from './human-gate-request'
 import type { DecisionGateRow, DispatchContextRow, GateStatus } from '../../types'
 import { OrchestrationError } from '../../orchestration-error'
 import { generateId } from '../generated-id'
@@ -12,6 +14,7 @@ export function createGate(
     taskId: string
     question: string
     options?: string[]
+    humanGate?: HumanGateRequest
     requester?: { handle: string; paneKey?: string | null; dispatchId: string }
   }
 ): DecisionGateRow {
@@ -75,6 +78,15 @@ export function createGate(
         'INSERT INTO decision_gates (id, run_id, task_id, question, options) VALUES (?, ?, ?, ?, ?)'
       )
       .run(id, runId, gate.taskId, gate.question, optionsJson)
+    if (gate.humanGate) {
+      if (gate.options?.length) {
+        throw new OrchestrationError(
+          'human_gate_conflict',
+          'Typed Human Gates do not accept legacy options'
+        )
+      }
+      persistHumanGateRequest(this, id, gate.taskId, gate.question, gate.humanGate)
+    }
     this.completeActiveDispatchesForTask(gate.taskId)
     transitionLifecycleWithDb(this.db, {
       entity: 'task',

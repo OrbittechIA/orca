@@ -186,6 +186,14 @@ export function resolveOrchestrationMigrationStartVersion(
     return storedVersion
   }
   if (hasCompletePostV6Schema(db, storedVersion)) {
+    if (
+      storedVersion >= 42 &&
+      ['human_gate_requests', 'human_gate_receipts', 'human_gate_retirements'].some(
+        (table) => !hasOrchestrationColumn(db, table, 'gate_id')
+      )
+    ) {
+      return 41
+    }
     return storedVersion
   }
   // Why: version-skewed pre-Run databases can claim the post-v6 range while retaining v6 tables.
