@@ -11,11 +11,7 @@ import {
   type HumanGateRetirement
 } from '../../../../../shared/human-gate-contract'
 import { OrchestrationError } from '../../orchestration-error'
-import {
-  beginLifecycleWriteTransaction,
-  commitLifecycleWriteTransaction,
-  rollbackLifecycleWriteTransaction
-} from '../lifecycle-transition'
+import { runLifecycleWriteTransaction } from '../lifecycle-write-transaction-runner'
 import { humanGateFingerprint } from './human-gate-fingerprint'
 import { requireHumanGateRecord } from './human-gate-record'
 
@@ -31,8 +27,7 @@ export function recordHumanGateDecision(
   authority: HumanGateOwnerAuthority
 ): HumanGateReceipt {
   const decision = HumanGateDecisionSchema.parse(input)
-  const tx = beginLifecycleWriteTransaction(db, 'human_gate_decision')
-  try {
+  return runLifecycleWriteTransaction(db, 'human_gate_decision', () => {
     const gate = requireHumanGateRecord(db, decision.gate_id)
     if (gate.request_fingerprint !== decision.request_fingerprint) {
       throw new OrchestrationError('human_gate_conflict', 'Human Gate request fingerprint mismatch')
@@ -51,7 +46,6 @@ export function recordHumanGateDecision(
           'Human Gate already has a different owner decision'
         )
       }
-      commitLifecycleWriteTransaction(db, tx)
       return gate.receipt
     }
     const now = new Date().toISOString()
@@ -69,12 +63,8 @@ export function recordHumanGateDecision(
     const receipt = { ...payload, receipt_fingerprint: humanGateFingerprint('receipt', payload) }
     db.prepare(`INSERT INTO human_gate_receipts (gate_id, request_fingerprint, receipt_json)
       VALUES (?, ?, ?)`).run(gate.gate_id, gate.request_fingerprint, canonicalJson(receipt))
-    commitLifecycleWriteTransaction(db, tx)
     return receipt
-  } catch (error) {
-    rollbackLifecycleWriteTransaction(db, tx)
-    throw error
-  }
+  })
 }
 
 export function expireHumanGate(
@@ -82,8 +72,7 @@ export function expireHumanGate(
   input: { gate_id: string; request_fingerprint: string }
 ): HumanGateRetirement {
   const reference = HumanGateReferenceSchema.parse(input)
-  const tx = beginLifecycleWriteTransaction(db, 'human_gate_expiry')
-  try {
+  return runLifecycleWriteTransaction(db, 'human_gate_expiry', () => {
     const gate = requireHumanGateRecord(db, reference.gate_id)
     if (gate.request_fingerprint !== reference.request_fingerprint) {
       throw new OrchestrationError('human_gate_conflict', 'Human Gate request fingerprint mismatch')
@@ -92,7 +81,6 @@ export function expireHumanGate(
       if (gate.retirement.state !== 'expired') {
         throw new OrchestrationError('human_gate_conflict', 'Human Gate already superseded')
       }
-      commitLifecycleWriteTransaction(db, tx)
       return gate.retirement
     }
     const now = new Date().toISOString()
@@ -111,10 +99,6 @@ export function expireHumanGate(
     }
     db.prepare(`INSERT INTO human_gate_retirements (gate_id, request_fingerprint, retirement_json)
       VALUES (?, ?, ?)`).run(gate.gate_id, gate.request_fingerprint, canonicalJson(retirement))
-    commitLifecycleWriteTransaction(db, tx)
     return retirement
-  } catch (error) {
-    rollbackLifecycleWriteTransaction(db, tx)
-    throw error
-  }
+  })
 }

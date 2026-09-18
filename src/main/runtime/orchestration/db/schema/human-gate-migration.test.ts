@@ -12,7 +12,7 @@ import {
   ownerAuthority
 } from '../decision-gates/human-gate-test-fixture'
 import { recordHumanGateDecision } from '../decision-gates/human-gate-decision'
-import { readHumanGates, readHumanGatesFile } from '../decision-gates/human-gate-projection'
+import { readHumanGates } from '../decision-gates/human-gate-projection'
 
 const roots: string[] = []
 afterEach(() => {
@@ -153,7 +153,6 @@ describe('v42 Human Gate additive migration and recovery', () => {
     } finally {
       recovered.close()
     }
-    expect(readHumanGatesFile(path, request.identity).gates[0]?.receipt).toEqual(receipt)
   })
 
   it('serializes competing receipt writers and returns the committed receipt on retry', () => {

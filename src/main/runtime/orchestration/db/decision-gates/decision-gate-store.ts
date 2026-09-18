@@ -78,7 +78,7 @@ export function createGate(
         'INSERT INTO decision_gates (id, run_id, task_id, question, options) VALUES (?, ?, ?, ?, ?)'
       )
       .run(id, runId, gate.taskId, gate.question, optionsJson)
-    if (gate.humanGate) {
+    if (gate.humanGate !== undefined) {
       if (gate.options?.length) {
         throw new OrchestrationError(
           'human_gate_conflict',

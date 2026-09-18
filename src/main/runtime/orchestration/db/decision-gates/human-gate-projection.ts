@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import Database from '../../../../sqlite/sync-database'
+import type Database from '../../../../sqlite/sync-database'
 import { canonicalJson } from '../../../../../shared/canonical-json'
 import {
   HumanGateIdentitySchema,
@@ -16,15 +16,18 @@ function unavailable(identity: HumanGateIdentity, reason: string): HumanGateProj
   return { schema_version: 1, identity, coverage: 'unavailable', reasons: [reason], gates: [] }
 }
 
-// SELECT only: callers may pass an already open connection or a genuinely read-only file handle.
+// The caller owns the connection lifecycle; this projection executes SELECTs only.
 export function readHumanGates(
-  db: Database.Database,
+  db: Database.Database | null,
   input: HumanGateIdentity,
   limit = 500
 ): HumanGateProjection {
   const identity = HumanGateIdentitySchema.parse(input)
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) {
     throw new Error('Human Gate limit must be 1..1000')
+  }
+  if (!db) {
+    return unavailable(identity, 'source_unavailable')
   }
   try {
     const supported = db
@@ -90,22 +93,5 @@ export function readHumanGates(
     return result
   } catch {
     return unavailable(identity, 'source_unavailable')
-  }
-}
-
-export function readHumanGatesFile(
-  path: string,
-  input: HumanGateIdentity,
-  limit = 500
-): HumanGateProjection {
-  const identity = HumanGateIdentitySchema.parse(input)
-  let db: Database.Database | undefined
-  try {
-    db = new Database(path, { readonly: true, fileMustExist: true })
-    return readHumanGates(db, identity, limit)
-  } catch {
-    return unavailable(identity, 'source_unavailable')
-  } finally {
-    db?.close()
   }
 }

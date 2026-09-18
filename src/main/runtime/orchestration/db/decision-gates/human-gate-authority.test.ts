@@ -175,6 +175,35 @@ describe('native typed Human Gate authority', () => {
     expect(requireHumanGateRecord(db.db, gate.gate_id).state).toBe('approved')
   })
 
+  it('rejects request replacement through the unique fingerprint on a different gate ID', () => {
+    const request = humanGateFixture(db)
+    const gate = openHumanGate(db, request)
+    const other = db.createGate({ taskId: request.identity.task_id, question: request.reason })
+    db.db.pragma('recursive_triggers = OFF')
+    expect(() =>
+      db.db
+        .prepare(`INSERT OR REPLACE INTO human_gate_requests
+      SELECT ?, run_id, task_id, identity_json, request_json, request_fingerprint
+      FROM human_gate_requests WHERE gate_id = ?`)
+        .run(other.id, gate.gate_id)
+    ).toThrow('immutable')
+    expect(requireHumanGateRecord(db.db, gate.gate_id)).toEqual(gate)
+    expect(() => db.resolveGate(gate.gate_id, 'approved')).toThrow('Typed Human Gate')
+    expect(db.resolveGate(other.id, 'legacy result')?.status).toBe('resolved')
+  })
+
+  it('never downgrades invalid explicit typed opt-in to a legacy gate', () => {
+    const request = humanGateFixture(db)
+    for (const humanGate of [null, false, '']) {
+      expect(() =>
+        Reflect.apply(db.createGate, db, [
+          { taskId: request.identity.task_id, question: request.reason, humanGate }
+        ])
+      ).toThrow()
+    }
+    expect(db.listGates()).toEqual([])
+  })
+
   it('supersedes approved requests atomically when the exact PR head or scope changes', () => {
     const request = humanGateFixture(db)
     const first = openHumanGate(db, request)

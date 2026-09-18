@@ -37,6 +37,9 @@ export const HUMAN_GATE_SCHEMA_SQL = `
       AND t.run_id = NEW.run_id AND r.legacy = 0 AND g.status = 'pending'
       AND g.question = json_extract(NEW.request_json, '$.reason') AND g.options = '[]')
   BEGIN SELECT RAISE(ABORT, 'Human Gate identity mismatch'); END;
+  CREATE TRIGGER IF NOT EXISTS human_gate_request_fingerprint_replace BEFORE INSERT ON human_gate_requests
+  WHEN EXISTS (SELECT 1 FROM human_gate_requests WHERE request_fingerprint = NEW.request_fingerprint)
+  BEGIN SELECT RAISE(ABORT, 'Human Gate history is immutable'); END;
   CREATE TRIGGER IF NOT EXISTS human_gate_receipt_binding BEFORE INSERT ON human_gate_receipts
   WHEN NOT EXISTS (SELECT 1 FROM human_gate_requests r
     WHERE r.gate_id = NEW.gate_id AND r.request_fingerprint = NEW.request_fingerprint)
@@ -52,9 +55,10 @@ export const HUMAN_GATE_SCHEMA_SQL = `
   CREATE TRIGGER IF NOT EXISTS human_gate_task_replace BEFORE INSERT ON tasks
   WHEN EXISTS (SELECT 1 FROM human_gate_requests WHERE task_id = NEW.id)
   BEGIN SELECT RAISE(ABORT, 'Human Gate identity is immutable'); END;
+  -- Existing Run ensures use INSERT OR IGNORE; preserve that no-op without permitting replacement.
   CREATE TRIGGER IF NOT EXISTS human_gate_run_replace BEFORE INSERT ON runs
   WHEN EXISTS (SELECT 1 FROM human_gate_requests WHERE run_id = NEW.id)
-  BEGIN SELECT RAISE(ABORT, 'Human Gate identity is immutable'); END;
+  BEGIN SELECT RAISE(IGNORE); END;
   CREATE TRIGGER IF NOT EXISTS human_gate_run_identity BEFORE UPDATE OF id, legacy ON runs
   WHEN EXISTS (SELECT 1 FROM human_gate_requests WHERE run_id = OLD.id)
     AND (NEW.id != OLD.id OR NEW.legacy != OLD.legacy)

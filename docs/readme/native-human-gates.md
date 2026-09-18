@@ -82,8 +82,7 @@ requests. Retirement takes precedence over receipt state in the projection.
 
 ## Read-only Core handoff
 
-`readHumanGates(connection, exactIdentity, limit?)` and
-`readHumanGatesFile(path, exactIdentity, limit?)` in
+`readHumanGates(connection, exactIdentity, limit?)` in
 `db/decision-gates/human-gate-projection.ts` return:
 
 ```ts
@@ -96,9 +95,12 @@ requests. Retirement takes precedence over receipt state in the projection.
 }
 ```
 
-The file reader opens an existing SQLite file read-only. It never constructs
-`OrchestrationDb`, creates a missing file, migrates, backfills, expires, acknowledges
-or repairs anything. The connection reader executes SELECTs only. Gate rows,
+The caller supplies an existing connection, or `null` when the source is unavailable.
+The reader never opens files, constructs `OrchestrationDb`, migrates, backfills,
+expires, acknowledges or repairs anything. It executes SELECTs only. The source
+adapter owns connection lifecycle; it must not use the migrating `OrchestrationDb`
+constructor on a read path. SQLite may create WAL bookkeeping files even for a
+read-only connection, so this projection deliberately does not open connections. Gate rows,
 receipts, retirements and native Task coverage come from one SQLite statement.
 Results are ordered by gate ID, bounded to 500 records by default (maximum 1000),
 and contain original authority timestamps rather than ingestion timestamps.
@@ -136,6 +138,6 @@ would erase typed history. There is no destructive cleanup or down-migration API
 
 Validation uses only in-memory or temporary databases: migration compatibility,
 old-client SQL, typed requests and receipts, head/scope changes, identity isolation,
-expiry/supersession, SELECT-only and read-only-file proofs, injected transaction
+expiry/supersession, SELECT-only and read-only-connection proofs, injected transaction
 failures, reopening and receipt retry recovery. No live migration or activation is
 part of this prerequisite.

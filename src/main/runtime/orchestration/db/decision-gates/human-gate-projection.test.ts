@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Database from '../../../../sqlite/sync-database'
 import { OrchestrationDb } from '../orchestration-db'
-import { readHumanGates, readHumanGatesFile } from './human-gate-projection'
+import { readHumanGates } from './human-gate-projection'
 import { humanGateFixture, openHumanGate, ownerAuthority } from './human-gate-test-fixture'
 import { recordHumanGateDecision, expireHumanGate } from './human-gate-decision'
 
@@ -159,30 +159,38 @@ describe('Core #81 native read representation', () => {
     })
   })
 
-  it('opens disposable files read-only and never creates missing databases or migrates old ones', () => {
+  it('reads through a caller-owned read-only connection without opening files or migrating', () => {
     const root = mkdtempSync(join(tmpdir(), 'orca-human-gate-read-'))
+    const path = join(root, 'test.db')
+    const writer = new OrchestrationDb(path)
     try {
-      const path = join(root, 'test.db')
-      const writer = new OrchestrationDb(path)
       const request = humanGateFixture(writer)
       openHumanGate(writer, request)
-      writer.close()
-      const bytes = readFileSync(path)
-      expect(readHumanGatesFile(path, request.identity).coverage).toBe('complete')
-      expect(readFileSync(path)).toEqual(bytes)
-      const oldPath = join(root, 'legacy.db')
-      const old = new Database(oldPath)
-      old.pragma('user_version = 41')
-      old.close()
-      const oldBytes = readFileSync(oldPath)
-      expect(readHumanGatesFile(oldPath, request.identity).reasons).toEqual(['unsupported_schema'])
-      expect(readFileSync(oldPath)).toEqual(oldBytes)
-      const files = readdirSync(root)
-      expect(readHumanGatesFile(join(root, 'absent.db'), request.identity).coverage).toBe(
-        'unavailable'
-      )
-      expect(readdirSync(root)).toEqual(files)
+      const reader = new Database(path, { readonly: true, fileMustExist: true })
+      try {
+        const bytes = readFileSync(path)
+        const files = readdirSync(root)
+        expect(readHumanGates(reader, request.identity).coverage).toBe('complete')
+        expect(readFileSync(path)).toEqual(bytes)
+        expect(readdirSync(root)).toEqual(files)
+      } finally {
+        reader.close()
+      }
+      const old = new Database(':memory:')
+      try {
+        old.pragma('user_version = 41')
+        old.pragma('query_only = ON')
+        expect(readHumanGates(old, request.identity).reasons).toEqual(['unsupported_schema'])
+        expect(old.pragma('user_version', { simple: true })).toBe(41)
+      } finally {
+        old.close()
+      }
+      expect(readHumanGates(null, request.identity)).toMatchObject({
+        coverage: 'unavailable',
+        reasons: ['source_unavailable']
+      })
     } finally {
+      writer.close()
       rmSync(root, { recursive: true, force: true })
     }
   })
