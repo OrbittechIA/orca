@@ -13,11 +13,33 @@ const request: WorktreeCreationRequest = {
   setupDecision: 'run',
   agent: 'codex',
   agentLaunchRoute: 'structured-native-chat',
+  workItemStartPromptDelivery: 'submit-after-ready',
   pendingFirstAgentMessageRename: false,
   note: '',
   startupPlan: null,
   quickPrompt: 'Recover the route',
   quickTelemetry: null
+}
+
+const RECOVERY = {
+  intent: {
+    sessionId: 'session-1',
+    worktreeId: 'worktree-1',
+    agent: 'codex' as const,
+    target: { kind: 'local' as const },
+    params: {
+      envelope: {
+        sessionId: 'session-1',
+        clientOperationId: 'create-op-1',
+        expectedRuntimeFence: null,
+        payloadFingerprint: 'f'.repeat(64)
+      },
+      worktree: 'id:worktree-1',
+      agent: 'codex' as const,
+      launchOrigin: 'work-item-start' as const
+    }
+  },
+  clientMessageId: 'message-op-1'
 }
 
 const store = {
@@ -133,7 +155,8 @@ describe('structured worktree creation unknown outcome', () => {
     expect(store.updatePendingWorktreeCreation).toHaveBeenCalledWith('creation-1', {
       status: 'error',
       error: 'Could not confirm whether Codex chat opened. Retry to check again.',
-      structuredLaunchRecoveryWorktreeId: 'worktree-1'
+      structuredLaunchRecoveryWorktreeId: 'worktree-1',
+      structuredLaunchRetryDisabled: false
     })
     expect(store.removePendingWorktreeCreation).not.toHaveBeenCalled()
     expect(mocks.ensureWorktreeHasInitialTerminal).not.toHaveBeenCalled()
@@ -145,6 +168,7 @@ describe('structured worktree creation unknown outcome', () => {
         accepted: true,
         cancelled: false,
         visibilityUnknown: true,
+        recovery: RECOVERY,
         activation: false,
         primaryTabId: null
       })
@@ -157,20 +181,193 @@ describe('structured worktree creation unknown outcome', () => {
       })
 
     await executeWorktreeCreation('creation-1', request)
+    // The pending entry persists the exact intent the retry must re-enter with.
+    expect(store.pendingWorktreeCreations['creation-1']).toMatchObject({
+      structuredLaunchRecoveryWorktreeId: 'worktree-1',
+      structuredLaunchRecoveryIntent: RECOVERY
+    })
     retryBackgroundWorktreeCreation('creation-1')
 
     await vi.waitFor(() => expect(mocks.launchStructuredWorktreeSession).toHaveBeenCalledTimes(2))
+    // One worktree, and the retry names the same session id and prompt operation.
     expect(store.createWorktree).toHaveBeenCalledTimes(1)
     expect(mocks.launchStructuredWorktreeSession).toHaveBeenLastCalledWith(
       expect.objectContaining({
         creationId: 'creation-1',
         request,
         worktreeId: 'worktree-1',
-        recoverUnknownLaunch: true
+        recover: RECOVERY
       })
     )
     expect(store.removePendingWorktreeCreation).toHaveBeenCalledWith('creation-1', {
       cleanupVm: false
     })
+  })
+
+  it('admits only one retry while reconciliation is already running', async () => {
+    let resolveRecovery:
+      | ((value: {
+          accepted: true
+          cancelled: false
+          visibilityUnknown: false
+          activation: false
+          primaryTabId: null
+        }) => void)
+      | undefined
+    mocks.launchStructuredWorktreeSession
+      .mockResolvedValueOnce({
+        accepted: true,
+        cancelled: false,
+        visibilityUnknown: true,
+        activation: false,
+        primaryTabId: null
+      })
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveRecovery = resolve
+          })
+      )
+
+    await executeWorktreeCreation('creation-1', request)
+    retryBackgroundWorktreeCreation('creation-1')
+    retryBackgroundWorktreeCreation('creation-1')
+
+    expect(mocks.launchStructuredWorktreeSession).toHaveBeenCalledTimes(2)
+    expect(store.createWorktree).toHaveBeenCalledOnce()
+    resolveRecovery?.({
+      accepted: true,
+      cancelled: false,
+      visibilityUnknown: false,
+      activation: false,
+      primaryTabId: null
+    })
+  })
+
+  it('fails closed when the launcher itself throws: no completion, no terminal, retryable error', async () => {
+    // Reviewer counterexample one level above the helper: the caller's catch used to log and
+    // fall through to `completeWorktreeCreation` with `structuredLaunchAccepted` still true.
+    mocks.launchStructuredWorktreeSession.mockRejectedValueOnce(
+      new Error('worktree_runtime_owner_ambiguous')
+    )
+
+    await executeWorktreeCreation('creation-1', request)
+
+    expect(store.removePendingWorktreeCreation).not.toHaveBeenCalled()
+    expect(store.pendingWorktreeCreations['creation-1']).toMatchObject({
+      status: 'error',
+      structuredLaunchRecoveryWorktreeId: 'worktree-1',
+      structuredLaunchRetryDisabled: false
+    })
+    expect(store.updatePendingWorktreeCreation).toHaveBeenCalledWith('creation-1', {
+      status: 'error',
+      error: expect.stringContaining('no terminal was started in its place'),
+      structuredLaunchRecoveryWorktreeId: 'worktree-1',
+      structuredLaunchRecoveryIntent: undefined,
+      structuredLaunchRetryDisabled: false
+    })
+    expect(mocks.ensureWorktreeHasInitialTerminal).not.toHaveBeenCalled()
+    expect(mocks.activateAndRevealWorktree).not.toHaveBeenCalled()
+    expect(mocks.launchStructuredWorktreeSession).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps a strict launch failure on its retry surface instead of completing the creation', async () => {
+    mocks.launchStructuredWorktreeSession.mockResolvedValueOnce({
+      accepted: false,
+      cancelled: false,
+      visibilityUnknown: false,
+      failure: 'structured-launch',
+      activation: false,
+      primaryTabId: null
+    })
+
+    await executeWorktreeCreation('creation-1', request)
+
+    // The workspace exists with no writer: reported as an error the user can retry, never
+    // completed, never handed a terminal.
+    expect(store.removePendingWorktreeCreation).not.toHaveBeenCalled()
+    expect(store.updatePendingWorktreeCreation).toHaveBeenCalledWith('creation-1', {
+      status: 'error',
+      error: expect.stringContaining('no terminal was started in its place'),
+      structuredLaunchRecoveryWorktreeId: 'worktree-1',
+      structuredLaunchRecoveryIntent: undefined,
+      structuredLaunchRetryDisabled: false
+    })
+    expect(mocks.ensureWorktreeHasInitialTerminal).not.toHaveBeenCalled()
+    expect(mocks.activateAndRevealWorktree).not.toHaveBeenCalled()
+  })
+
+  it('keeps a definitive delivery failure on the existing worktree without retry', async () => {
+    mocks.launchStructuredWorktreeSession.mockResolvedValue({
+      accepted: true,
+      cancelled: false,
+      visibilityUnknown: false,
+      failure: 'prompt-delivery',
+      activation: false,
+      primaryTabId: null
+    })
+
+    await executeWorktreeCreation('creation-1', request)
+
+    expect(store.updatePendingWorktreeCreation).toHaveBeenCalledWith(
+      'creation-1',
+      expect.objectContaining({
+        status: 'error',
+        structuredLaunchRecoveryWorktreeId: 'worktree-1',
+        structuredLaunchRetryDisabled: true
+      })
+    )
+    retryBackgroundWorktreeCreation('creation-1')
+    expect(store.createWorktree).toHaveBeenCalledOnce()
+    expect(mocks.launchStructuredWorktreeSession).toHaveBeenCalledOnce()
+    expect(mocks.ensureWorktreeHasInitialTerminal).not.toHaveBeenCalled()
+  })
+
+  it('reconciles an unconfirmed prompt on the existing worktree and session route', async () => {
+    mocks.launchStructuredWorktreeSession
+      .mockResolvedValueOnce({
+        accepted: true,
+        cancelled: false,
+        visibilityUnknown: false,
+        promptDeliveryUnknown: true,
+        recovery: RECOVERY,
+        activation: false,
+        primaryTabId: null
+      })
+      .mockResolvedValueOnce({
+        accepted: true,
+        cancelled: false,
+        visibilityUnknown: false,
+        activation: false,
+        primaryTabId: null
+      })
+
+    await executeWorktreeCreation('creation-1', request)
+
+    expect(store.updatePendingWorktreeCreation).toHaveBeenCalledWith('creation-1', {
+      status: 'error',
+      error:
+        'Could not confirm whether the work item prompt was delivered. Retry to reconcile the same message.',
+      structuredLaunchRecoveryWorktreeId: 'worktree-1',
+      structuredLaunchRecoveryIntent: RECOVERY,
+      structuredLaunchRetryDisabled: false
+    })
+
+    retryBackgroundWorktreeCreation('creation-1')
+    await vi.waitFor(() => expect(mocks.launchStructuredWorktreeSession).toHaveBeenCalledTimes(2))
+
+    expect(store.createWorktree).toHaveBeenCalledOnce()
+    expect(mocks.launchStructuredWorktreeSession).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        creationId: 'creation-1',
+        request,
+        worktreeId: 'worktree-1',
+        recover: RECOVERY
+      })
+    )
+    expect(store.removePendingWorktreeCreation).toHaveBeenCalledWith('creation-1', {
+      cleanupVm: false
+    })
+    expect(mocks.ensureWorktreeHasInitialTerminal).not.toHaveBeenCalled()
   })
 })

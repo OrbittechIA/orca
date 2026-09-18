@@ -151,9 +151,11 @@ describe('mobile structured agent-session launch', () => {
       error: { code: 'runtime_busy', message: 'Runtime busy' }
     })
 
+    // `runtime_busy` não é veredito sobre a rota estruturada — é "tente depois". Marcar a
+    // sonda como não respondida é o que impede o chamador de reportar recusa definitiva.
     await expect(
       createMobileStructuredAgentSession(client, 'workspace-1', 'claude')
-    ).resolves.toEqual({ kind: 'unsupported' })
+    ).resolves.toEqual({ kind: 'unsupported', probeFailed: true })
     expect(client.sendRequest).toHaveBeenCalledTimes(1)
   })
 

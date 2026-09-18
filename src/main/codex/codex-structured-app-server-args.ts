@@ -60,9 +60,18 @@ export function resolveCodexStructuredAppServerArgs(
     throw configuredArgsError(configuredArgs.slice(divergent.start, divergent.end))
   }
   const result: string[] = []
+  let dangerousBypass = false
   for (let index = 0; index < parsed.tokens.length; index += 1) {
     const token = parsed.tokens[index]
     const { flag, inlineValue } = splitOption(token)
+    if (flag === '--dangerously-bypass-approvals-and-sandbox' && inlineValue === undefined) {
+      // Codex app-server accepts the CLI flag but turn/start does not inherit its
+      // approval/sandbox semantics reliably. Pin the equivalent config overrides
+      // at the end so structured chat preserves the user's YOLO policy regardless
+      // of argument order.
+      dangerousBypass = true
+      continue
+    }
     if (BOOLEAN_FLAGS.has(flag) && inlineValue === undefined) {
       result.push(flag)
       continue
@@ -79,6 +88,9 @@ export function resolveCodexStructuredAppServerArgs(
     } else {
       result.push(flag, value)
     }
+  }
+  if (dangerousBypass) {
+    result.push('-c', 'approval_policy=never', '-c', 'sandbox_mode=danger-full-access')
   }
   return result
 }

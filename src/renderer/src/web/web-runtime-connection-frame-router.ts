@@ -2,10 +2,12 @@ import type { RuntimeRpcResponse } from '../../../shared/runtime-rpc-envelope'
 import { isKeepaliveFrame } from '../../../shared/runtime-rpc-envelope'
 import {
   AGENT_SESSION_BACKGROUND_TASK_ROW_STOP_CAPABILITY,
-  AGENT_SESSION_TURN_ITEM_CAPABILITY,
   AGENT_SESSION_BOUNDARY_RUNTIME_CAPABILITY,
+  AGENT_SESSION_TURN_ITEM_CAPABILITY,
+  CLAUDE_STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
   SESSION_TAB_CLOSE_INTENT_RUNTIME_CAPABILITY,
   SESSION_TABS_RETIREMENT_PROOF_DELTA_RUNTIME_CAPABILITY,
+  STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
   WORKTREE_GITHUB_PR_SUPPRESSION_RUNTIME_CAPABILITY,
   WORKTREE_VISIBILITY_DEFAULTS_RUNTIME_CAPABILITY,
   WORKTREE_VISIBILITY_SOURCE_DEFAULTS_RUNTIME_CAPABILITY
@@ -67,7 +69,14 @@ export async function routeWebRuntimeConnectionFrame(
             AGENT_SESSION_BOUNDARY_RUNTIME_CAPABILITY,
             WORKTREE_GITHUB_PR_SUPPRESSION_RUNTIME_CAPABILITY,
             WORKTREE_VISIBILITY_DEFAULTS_RUNTIME_CAPABILITY,
-            WORKTREE_VISIBILITY_SOURCE_DEFAULTS_RUNTIME_CAPABILITY
+            WORKTREE_VISIBILITY_SOURCE_DEFAULTS_RUNTIME_CAPABILITY,
+            // Este cliente monta o renderer inteiro, logo roda native chat estruturado.
+            // `requireStructuredCapability` recusa todo `agentSession.*` de um cliente
+            // `runtime` que não declarou isto, e um Work Item Start pareado ficaria
+            // recusável por construção. Só estas duas entram: anunciar uma capacidade
+            // que este cliente não implementa é o risco oposto, e igualmente real.
+            STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
+            CLAUDE_STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY
           ]
         })
         return

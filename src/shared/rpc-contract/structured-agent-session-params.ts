@@ -105,12 +105,17 @@ export const ResumeSource = z
   })
   .strict()
 
+/** The one origin that earns the narrow Work Item Start admission. A literal, not an
+ *  enum: any other value must fail validation rather than widen the admission. */
+const LaunchOrigin = z.literal('work-item-start')
+
 export const CreateIntentParams = z
   .object({
     envelope: MutationEnvelope,
     worktree: Identifier('Invalid worktree selector'),
     agent: z.enum(['claude', 'codex']),
-    resumeFrom: ResumeSource.optional()
+    resumeFrom: ResumeSource.optional(),
+    launchOrigin: LaunchOrigin.optional()
   })
   .strict()
 
@@ -119,7 +124,11 @@ export const CreateParams = z.union([AttachParams, CreateIntentParams])
 export const CreateSupportParams = z
   .object({
     worktree: Identifier('Invalid worktree selector'),
-    agent: z.enum(['claude', 'codex'])
+    agent: z.enum(['claude', 'codex']),
+    // A feasibility probe for an EXISTING session names it; without this the caller
+    // could only ask about a worktree, and a Work Item Start joiner needs the session.
+    sessionId: SessionId.optional(),
+    launchOrigin: LaunchOrigin.optional()
   })
   .strict()
 

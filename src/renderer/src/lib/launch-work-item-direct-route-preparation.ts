@@ -26,6 +26,8 @@ export type DirectWorkItemAgentLaunchPreparation = {
 }
 
 export async function prepareDirectWorkItemAgentLaunch(args: {
+  /** Um Work Item Start estrito não aceita writer de terminal como substituto. */
+  structuredSessionRequired: boolean
   worktreeId: string
   worktreePath: string
   repoId: string
@@ -99,7 +101,10 @@ export async function prepareDirectWorkItemAgentLaunch(args: {
           prompt: args.draftContent,
           promptDelivery: args.promptDelivery,
           tuiCustomization: { agentArgs: args.agentArgs },
-          initialSessionOptions: startupPlan?.sessionOptions
+          initialSessionOptions: startupPlan?.sessionOptions,
+          // Declarado só no modo estrito: é o que faz a rota exigir também a capability
+          // escopada do Work Item Start, em vez da estruturada genérica.
+          ...(args.structuredSessionRequired ? { launchOrigin: 'work-item-start' as const } : {})
         })
   const structuredLaunch = plan?.route === 'structured-native-chat'
 

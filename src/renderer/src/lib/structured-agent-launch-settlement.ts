@@ -6,6 +6,7 @@ import {
   type StructuredAgentLaunchOptions
 } from '@/lib/structured-agent-session-launch'
 import type { StructuredPromptDeliveryResult } from '@/lib/structured-agent-session-launch-prompt'
+import type { StructuredAgentLaunchRecovery } from '@/lib/structured-agent-session-launch-callers'
 import type { ActivateAndRevealResult } from '@/lib/worktree-activation'
 
 export type StructuredAgentLegacyFallbackResult = {
@@ -19,6 +20,8 @@ export type StructuredAgentLaunchSettlement =
   | {
       kind: 'structured'
       sessionId: string
+      /** What a later retry must re-enter with should the delivery end up unknown. */
+      recovery: StructuredAgentLaunchRecovery
       promptDeliveryResult?: Promise<StructuredPromptDeliveryResult>
     }
   | ({ kind: 'refused-then-legacy' } & StructuredAgentLegacyFallbackResult)
@@ -29,7 +32,7 @@ export type StructuredAgentLaunchSettlement =
        *  outlives the cancel, so the caller must report its tab rather than the pre-launch one. */
       fallback?: StructuredAgentLegacyFallbackResult
     }
-  | { kind: 'visibility-unknown'; sessionId: string }
+  | { kind: 'visibility-unknown'; sessionId: string; recovery: StructuredAgentLaunchRecovery }
   | { kind: 'failed'; error: unknown }
 
 export type StructuredAgentLaunchHooks = {
@@ -99,6 +102,7 @@ export async function settleStructuredAgentLaunch(
     return {
       kind: 'structured',
       sessionId: receipt.sessionId,
+      recovery: launch.recovery,
       ...(launch.promptDeliveryResult ? { promptDeliveryResult: launch.promptDeliveryResult } : {})
     }
   } catch (error) {
@@ -128,7 +132,7 @@ export async function settleStructuredAgentLaunch(
       // if a later retry on the same identity reconciles into a refusal. The launch state itself
       // stays pending so the badge shows "unknown" and the next click still reconciles.
       launch.releaseCallerAfterUnknownOutcome()
-      return { kind: 'visibility-unknown', sessionId: launch.sessionId }
+      return { kind: 'visibility-unknown', sessionId: launch.sessionId, recovery: launch.recovery }
     }
     return { kind: 'failed', error }
   } finally {

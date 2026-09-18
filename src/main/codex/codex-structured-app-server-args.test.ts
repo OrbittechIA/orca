@@ -21,6 +21,30 @@ describe('structured Codex app-server arguments', () => {
     ])
   })
 
+  it('normalizes Codex YOLO mode into app-server approval and sandbox config', () => {
+    expect(
+      resolveCodexStructuredAppServerArgs('--dangerously-bypass-approvals-and-sandbox', 'posix')
+    ).toEqual(['-c', 'approval_policy=never', '-c', 'sandbox_mode=danger-full-access'])
+  })
+
+  it('keeps YOLO as the final override regardless of configured argument order', () => {
+    expect(
+      resolveCodexStructuredAppServerArgs(
+        '--dangerously-bypass-approvals-and-sandbox -c approval_policy=on-request --sandbox workspace-write',
+        'posix'
+      )
+    ).toEqual([
+      '-c',
+      'approval_policy=on-request',
+      '--sandbox',
+      'workspace-write',
+      '-c',
+      'approval_policy=never',
+      '-c',
+      'sandbox_mode=danger-full-access'
+    ])
+  })
+
   it.each(['--no-alt-screen', '--remote ws://host', '-C /tmp/elsewhere', 'resume thread-1'])(
     'reports an incompatible configured argument instead of dropping %s',
     (configured) => {

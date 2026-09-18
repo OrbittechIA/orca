@@ -100,6 +100,10 @@ export class RpcDispatcher {
           clientId: options?.clientId,
           clientKind: options?.clientKind,
           clientCapabilities: options?.clientCapabilities,
+          // Identidade do chamador para a admissão escopada: sem estes dois o gate do
+          // Work Item Start não distingue desktop local de device pareado, e recusa os dois.
+          pairedDeviceId: options?.pairedDeviceId,
+          localDesktopAuthority: options?.localDesktopAuthority,
           updateClientCapabilities: options?.updateClientCapabilities,
           orchestrationCapability: request.orchestrationCapability,
           authenticatedCallerFingerprint: options?.authenticatedCallerFingerprint

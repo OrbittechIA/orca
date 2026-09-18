@@ -58,6 +58,34 @@ export function enqueueStructuredAgentSessionLaunchPrompt(
   return writeOutbox(sessionId, [...readOutbox(sessionId), entry]) ? entry : null
 }
 
+export function findStructuredAgentSessionLaunchPrompt(
+  sessionId: string,
+  text: string
+): StructuredAgentSessionOutboxEntry | null {
+  const expected = text.trimEnd()
+  return (
+    readOutbox(sessionId).find(
+      (entry) =>
+        entry.body.blocks.length === 1 &&
+        entry.body.blocks[0]?.type === 'text' &&
+        entry.body.blocks[0].text === expected
+    ) ?? null
+  )
+}
+
+/** The staged prompt a re-entered launch left behind: by its operation id when the launch
+ *  recorded one, else by text. `null` means the delivery state was lost, not that it was sent. */
+export function findStructuredAgentSessionLaunchPromptEntry(
+  sessionId: string,
+  clientMessageId: string | null,
+  text: string
+): StructuredAgentSessionOutboxEntry | null {
+  if (clientMessageId) {
+    return readOutbox(sessionId).find((entry) => entry.clientMessageId === clientMessageId) ?? null
+  }
+  return findStructuredAgentSessionLaunchPrompt(sessionId, text)
+}
+
 export function discardStructuredAgentSessionLaunchOutbox(sessionId: string): void {
   writeOutbox(sessionId, [])
 }

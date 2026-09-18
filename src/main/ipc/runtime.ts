@@ -72,7 +72,7 @@ export function registerRuntimeHandlers(runtime: OrcaRuntimeService): void {
       if (event.senderFrame !== event.sender.mainFrame) {
         throw new Error('Runtime RPC call must originate from the current main frame')
       }
-      return (await new RpcDispatcher({ runtime, methods: ALL_RPC_METHODS }).dispatch(
+      return await new RpcDispatcher({ runtime, methods: ALL_RPC_METHODS }).dispatch(
         {
           id: 'desktop-ipc',
           authToken: 'desktop-ipc',
@@ -82,6 +82,9 @@ export function registerRuntimeHandlers(runtime: OrcaRuntimeService): void {
         {
           clientId: 'desktop-renderer',
           clientKind: 'runtime',
+          // Só o IPC do Electron afirma autoridade de desktop local; um cliente de
+          // rede autenticado nunca pode assertá-la.
+          localDesktopAuthority: true,
           connectionId: desktopSenders.connectionIdFor(event.sender),
           clientCapabilities: [
             AGENT_SESSION_BACKGROUND_TASK_STOP_CAPABILITY,
@@ -92,7 +95,7 @@ export function registerRuntimeHandlers(runtime: OrcaRuntimeService): void {
             CLAUDE_STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY
           ]
         }
-      )) as RuntimeRpcResponse<unknown>
+      )
     }
   )
 
@@ -134,6 +137,7 @@ export function registerRuntimeHandlers(runtime: OrcaRuntimeService): void {
             signal: controller.signal,
             clientId: 'desktop-renderer',
             clientKind: 'runtime',
+            localDesktopAuthority: true,
             connectionId,
             clientCapabilities: [
               AGENT_SESSION_BACKGROUND_TASK_STOP_CAPABILITY,

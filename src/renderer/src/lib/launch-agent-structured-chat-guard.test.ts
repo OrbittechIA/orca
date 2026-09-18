@@ -20,6 +20,8 @@ function structuredLaunchIntent(worktreeId: string, sessionId = 'codex-session-1
   return {
     sessionId,
     worktreeId,
+    // Obrigatório e não persistido: o intento carrega o runtime que executa a sessão.
+    target: { kind: 'local' as const },
     params: {
       envelope: {
         sessionId,
@@ -177,7 +179,12 @@ describe('structured chat adoption guard on the launch path', () => {
     expect(shouldQueueTerminalFocusAfterMenuClose(result!)).toBe(false)
     await expect(result?.structuredSettlement).resolves.toEqual({
       kind: 'structured',
-      sessionId: 'codex-session-1'
+      sessionId: 'codex-session-1',
+      // What a retry re-enters with: the exact intent, and no prompt operation for a blank launch.
+      recovery: {
+        intent: expect.objectContaining({ sessionId: 'codex-session-1', worktreeId: 'wt-1' }),
+        clientMessageId: null
+      }
     })
     expect(mockCreateStructuredCodexSessionLaunchIntent).toHaveBeenCalledWith('wt-1', 'codex')
     expect(mockLaunchStructuredCodexSession).toHaveBeenCalledWith(
@@ -435,7 +442,11 @@ describe('structured chat adoption guard on the launch path', () => {
     await vi.waitFor(() => expect(mockToastError).toHaveBeenCalledTimes(1))
     await expect(unknown?.structuredSettlement).resolves.toEqual({
       kind: 'visibility-unknown',
-      sessionId: firstIntent.sessionId
+      sessionId: firstIntent.sessionId,
+      recovery: {
+        intent: expect.objectContaining({ sessionId: firstIntent.sessionId }),
+        clientMessageId: null
+      }
     })
     expect(mockCreateTab).not.toHaveBeenCalled()
 

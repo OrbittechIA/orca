@@ -1,7 +1,11 @@
 // @ts-nocheck -- mechanically split from OrcaRuntimeService; behavior is covered by AST equivalence and characterization tests.
+/** A removal that could not take the workspace's lifecycle while a structured create held it. */
+export const WORKTREE_LIFECYCLE_BUSY_ERROR = 'worktree_lifecycle_busy'
+
 import { OrcaRuntimeWithResolveTerminalSplitSourceAuthority } from './orca-runtime-resolve-terminal-split-source-authority'
 import {
   runtimeWorktreeIdentityKey,
+  runtimeWorktreeLifecycleKey,
   runtimeWorktreeIdsEqual
 } from './runtime-worktree-path-identity'
 import { teardownRpcDeadline } from './worktree-teardown'
@@ -288,6 +292,27 @@ export class OrcaRuntimeWithStopTerminalsForWorktree extends OrcaRuntimeWithReso
     } finally {
       release()
     }
+  }
+
+  /**
+   * Keep a workspace's record alive while a structured session is resolved, prepared and
+   * attached against it. Many creates may hold at once; a removal waits for all of them, so
+   * what was authorised at resolution is what the provider child attaches to.
+   */
+  async holdWorktreeLifecycle(worktreeId: string, host?: string | null): Promise<() => void> {
+    const key = runtimeWorktreeLifecycleKey(worktreeId, host)
+    return await this.worktreeLifecycleLock.acquire(key, 'shared')
+  }
+
+  /** The removal side: waits for in-flight creates, then keeps new ones out until released. */
+  async holdWorktreeLifecycleExclusively(
+    worktreeId: string,
+    deadline?: number,
+    host?: string | null
+  ): Promise<() => void> {
+    const key = runtimeWorktreeLifecycleKey(worktreeId, host)
+    const busy = new Error(WORKTREE_LIFECYCLE_BUSY_ERROR)
+    return await this.worktreeLifecycleLock.acquire(key, 'exclusive', deadline, busy)
   }
 
   protected async acquireWorktreeTerminalMutation(

@@ -132,7 +132,11 @@ describe('committed adopting create RPC replay', () => {
     let selectedHome = originalHome
     const selectAccountHome = vi.fn(() => selectedHome)
     const runtime = new OrcaRuntimeService(
+      // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the adoption-replay path reads getRepo/getSettings off the store; the fixture pins those.
       {
+        // The real store always answers this; omitting it only worked while the call site
+        // was optional, which is the masking this path should not do.
+        getRepo: () => undefined,
         getSettings: () => ({
           experimentalStructuredNativeChat: true,
           agentDefaultEnv: { codex: {} }
@@ -146,28 +150,18 @@ describe('committed adopting create RPC replay', () => {
     vi.spyOn(runtime, 'getClientSettings').mockReturnValue({
       experimentalStructuredNativeChat: true
     } as ReturnType<OrcaRuntimeService['getClientSettings']>)
-    vi.spyOn(runtime, 'getStructuredAgentSessionCreateSupport').mockResolvedValue({
-      supported: true
-    })
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the suite replaces the protected `resolveRuntimeFileTarget` with a fixture answering the fields the resolver reads.
     const internal = runtime as unknown as {
-      resolveStructuredAgentSessionLocation: () => Promise<{
-        executionHostId: 'local'
-        wslDistro: null
-        workspaceId: string
-        workspaceKind: 'git-worktree'
+      resolveRuntimeFileTarget: () => Promise<{
+        executionHostId: string
+        worktree: { id: string; repoId: string; path: string }
       }>
-      resolveRuntimeFileTarget: () => Promise<{ worktree: { path: string } }>
       ensureStructuredAgentSessionHost: () => Promise<void>
       publishStructuredAgentSessionTab: () => Promise<void>
     }
-    internal.resolveStructuredAgentSessionLocation = vi.fn(async () => ({
-      executionHostId: 'local' as const,
-      wslDistro: null,
-      workspaceId: WORKSPACE,
-      workspaceKind: 'git-worktree' as const
-    }))
     internal.resolveRuntimeFileTarget = vi.fn(async () => ({
-      worktree: { path: '/repos/workspace-1' }
+      executionHostId: 'local',
+      worktree: { id: WORKSPACE, repoId: 'repo-1', path: '/repos/workspace-1' }
     }))
     internal.ensureStructuredAgentSessionHost = vi.fn(async () => undefined)
     internal.publishStructuredAgentSessionTab = vi

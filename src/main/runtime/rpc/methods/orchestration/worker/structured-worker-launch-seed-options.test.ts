@@ -66,9 +66,12 @@ describe('the create the seed options land in', () => {
 
   async function prepare(options?: Record<string, string>) {
     const prepared = await prepareStructuredAgentSessionCreateForWorktree({
+      // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: prepare reads the resolver and the lifecycle hold off the runtime; the fixture pins both.
       runtime: {
-        resolveStructuredAgentSessionCreateIntent: async () => settingsResolved
+        resolveStructuredAgentSessionCreateIntent: async () => settingsResolved,
+        holdWorktreeLifecycle: async () => () => undefined
       } as never,
+      // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the host is never attached in this suite; only the prepared params are inspected.
       ensureHost: async () => ({}) as never,
       envelope: {
         sessionId: 'sess_1',

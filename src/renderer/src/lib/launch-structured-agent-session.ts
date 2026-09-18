@@ -1,3 +1,5 @@
+import type { RuntimeClientTarget } from '@/runtime/runtime-client-target'
+import { runtimeTargetForWorktreeOwner } from '@/lib/worktree-runtime-owner-target'
 import type { AgentSessionHandleProvider } from '../../../shared/agent-session-provider-handle'
 import type {
   AgentSessionAttachResult,
@@ -6,6 +8,7 @@ import type {
 import {
   createStructuredAgentSessionId,
   structuredAgentSessionCreateParams,
+  type StructuredAgentSessionLaunchOrigin,
   type StructuredAgentSessionCreateParams,
   type StructuredAgentSessionResumeSource
 } from '../../../shared/structured-agent-session-create'
@@ -26,6 +29,13 @@ export type StructuredAgentSessionLaunchIntent = {
   worktreeId: string
   agent: AgentSessionHandleProvider
   params: StructuredAgentSessionCreateParams
+  /**
+   * O runtime que EXECUTA esta sessão — o mesmo que criou a workspace.
+   *
+   * Num Desktop pareado a workspace nasce no ambiente ativo; procurar ou criar a sessão
+   * no runtime local acharia nada e criaria um segundo dono.
+   */
+  target: RuntimeClientTarget
 }
 
 class StructuredAgentSessionCreateError extends Error {
@@ -90,7 +100,8 @@ export function isDefinitiveStructuredAgentSessionCreateError(error: unknown): b
 export function createStructuredAgentSessionLaunchIntent(
   worktreeId: string,
   agent: AgentSessionHandleProvider,
-  resumeFrom?: StructuredAgentSessionResumeSource
+  resumeFrom?: StructuredAgentSessionResumeSource,
+  launchOrigin?: StructuredAgentSessionLaunchOrigin
 ): StructuredAgentSessionLaunchIntent {
   const sessionId = createStructuredAgentSessionId(agent, () => crypto.randomUUID())
   const state = useAppStore.getState()
@@ -105,11 +116,15 @@ export function createStructuredAgentSessionLaunchIntent(
     sessionId,
     worktreeId,
     agent,
+    // O owner EXATO desta worktree, não o foco global: um repo explícito pode pertencer a
+    // outro ambiente, e criar a sessão no runtime errado abriria um segundo dono.
+    target: runtimeTargetForWorktreeOwner(state, worktreeId),
     params: structuredAgentSessionCreateParams({
       sessionId,
       worktree: toRuntimeWorktreeSelector(worktreeId),
       agent,
       ...(resumeFrom ? { resumeFrom } : {}),
+      ...(launchOrigin ? { launchOrigin } : {}),
       randomUuid: () => crypto.randomUUID()
     })
   }
@@ -152,9 +167,15 @@ async function hostSupportsCreate(intent: StructuredAgentSessionLaunchIntent): P
   for (let attempt = 0; ; attempt += 1) {
     try {
       const support = await callStructuredAgentSession<{ supported: boolean; reason?: string }>(
-        { kind: 'local' },
+        intent.target,
         'agentSession.createSupport',
-        { worktree: intent.params.worktree, agent: intent.agent }
+        {
+          worktree: intent.params.worktree,
+          agent: intent.agent,
+          ...(intent.params.launchOrigin
+            ? { sessionId: intent.sessionId, launchOrigin: intent.params.launchOrigin }
+            : {})
+        }
       )
       return support.supported === true
     } catch (error) {
@@ -194,7 +215,7 @@ export async function launchStructuredAgentSession(
   let result: AgentSessionMutationResult<AgentSessionAttachResult>
   try {
     result = await callStructuredAgentSession<AgentSessionMutationResult<AgentSessionAttachResult>>(
-      { kind: 'local' },
+      intent.target,
       'agentSession.create',
       intent.params
     )
