@@ -15,6 +15,7 @@ import {
 import type {
   ActionableTaskItem,
   GitPushTarget,
+  RuntimeTaskSettings,
   SetupDecision
 } from './mobile-tasks-legacy-foundation'
 import type { WorkspaceCreateParams } from './workspace-create-params'
@@ -85,12 +86,14 @@ export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateMod
         try {
           const settingsReply = await settingsRead.request(client)
           const settingsResult = settingsRead.interpret(settingsReply)
-          const refreshed = settingsResult.accepted
-            ? resolveWorkItemStartSettingsRefresh(latestRuntimeTaskSettings, settingsResult.value)
-            : null
-          if (refreshed) {
-            latestRuntimeTaskSettings = refreshed
-            setRuntimeTaskSettings(refreshed)
+          if (settingsResult.accepted) {
+            const refreshed = resolveWorkItemStartSettingsRefresh(
+              latestRuntimeTaskSettings,
+              settingsResult.value
+            )
+            // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: retain the opaque legacy settings contract after protecting known strict delivery.
+            latestRuntimeTaskSettings = (refreshed ?? {}) as RuntimeTaskSettings
+            setRuntimeTaskSettings(latestRuntimeTaskSettings)
           }
         } catch {
           // Best-effort refresh; the runtime still validates agent availability before spawning.

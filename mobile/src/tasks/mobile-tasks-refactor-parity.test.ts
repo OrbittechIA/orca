@@ -23,9 +23,9 @@ const hash = (parts: string[] | string): string =>
 // loses exactly the 22 `rpc:` signatures and 22 method literals the migration deleted.
 // Strict settings refresh changes hook bodies; production-caller tests cover the new refusal path.
 const WORKSPACE_RPC_SCREEN_HOOKS =
-  '554c37a262b4a69217a331a6b2f1b346a29e1374dc953bfe1017b957e87ef4d0'
+  'c92bd71b0191497bb35f4a04e1218295f9ae310395bbfc7178f4d00639c1ac9f'
 const PRE_REFACTOR_DIFF_HOOKS = '93c7189b32bed8456cc51814fffa8ce80cf62011ef968a9d53ddec2b9686f58f'
-const WORKSPACE_RPC_STATEMENTS = 'b8d665a72cc7c7f4d04154fd3a39f219058b65c5d75c9019add9235bc621bb2b'
+const WORKSPACE_RPC_STATEMENTS = 'd11e5477af83da4437f758e64c8e929005eb254a1996fd52f5ca8f7b744ae755'
 const MAIN_REBASED_DECLARATIONS = '91cd434cfdb703335414967956a030191ff6e36ae4edd6cb2a656ff5fe5dcb7e'
 const WORKSPACE_RPC_SEMANTICS = 'ac6aa5a9c8d22cb34b94594614ad1d45415e97f39531f67dbf9584753e923a1f'
 const PRE_REFACTOR_STYLES = '1db6af69c791d9963928541ad5310942fcbda6d984b422c90b6eb92b6816579a'

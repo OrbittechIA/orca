@@ -4,17 +4,17 @@ import type { RuntimeTaskSettings } from './mobile-tasks-view-state-types'
 export function resolveWorkItemStartSettingsRefresh(
   previous: Pick<RuntimeTaskSettings, 'workItemStartPromptDelivery'> | null | undefined,
   refreshed: unknown
-): RuntimeTaskSettings | null {
+): unknown {
+  if (previous?.workItemStartPromptDelivery !== 'submit-after-ready') {
+    return refreshed
+  }
   if (!isUnknownRecord(refreshed)) {
-    return null
+    return previous
   }
   const delivery = refreshed.workItemStartPromptDelivery
-  return {
-    ...refreshed,
-    // Missing or malformed settings cannot revoke a known strict Start preference.
-    workItemStartPromptDelivery:
-      delivery === 'draft' || delivery === 'submit-after-ready'
-        ? delivery
-        : previous?.workItemStartPromptDelivery
+  if (delivery === 'draft' || delivery === 'submit-after-ready') {
+    return refreshed
   }
+  // Missing or malformed settings cannot revoke a known strict Start preference.
+  return { ...refreshed, workItemStartPromptDelivery: previous.workItemStartPromptDelivery }
 }
