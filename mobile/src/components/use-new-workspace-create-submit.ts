@@ -1,3 +1,4 @@
+import { resolveWorkItemStartSettingsRefresh } from '../tasks/work-item-start-settings-refresh'
 import { settingsRead } from '../transport/settings-read-operations'
 import { useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import type { PersistedTrustedOrcaHooks } from '../../../src/shared/orca-yaml-hook-types'
@@ -90,10 +91,12 @@ export function useNewWorkspaceCreateSubmit(args: {
       try {
         const settingsReply = await settingsRead.request(client)
         const settings = settingsRead.interpret(settingsReply)
-        if (settings.accepted) {
-          // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: Preserve the established response shape at this boundary.
-          latestRuntimeSettings = settings.value as NewWorktreeRuntimeSettings
-          args.setRuntimeSettings(latestRuntimeSettings)
+        const refreshed = settings.accepted
+          ? resolveWorkItemStartSettingsRefresh(latestRuntimeSettings, settings.value)
+          : null
+        if (refreshed) {
+          latestRuntimeSettings = refreshed
+          args.setRuntimeSettings(refreshed)
         }
       } catch {
         // The runtime validates the same setting before spawning.
