@@ -1,5 +1,5 @@
 import type { RpcContext } from '../core'
-import { projectSessionTabsForContext, projectSessionTabsForClient } from './session-tabs-inventory'
+import { projectSessionTabsForContext } from './session-tabs-inventory'
 import { restoreStructuredTabsIfSupported } from './structured-session-tab-restore'
 import { resolveRuntimeNavigationTarget } from '../../../../shared/runtime-navigation'
 import { defineMethod } from '../core'
@@ -7,7 +7,6 @@ import {
   assertProjectedSessionTabVisible,
   translateProjectedSessionTabMove
 } from './session-tab-browser-placement-projection'
-import { isStructuredNativeChatEnabled } from './structured-agent-session-policy'
 import { ActivateTab, MoveTab, SetTabProps, UpdatePaneLayout } from './session-tabs-schemas'
 
 export const SESSION_TAB_MUTATION_METHODS = [
@@ -15,7 +14,7 @@ export const SESSION_TAB_MUTATION_METHODS = [
     name: 'session.tabs.activate',
     params: ActivateTab,
     handler: async (params, context) => {
-      const { runtime, clientKind, pairedDeviceId, clientCapabilities } = context
+      const { runtime, clientKind, pairedDeviceId } = context
       if (clientKind) {
         await restoreStructuredTabsIfSupported(context)
         const visible = projectSessionTabsForContext(
@@ -39,12 +38,7 @@ export const SESSION_TAB_MUTATION_METHODS = [
           })
         }
       )
-      return projectSessionTabsForMutationClient(
-        result,
-        clientKind,
-        clientCapabilities,
-        isStructuredNativeChatEnabled(runtime)
-      )
+      return projectSessionTabsForContext(result, context)
     }
   }),
   defineMethod({
@@ -110,8 +104,6 @@ export const SESSION_TAB_MUTATION_METHODS = [
     }
   })
 ]
-
-const projectSessionTabsForMutationClient = projectSessionTabsForClient
 
 async function assertVisibleMutationTab(
   context: RpcContext,

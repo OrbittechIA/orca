@@ -157,6 +157,7 @@ export function useNewWorkspaceCreateSubmit(args: {
         ? await createWorkspaceFromComposerSource({
             client,
             selection,
+            runtimeSettings: latestRuntimeSettings,
             targetRepoId: selectedRepo.id,
             setupDecision,
             agent: { choice: normalizeWorkspaceAgent(args.selectedAgent.id) ?? 'blank' },

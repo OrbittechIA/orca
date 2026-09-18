@@ -8,14 +8,13 @@ import {
 import { SESSION_TAB_CLOSE_METHODS } from './session-tab-close-methods'
 import {
   listSessionTabsInventory,
-  projectSessionTabsForClient,
+  projectSessionTabsForContext,
   subscribeSessionTabsInventory
 } from './session-tabs-inventory'
 import { SESSION_TAB_MARKDOWN_METHODS } from './session-tab-markdown-methods'
 import { SESSION_TAB_MUTATION_METHODS } from './session-tab-mutation-methods'
 import { createSessionTabsRetirementProofDelta } from './session-tabs-retirement-proof-delta'
 import { restoreStructuredTabsIfSupported } from './structured-session-tab-restore'
-import { isStructuredNativeChatEnabled } from './structured-agent-session-policy'
 import { assertLegacyAiVaultResumeCommandAllowed } from '../../../ai-vault/structured-session-ownership'
 import { SessionTabsUnsubscribeAllParams } from '../../../../shared/rpc-contract/session-tabs-params'
 
@@ -24,13 +23,11 @@ export const SESSION_TAB_METHODS = [
     name: 'session.tabs.list',
     params: WorktreeTabSelector,
     handler: async (params, context) => {
-      const { runtime, pairedDeviceId, clientKind, clientCapabilities } = context
+      const { runtime, pairedDeviceId } = context
       await restoreStructuredTabsIfSupported(context)
-      return projectSessionTabsForClient(
+      return projectSessionTabsForContext(
         await runtime.listMobileSessionTabs(params.worktree, pairedDeviceId),
-        clientKind,
-        clientCapabilities,
-        isStructuredNativeChatEnabled(runtime)
+        context
       )
     }
   }),
@@ -85,8 +82,7 @@ export const SESSION_TAB_METHODS = [
     name: 'session.tabs.subscribe',
     params: WorktreeTabSelector,
     handler: async (params, context, emit) => {
-      const { runtime, connectionId, requestId, pairedDeviceId, clientKind, clientCapabilities } =
-        context
+      const { runtime, connectionId, requestId, pairedDeviceId, clientCapabilities } = context
       let subscribedWorktree: string | null = null
       let unsubscribe = (): void => {}
       let closed = false
@@ -118,14 +114,7 @@ export const SESSION_TAB_METHODS = [
       const withProofDelta = createSessionTabsRetirementProofDelta(clientCapabilities)
       emit({
         type: 'snapshot',
-        ...withProofDelta(
-          projectSessionTabsForClient(
-            initial,
-            clientKind,
-            clientCapabilities,
-            isStructuredNativeChatEnabled(runtime)
-          )
-        )
+        ...withProofDelta(projectSessionTabsForContext(initial, context))
       })
       initialized = true
       if (closed) {
@@ -136,14 +125,7 @@ export const SESSION_TAB_METHODS = [
         if (snapshot.worktree === subscribedWorktree) {
           emit({
             type: 'updated',
-            ...withProofDelta(
-              projectSessionTabsForClient(
-                snapshot,
-                clientKind,
-                clientCapabilities,
-                isStructuredNativeChatEnabled(runtime)
-              )
-            )
+            ...withProofDelta(projectSessionTabsForContext(snapshot, context))
           })
         }
       }, pairedDeviceId)
