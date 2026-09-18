@@ -123,6 +123,7 @@ async function mount(client: FakeSession, overrides: Partial<Args> = {}, source 
       trustedOrcaHooks: {},
       setTrustedOrcaHooks: vi.fn(),
       getWorktreeCreateCutoverSupport: async () => false,
+      getAgentLaunchSupport: async () => false,
       transitionDrawer: vi.fn(),
       ...callbacks,
       ...overrides
@@ -198,6 +199,27 @@ describe('new-workspace production submit hook', () => {
     await createOnce()
     expectStrictCreate(client)
   })
+
+  it.each([undefined, null, false, 'invalid', [], {}, { workItemStartPromptDelivery: 'invalid' }])(
+    'preserves strict admission after an incomplete settings refresh: %j',
+    async (settings) => {
+      const client = clientAnswering({ capabilities: [], deviceScope: 'runtime' }, settings)
+      const original = client.sendRequest.getMockImplementation()!
+      client.sendRequest.mockImplementation(async (method, params) =>
+        method === 'settings.get' ? reply({ settings }) : original(method, params)
+      )
+      const callbacks = await mount(client)
+      await createOnce()
+      expect(client.sendRequest.mock.calls.map((call) => call[0])).toEqual([
+        'settings.get',
+        'status.get'
+      ])
+      expect(callbacks.setError).toHaveBeenLastCalledWith(
+        expect.stringContaining('Nothing was created')
+      )
+      expect(callbacks.onCreated).not.toHaveBeenCalled()
+    }
+  )
 
   it.each([
     ['old host', { capabilities: [], deviceScope: 'runtime' }],

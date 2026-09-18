@@ -1,4 +1,5 @@
 import { hostNewWorktreeSessionRoute } from '../host-route-action-state'
+import { resolveWorkItemStartSettingsRefresh } from './work-item-start-settings-refresh'
 import { settingsRead } from '../transport/settings-read-operations'
 import type { WorkspaceSshStateModel } from './use-mobile-tasks-workspace-ssh-state'
 import {
@@ -15,7 +16,6 @@ import {
 import type {
   ActionableTaskItem,
   GitPushTarget,
-  RuntimeTaskSettings,
   SetupDecision
 } from './mobile-tasks-legacy-foundation'
 import type { WorkspaceCreateParams } from './workspace-create-params'
@@ -86,10 +86,12 @@ export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateMod
         try {
           const settingsReply = await settingsRead.request(client)
           const settingsResult = settingsRead.interpret(settingsReply)
-          if (settingsResult.accepted) {
-            // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: Preserve the established response shape at this boundary.
-            latestRuntimeTaskSettings = (settingsResult.value ?? {}) as RuntimeTaskSettings
-            setRuntimeTaskSettings(latestRuntimeTaskSettings)
+          const refreshed = settingsResult.accepted
+            ? resolveWorkItemStartSettingsRefresh(latestRuntimeTaskSettings, settingsResult.value)
+            : null
+          if (refreshed) {
+            latestRuntimeTaskSettings = refreshed
+            setRuntimeTaskSettings(refreshed)
           }
         } catch {
           // Best-effort refresh; the runtime still validates agent availability before spawning.
