@@ -1,4 +1,3 @@
-import type { HumanGateRequest } from '../../../../../shared/human-gate-contract'
 import { persistHumanGateRequest } from './human-gate-request'
 import type { DecisionGateRow, DispatchContextRow, GateStatus } from '../../types'
 import { OrchestrationError } from '../../orchestration-error'
@@ -14,7 +13,7 @@ export function createGate(
     taskId: string
     question: string
     options?: string[]
-    humanGate?: HumanGateRequest
+    humanGate?: unknown
     requester?: { handle: string; paneKey?: string | null; dispatchId: string }
   }
 ): DecisionGateRow {

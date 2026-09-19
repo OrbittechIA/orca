@@ -1,7 +1,6 @@
 import { canonicalJson } from '../../../../../shared/canonical-json'
 import {
   HumanGateRequestSchema,
-  type HumanGateRequest,
   type HumanGateRetirement
 } from '../../../../../shared/human-gate-contract'
 import { OrchestrationError } from '../../orchestration-error'
@@ -14,7 +13,7 @@ export function persistHumanGateRequest(
   gateId: string,
   taskId: string,
   question: string,
-  input: HumanGateRequest
+  input: unknown
 ): void {
   const request = HumanGateRequestSchema.parse(input)
   const task = db.getTask(taskId)
