@@ -27,19 +27,33 @@ function delay(ms: number): Promise<void> {
 }
 
 export type MobileStructuredAgentLaunchResult =
-  | { kind: 'created'; sessionId: string }
-  | { kind: 'unsupported'; reason?: StructuredCreateSupport['reason'] }
+  /** `fence` só aparece quando o host devolveu um; a entrega precisa nomear o da criação. */
+  | { kind: 'created'; sessionId: string; fence?: number }
+  /**
+   * `probeFailed` separa "o host recusou" de "o host não respondeu".
+   *
+   * Sem essa distinção uma ida e volta perdida vira política: o chamador reporta recusa
+   * definitiva e nunca reconcilia uma sessão que pode existir.
+   */
+  | { kind: 'unsupported'; reason?: StructuredCreateSupport['reason']; probeFailed?: true }
   | { kind: 'failed'; message: string }
   | { kind: 'unknown'; message: string }
 
+export type MobileStructuredAgentLaunchOptions = {
+  launchOrigin?: 'work-item-start'
+}
+
 function createParamsFor(
   agent: AgentSessionHandleProvider,
-  worktree: string
+  worktree: string,
+  sessionId: string,
+  launchOrigin: MobileStructuredAgentLaunchOptions['launchOrigin']
 ): StructuredAgentSessionCreateParams {
   return structuredAgentSessionCreateParams({
-    sessionId: createStructuredAgentSessionId(agent, structuredSessionRandomUuid),
+    sessionId,
     worktree,
     agent,
+    ...(launchOrigin ? { launchOrigin } : {}),
     randomUuid: structuredSessionRandomUuid
   })
 }
@@ -76,20 +90,30 @@ function classifyCreateRefusal(
 export async function createMobileStructuredAgentSession(
   client: RpcClient,
   worktreeId: string,
-  agent: AgentSessionHandleProvider
+  agent: AgentSessionHandleProvider,
+  options: MobileStructuredAgentLaunchOptions = {}
 ): Promise<MobileStructuredAgentLaunchResult> {
   const worktree = `id:${worktreeId}`
+  // O mesmo id na sonda e na criação: a rota escopada admite a sessão que o probe nomeou, e
+  // um segundo id faria o host admitir uma e receber outra.
+  const sessionId = createStructuredAgentSessionId(agent, structuredSessionRandomUuid)
+  const supportParams = {
+    worktree,
+    agent,
+    ...(options.launchOrigin ? { sessionId, launchOrigin: options.launchOrigin } : {})
+  }
   let supportResponse
   for (let attempt = 0; ; attempt += 1) {
     try {
-      supportResponse = await client.sendRequest('agentSession.createSupport', { worktree, agent })
+      supportResponse = await client.sendRequest('agentSession.createSupport', supportParams)
     } catch (error) {
       const retryDelayMs = CREATE_SUPPORT_RETRY_DELAYS_MS[attempt]
       if (
         retryDelayMs === undefined ||
         !hasRuntimeRpcErrorCode(error, SELECTOR_NOT_RESOLVABLE_CODE)
       ) {
-        return { kind: 'unsupported' }
+        // Transporte caiu: o host nunca respondeu, logo nunca recusou.
+        return { kind: 'unsupported', probeFailed: true }
       }
       await delay(retryDelayMs)
       continue
@@ -110,14 +134,15 @@ export async function createMobileStructuredAgentSession(
     typeof supportResponse.ok !== 'boolean' ||
     !supportResponse.ok
   ) {
-    return { kind: 'unsupported' }
+    // Uma resposta malformada ou `ok: false` também não é veredito: é sonda sem resposta.
+    return { kind: 'unsupported', probeFailed: true }
   }
   const support = supportResponse.result as StructuredCreateSupport | null
   if (!support || typeof support !== 'object' || support.supported !== true) {
     return { kind: 'unsupported', reason: support?.reason }
   }
 
-  const params = createParamsFor(agent, worktree)
+  const params = createParamsFor(agent, worktree, sessionId, options.launchOrigin)
   let response
   try {
     response = await client.sendRequest('agentSession.create', params, {
@@ -176,5 +201,12 @@ export async function createMobileStructuredAgentSession(
   ) {
     return unknownCreateResult(agent, new Error(unconfirmedMessage(agent)))
   }
-  return { kind: 'created', sessionId: result.value.sessionId }
+  // Fence só quando é um de verdade: um `undefined` propagado viraria um envio sem fence, e
+  // um zero inventado colidiria com a sessão que já andou.
+  const fence = result.value.fence
+  return {
+    kind: 'created',
+    sessionId: result.value.sessionId,
+    ...(typeof fence === 'number' && Number.isSafeInteger(fence) ? { fence } : {})
+  }
 }

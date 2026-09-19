@@ -400,6 +400,10 @@ describe('packaged runtime resources', () => {
   it.skipIf(process.platform === 'win32')(
     'prunes non-target native packages before the Linux glibc gate',
     async () => {
+      // A layout test, not a certification: this synthetic package has no app.asar to prove,
+      // so it is packaged as throwaway (the asar gate has its own tests in electron-builder-config).
+      const previousUncertified = process.env.ORCA_BUILD_UNCERTIFIED
+      process.env.ORCA_BUILD_UNCERTIFIED = '1'
       const root = await mkdtemp(join(tmpdir(), 'orca-after-pack-prune-order-'))
       const previousPath = process.env.PATH
       try {
@@ -457,6 +461,11 @@ describe('packaged runtime resources', () => {
         ).resolves.toBeUndefined()
         await expect(stat(wrongArchPackage)).rejects.toMatchObject({ code: 'ENOENT' })
       } finally {
+        if (previousUncertified === undefined) {
+          delete process.env.ORCA_BUILD_UNCERTIFIED
+        } else {
+          process.env.ORCA_BUILD_UNCERTIFIED = previousUncertified
+        }
         process.env.PATH = previousPath
         await removeTree(root)
       }
@@ -466,6 +475,10 @@ describe('packaged runtime resources', () => {
   it.skipIf(process.platform === 'win32')(
     'marks packaged Unix CLI launchers executable',
     async () => {
+      // A layout test, not a certification: this synthetic package has no app.asar to prove,
+      // so it is packaged as throwaway (the asar gate has its own tests in electron-builder-config).
+      const previousUncertified = process.env.ORCA_BUILD_UNCERTIFIED
+      process.env.ORCA_BUILD_UNCERTIFIED = '1'
       const root = await mkdtemp(join(tmpdir(), 'orca-electron-builder-config-'))
       try {
         const resourcesDir = join(root, 'linux-unpacked', 'resources')
@@ -519,6 +532,11 @@ describe('packaged runtime resources', () => {
         ).resolves.toContain('"version": "9.9.9"')
         await expect(readFile(join(resourcesDir, 'package-type'), 'utf8')).resolves.toBe('AppImage')
       } finally {
+        if (previousUncertified === undefined) {
+          delete process.env.ORCA_BUILD_UNCERTIFIED
+        } else {
+          process.env.ORCA_BUILD_UNCERTIFIED = previousUncertified
+        }
         await removeTree(root)
       }
     }

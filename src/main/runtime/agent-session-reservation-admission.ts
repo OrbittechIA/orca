@@ -1,3 +1,8 @@
+import type {
+  StructuredAgentSessionLaunchAuthority,
+  StructuredAgentSessionLaunchOrigin
+} from '../../shared/structured-agent-session-create'
+import { structuredAgentSessionLaunchAuthoritiesEqual } from '../../shared/structured-agent-session-create'
 /**
  * Reservation admission: what a reserve request means against the persisted state.
  *
@@ -9,6 +14,7 @@
  * inside a transaction, which is what makes the record and its operation row land together.
  */
 
+import { isAgentSessionOptions } from '../../shared/agent-session-options'
 import {
   agentSessionOperationKey,
   evaluateAgentSessionOperation,
@@ -25,7 +31,6 @@ import {
   agentSessionExecutionLocationsEqual,
   isAgentSessionLaunchArgs,
   isAgentSessionLaunchEnv,
-  isAgentSessionOptions,
   type AgentSessionAccountHome,
   type AgentSessionExecutionLocation,
   type AgentSessionLaunchArgs,
@@ -44,6 +49,10 @@ import {
 import type { AgentSessionStoreState } from './agent-session-record-store-file'
 
 export type AgentSessionReserveRequest = {
+  /** Admissão estreita do Work Item Start, preservada na reserva: sem ela o gate
+   *  escopado não reconhece depois a sessão que ele mesmo admitiu. */
+  launchOrigin?: StructuredAgentSessionLaunchOrigin
+  launchAuthority?: StructuredAgentSessionLaunchAuthority
   sessionId: string
   location: AgentSessionExecutionLocation
   provider: AgentSessionHandleProvider
@@ -176,7 +185,9 @@ export function applyAgentSessionReservation(
     !agentSessionExecutionLocationsEqual(existing.location, request.location) ||
     existing.provider !== request.provider ||
     existing.accountHome.variable !== request.accountHome.variable ||
-    existing.accountHome.path !== request.accountHome.path
+    existing.accountHome.path !== request.accountHome.path ||
+    existing.launchOrigin !== request.launchOrigin ||
+    !structuredAgentSessionLaunchAuthoritiesEqual(existing.launchAuthority, request.launchAuthority)
   ) {
     // Why: location, provider, and account are the session identity; changing one is a fork.
     throw new Error('agent_session_conflict')
@@ -247,6 +258,10 @@ function createAgentSessionRecord(
     accountHome: request.accountHome,
     ...(request.options ? { options: { ...request.options } } : {}),
     ...(request.launchArgs ? { launchArgs: [...request.launchArgs] } : {}),
+    // A admissão estreita vive no REGISTRO: é por ela que o gate escopado reconhece
+    // depois a sessão que ele mesmo admitiu, mesmo com o ajuste global desligado.
+    ...(request.launchOrigin ? { launchOrigin: request.launchOrigin } : {}),
+    ...(request.launchAuthority ? { launchAuthority: request.launchAuthority } : {}),
     createdAt: request.now,
     updatedAt: request.now,
     lease: {

@@ -36,6 +36,10 @@ export class StructuredAgentSessionClientDelivery {
 
   publishStatus = (sessionId: string): void => this.statusFeed.publish(sessionId)
 
+  /** Todo o status projetado, para listas de sessão. Ao contrário de `subscribe`, não
+   *  retém nada — é a leitura que o `worktree ps` faz para enxergar execuções sem terminal. */
+  listStatusSummaries = () => this.statusFeed.snapshot()
+
   publishStatusAndSettlement = (sessionId: string): void => {
     this.statusFeed.publish(sessionId)
     const journal = this.sessions.get(sessionId)?.journal
@@ -47,8 +51,10 @@ export class StructuredAgentSessionClientDelivery {
   publishRestored = (sessionId: string): void =>
     this.statusFeed.publish(sessionId, undefined, { replay: true })
 
-  subscribeStatus = (subscriber: StructuredAgentSessionStatusSubscriber): (() => void) =>
-    this.statusFeed.subscribe(subscriber)
+  subscribeStatus = (
+    subscriber: StructuredAgentSessionStatusSubscriber,
+    includeSession?: (sessionId: string) => boolean
+  ): (() => void) => this.statusFeed.subscribe(subscriber, includeSession)
   forgetStatus = (sessionId: string): void => this.statusFeed.forget(sessionId)
 
   closeSession(sessionId: string): void {

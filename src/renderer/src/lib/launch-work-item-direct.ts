@@ -1,3 +1,4 @@
+import { workItemStartStrictPreflightBlocks } from '@/lib/work-item-start-precreate-preflight'
 import { toast } from 'sonner'
 import { useAppStore } from '@/store'
 import {
@@ -8,6 +9,7 @@ import { planAgentCliArgsSuffix } from '@/lib/tui-agent-startup'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
 import { CLIENT_PLATFORM, getWorkspaceIntentName, getWorkspaceSeedName } from '@/lib/new-workspace'
 import {
+  structuredWorkItemLaunchUnavailableMessage,
   agentLaunchCommandErrorMessage,
   gitLabIssueNumber,
   resolvePrHeadErrorMessage,
@@ -76,6 +78,10 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
   // matches the owner-routed createWorktree below, not the focused runtime.
   const repoOwnerSettings = getSettingsForRepoRuntimeOwner(store, repoId)
   const promptDelivery = args.promptDelivery ?? 'draft'
+  // Estrito por padrão quando a entrega é `submit-after-ready`: só um opt-in explícito
+  // aceita que um writer de terminal receba o prompt no lugar da sessão estruturada.
+  const structuredSessionRequired =
+    promptDelivery === 'submit-after-ready' && args.allowLegacyTerminalPromptSubmission !== true
   const repoConnectionId = repo.connectionId?.trim() || null
   const githubIdentity =
     item.number !== null && (item.type === 'issue' || item.type === 'pr')
@@ -166,6 +172,23 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
   let draftLaunchedNatively = false
   let plan: AgentSessionLaunchPlan | null = null
   const draftContent = await getDirectWorkItemDraftContent(item, repoConnectionId)
+
+  if (
+    structuredSessionRequired &&
+    (await workItemStartStrictPreflightBlocks({
+      agentOverride,
+      agentArgs,
+      draftContent,
+      detectedAgentsPromise,
+      repo,
+      repoConnectionId,
+      repoId,
+      settings
+    }))
+  ) {
+    toast.error(structuredWorkItemLaunchUnavailableMessage())
+    return false
+  }
   let startupPlanFailed = false
   try {
     const result = await store.createWorktree(
@@ -200,6 +223,7 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
 
     const latestStore = useAppStore.getState()
     const launchPreparation = await prepareDirectWorkItemAgentLaunch({
+      structuredSessionRequired,
       worktreeId,
       worktreePath,
       repoId,
@@ -264,6 +288,8 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
     connectionId: repoConnectionId,
     primaryTabId,
     startupPlan,
+    structuredSessionRequired,
+    promptDelivery,
     launchSource
   })
   if (structuredResult.visibilityUnknown || structuredResult.failed) {

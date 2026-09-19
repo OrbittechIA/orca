@@ -44,7 +44,9 @@ export class WorktreeTerminalMutationLock {
   async acquire(
     key: string,
     kind: WorktreeTerminalMutationKind,
-    deadline?: number
+    deadline?: number,
+    /** What a caller past its deadline receives; the terminal sleep timeout by default. */
+    timeoutError: Error = new Error(WORKTREE_TERMINAL_SLEEP_TIMEOUT_ERROR)
   ): Promise<() => void> {
     const entry = this.entries.get(key) ?? { activeSpawns: 0, activeSleep: false, queue: [] }
     this.entries.set(key, entry)
@@ -64,12 +66,7 @@ export class WorktreeTerminalMutationLock {
     try {
       await (deadline === undefined
         ? granted
-        : settleBeforeDeadline(
-            () => granted,
-            undefined,
-            deadline,
-            new Error(WORKTREE_TERMINAL_SLEEP_TIMEOUT_ERROR)
-          ))
+        : settleBeforeDeadline(() => granted, undefined, deadline, timeoutError))
     } catch (error) {
       // Why splice-then-drain: the caller timed out, so this node must never
       // acquire later and stop terminals behind its back. Removing it before

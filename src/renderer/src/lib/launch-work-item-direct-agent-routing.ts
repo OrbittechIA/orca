@@ -1,3 +1,6 @@
+import type { WorkItemStartPromptDelivery } from '../../../shared/agent-session-options'
+import { toast } from 'sonner'
+import { structuredWorkItemPromptDeliveryFailedMessage } from '@/lib/launch-work-item-direct-messages'
 import type { TuiAgent } from '../../../shared/tui-agent'
 import type { AgentStartupPlan } from '@/lib/tui-agent-startup'
 import type { LaunchSource } from '../../../shared/telemetry-events'
@@ -110,6 +113,9 @@ export async function settleDirectWorkItemStructuredLaunch(args: {
   primaryTabId: string | null
   startupPlan: AgentStartupPlan | null
   launchSource: LaunchSource
+  /** Um Work Item Start estrito não aceita writer de terminal como substituto. */
+  structuredSessionRequired: boolean
+  promptDelivery: WorkItemStartPromptDelivery
 }): Promise<{
   completed: boolean
   structuredLaunch: boolean
@@ -141,26 +147,27 @@ export async function settleDirectWorkItemStructuredLaunch(args: {
   }
   let settlement: Awaited<ReturnType<typeof plan.launch>>
   try {
-    settlement = await plan.launch({
-      legacyFallback: async () => {
-        await preflightAgentTrust({
+    const legacyFallback = async () => {
+      await preflightAgentTrust({
+        agent,
+        workspacePath: args.workspacePath,
+        connectionId: args.connectionId
+      })
+      const activation = activateAndRevealWorktree(args.worktreeId, {
+        sidebarRevealBehavior: 'auto',
+        createNewTerminalForStartup: true,
+        ...buildDirectWorkItemStartupOpts(
           agent,
-          workspacePath: args.workspacePath,
-          connectionId: args.connectionId
-        })
-        const activation = activateAndRevealWorktree(args.worktreeId, {
-          sidebarRevealBehavior: 'auto',
-          createNewTerminalForStartup: true,
-          ...buildDirectWorkItemStartupOpts(
-            agent,
-            args.startupPlan,
-            args.launchSource,
-            plan.promptDelivery === 'draft' ? plan.prompt : undefined
-          )
-        })
-        return { activation, primaryTabId: activation === false ? null : activation.primaryTabId }
-      }
-    })
+          args.startupPlan,
+          args.launchSource,
+          plan.promptDelivery === 'draft' ? plan.prompt : undefined
+        )
+      })
+      return { activation, primaryTabId: activation === false ? null : activation.primaryTabId }
+    }
+    // Sem o hook, a 1.4.201 liquida uma recusa definitiva como `failed` em vez de abrir
+    // um terminal: é assim que o modo estrito garante que não nasce um segundo writer.
+    settlement = await plan.launch(args.structuredSessionRequired ? {} : { legacyFallback })
   } catch {
     // Why: this runs outside the caller's try, so an escaped throw would surface as an unhandled
     // rejection rather than the failure the caller already knows how to report.
@@ -170,14 +177,32 @@ export async function settleDirectWorkItemStructuredLaunch(args: {
     return notLaunched(true)
   }
   switch (settlement.kind) {
-    case 'structured':
+    case 'structured': {
+      // Entrega estrita é prova, não intenção: sem `delivered` confirmado a execução não
+      // conta como concluída, e o usuário é avisado uma vez só.
+      // 1.4.201 só anexa o resultado quando havia prompt e a entrega não era `draft`.
+      // Sem prompt não há o que entregar, e "entregue uma vez" vale por vacuidade; com
+      // prompt, ausência de confirmação é falha.
+      const hasPromptToDeliver = Boolean(plan.prompt?.trim())
+      const delivery =
+        args.promptDelivery === 'submit-after-ready' && hasPromptToDeliver
+          ? await settlement.promptDeliveryResult
+          : undefined
+      const delivered =
+        args.promptDelivery !== 'submit-after-ready' ||
+        !hasPromptToDeliver ||
+        delivery?.delivered === true
+      if (!delivered && delivery?.failureNotified !== true) {
+        toast.error(structuredWorkItemPromptDeliveryFailedMessage())
+      }
       return {
-        completed: true,
+        completed: delivered,
         structuredLaunch: true,
         visibilityUnknown: false,
-        failed: false,
+        failed: !delivered,
         primaryTabId: args.primaryTabId
       }
+    }
     case 'refused-then-legacy':
       return {
         completed: false,

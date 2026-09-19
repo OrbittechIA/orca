@@ -1,17 +1,5 @@
+import { canonicalJson } from './canonical-json'
 import { sha256 } from './sha256'
-
-function canonicalize(value: unknown): string {
-  if (value === null || typeof value !== 'object') {
-    return JSON.stringify(value ?? null)
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map(canonicalize).join(',')}]`
-  }
-  const entries = Object.entries(value as Record<string, unknown>)
-    .filter(([, entry]) => entry !== undefined)
-    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
-  return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${canonicalize(entry)}`).join(',')}}`
-}
 
 export function structuredAgentSessionPayloadFingerprint(input: {
   method: string
@@ -20,7 +8,7 @@ export function structuredAgentSessionPayloadFingerprint(input: {
 }): string {
   const bytes = sha256(
     new TextEncoder().encode(
-      canonicalize({ method: input.method, sessionId: input.sessionId, fields: input.fields })
+      canonicalJson({ method: input.method, sessionId: input.sessionId, fields: input.fields })
     )
   )
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
@@ -43,6 +31,7 @@ export function structuredAgentSessionCreateFingerprint(input: {
   worktree: string
   agent: 'claude' | 'codex'
   resumeFrom?: { providerSessionId: string }
+  launchOrigin?: 'work-item-start'
 }): string {
   return structuredAgentSessionPayloadFingerprint({
     method: 'agentSession.create',
@@ -52,7 +41,8 @@ export function structuredAgentSessionCreateFingerprint(input: {
       agent: input.agent,
       // `canonicalize` drops undefined, so a plain create keeps the digest it has always had.
       // Adopting a conversation is a different intent and must not replay as a blank create.
-      resumeFrom: input.resumeFrom
+      resumeFrom: input.resumeFrom,
+      launchOrigin: input.launchOrigin
     }
   })
 }

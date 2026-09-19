@@ -49,6 +49,26 @@ function settleWith(settlement: StructuredAgentLaunchSettlement | 'refusal') {
   )
 }
 
+const RECOVERY = {
+  intent: {
+    sessionId: 'session-1',
+    worktreeId: 'worktree-1',
+    agent: 'codex' as const,
+    target: { kind: 'local' as const },
+    params: {
+      envelope: {
+        sessionId: 'session-1',
+        clientOperationId: 'create-op-1',
+        expectedRuntimeFence: null,
+        payloadFingerprint: 'f'.repeat(64)
+      },
+      worktree: 'id:worktree-1',
+      agent: 'codex' as const
+    }
+  },
+  clientMessageId: null
+}
+
 describe('launchAgentInStructuredNewTab', () => {
   let consoleError: ReturnType<typeof vi.spyOn>
 
@@ -63,7 +83,12 @@ describe('launchAgentInStructuredNewTab', () => {
 
   it('hands the launch to the shared settle loop and follows the structured delivery', async () => {
     const promptDeliveryResult = Promise.resolve(delivered)
-    settleWith({ kind: 'structured', sessionId: 'session-1', promptDeliveryResult })
+    settleWith({
+      kind: 'structured',
+      sessionId: 'session-1',
+      recovery: RECOVERY,
+      promptDeliveryResult
+    })
     const legacyLaunch = vi.fn()
     const onPromptDelivered = vi.fn()
 
@@ -81,6 +106,7 @@ describe('launchAgentInStructuredNewTab', () => {
     await expect(result.structuredSettlement).resolves.toEqual({
       kind: 'structured',
       sessionId: 'session-1',
+      recovery: RECOVERY,
       promptDeliveryResult
     })
     await expect(result.promptDeliveryResult).resolves.toEqual(delivered)
@@ -175,7 +201,7 @@ describe('launchAgentInStructuredNewTab', () => {
   })
 
   it('surfaces an unknown outcome silently and never falls back', async () => {
-    settleWith({ kind: 'visibility-unknown', sessionId: 'session-1' })
+    settleWith({ kind: 'visibility-unknown', sessionId: 'session-1', recovery: RECOVERY })
     const legacyLaunch = vi.fn()
 
     const result = launchAgentInStructuredNewTab({
@@ -185,7 +211,8 @@ describe('launchAgentInStructuredNewTab', () => {
 
     await expect(result.structuredSettlement).resolves.toEqual({
       kind: 'visibility-unknown',
-      sessionId: 'session-1'
+      sessionId: 'session-1',
+      recovery: RECOVERY
     })
     await expect(result.promptDeliveryResult).resolves.toEqual(undelivered)
     expect(consoleError).not.toHaveBeenCalled()
@@ -196,7 +223,7 @@ describe('launchAgentInStructuredNewTab', () => {
     ['no prompt', '', 'auto-submit' as const],
     ['a draft prompt', 'Fix it', 'draft' as const]
   ])('exposes no delivery promise for %s', async (_label, prompt, promptDelivery) => {
-    settleWith({ kind: 'structured', sessionId: 'session-1' })
+    settleWith({ kind: 'structured', sessionId: 'session-1', recovery: RECOVERY })
 
     const result = launchAgentInStructuredNewTab({
       plan: structuredPlan(prompt, promptDelivery),

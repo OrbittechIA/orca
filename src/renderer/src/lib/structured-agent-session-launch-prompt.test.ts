@@ -47,7 +47,8 @@ describe('settleStructuredAgentLaunchPrompt', () => {
       settleStructuredAgentLaunchPrompt({
         launchResult: Promise.resolve({ sessionId: 'session-1', fence: 1 }),
         options: { prompt: 'review this', onPromptDelivered },
-        stagedEntry
+        stagedEntry,
+        target: { kind: 'local' as const }
       })
     ).resolves.toEqual({ delivered: true, failureNotified: false })
 

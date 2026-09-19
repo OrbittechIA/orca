@@ -1,3 +1,10 @@
+import { planFolderWorkspaceWorkItemStart } from './folder-workspace-work-item-start'
+import { toast } from 'sonner'
+import type { GlobalSettings } from '../../../../shared/global-settings-types'
+import {
+  structuredWorkItemComposerPreflightUnavailableMessage,
+  structuredWorkItemPromptDeliveryFailedMessage
+} from '@/lib/launch-work-item-direct-messages'
 import { ensureAgentStartupInTerminal, type LinkedWorkItemSummary } from '@/lib/new-workspace'
 import { seedNativeChatLaunchDraftForAgentTab } from '@/lib/agent-launch-prompt-delivery'
 import { preflightAgentTrust } from '@/lib/agent-trust-preflight'
@@ -18,13 +25,10 @@ import {
   getLinkedItemDisplayName,
   toFolderWorkspaceLinkedTask
 } from './folder-workspace-composer-helpers'
-import { planAgentSessionLaunch } from '@/lib/agent-session-launch-plan'
-import { getNewWorkspaceProjectGroupHostId } from '@/lib/new-workspace-project-options'
 import { useAppStore } from '@/store'
 import {
   buildFolderWorkspaceLinkedStartupPlan,
-  getFolderWorkspaceAgentLaunchPlatform,
-  resolveFolderWorkspaceLaunchDraft
+  getFolderWorkspaceAgentLaunchPlatform
 } from './folder-workspace-agent-startup'
 
 export {
@@ -57,6 +61,7 @@ type SubmitFolderWorkspaceCreateParams = {
   agentEnv?: Record<string, string>
   sessionOptions?: Record<string, SessionOptionValue>
   terminalWindowsShell?: string | null
+  settings?: GlobalSettings | null
   isRemote?: boolean
   launchSource?: LaunchSource
   runtimeEnvironmentId?: string | null
@@ -78,6 +83,7 @@ export async function submitFolderWorkspaceCreate({
   agentEnv,
   sessionOptions,
   terminalWindowsShell,
+  settings,
   launchSource = 'sidebar',
   runtimeEnvironmentId = null,
   createFolderWorkspace,
@@ -128,23 +134,26 @@ export async function submitFolderWorkspaceCreate({
         : null
   // Why: the argv-prefill plan carries the draft inside `launchCommand`, so
   // `startupPlan.draftPrompt` alone can't tell whether this launch has one.
-  const launchDraftPrompt =
-    quickAgent && linkedWorkItem ? resolveFolderWorkspaceLaunchDraft(linkedWorkItem, note) : null
-  const plan = quickAgent
-    ? planAgentSessionLaunch(useAppStore.getState(), {
-        agent: quickAgent,
-        workspace: {
-          kind: 'folder',
-          runtimeEnvironmentId,
-          executionHostId: getNewWorkspaceProjectGroupHostId(projectGroup)
-        },
-        prompt: launchDraftPrompt ?? note,
-        promptDelivery: launchDraftPrompt ? 'draft' : 'auto-submit',
-        tuiCustomization: { agentArgs },
-        initialSessionOptions: startupPlan?.sessionOptions
-      })
-    : null
+  const {
+    strict: strictWorkItemStart,
+    launchDraftPrompt,
+    plan
+  } = planFolderWorkspaceWorkItemStart({
+    projectGroup,
+    linkedWorkItem,
+    note,
+    quickAgent,
+    agentArgs,
+    settings,
+    runtimeEnvironmentId,
+    initialSessionOptions: startupPlan?.sessionOptions
+  })
   const structuredLaunch = plan?.route === 'structured-native-chat'
+  if (strictWorkItemStart && !structuredLaunch) {
+    // Recusa ANTES do create: um bloqueio resolvido depois deixaria a workspace de pasta
+    // criada sem writer nenhum — a assinatura do incidente que este Start remove.
+    throw new Error(structuredWorkItemComposerPreflightUnavailableMessage())
+  }
   // Why: the pending badge should only appear when the submitted prompt can
   // actually produce the first agent message that names the workspace.
   const pendingFirstAgentMessageRename =
@@ -216,31 +225,37 @@ export async function submitFolderWorkspaceCreate({
     const settlement =
       plan?.route === 'structured-native-chat'
         ? await plan.launch(
-            {
-              legacyFallback: async () => {
-                if (pendingFirstAgentMessageRename) {
-                  await useAppStore
-                    .getState()
-                    .updateFolderWorkspace(workspace.id, { pendingFirstAgentMessageRename: true })
-                    .catch(() => undefined)
-                }
-                await preflightAgentTrust({
-                  agent: quickAgent,
-                  workspacePath: workspace.folderPath,
-                  connectionId: workspace.connectionId ?? projectGroup.connectionId
-                })
-                const fallbackActivation = activateAndRevealFolderWorkspace(workspace.id, {
-                  agent: quickAgent,
-                  ...(startup ? { startup } : {}),
-                  runtimeEnvironmentId
-                })
-                return {
-                  activation: fallbackActivation,
-                  primaryTabId:
-                    fallbackActivation === false ? null : fallbackActivation.primaryTabId
-                }
-              }
-            },
+            // Start estrito não declara `legacyFallback`: uma recusa definitiva assenta como
+            // `failed` e nenhum writer de terminal é aberto por trás dela.
+            strictWorkItemStart
+              ? {}
+              : {
+                  legacyFallback: async () => {
+                    if (pendingFirstAgentMessageRename) {
+                      await useAppStore
+                        .getState()
+                        .updateFolderWorkspace(workspace.id, {
+                          pendingFirstAgentMessageRename: true
+                        })
+                        .catch(() => undefined)
+                    }
+                    await preflightAgentTrust({
+                      agent: quickAgent,
+                      workspacePath: workspace.folderPath,
+                      connectionId: workspace.connectionId ?? projectGroup.connectionId
+                    })
+                    const fallbackActivation = activateAndRevealFolderWorkspace(workspace.id, {
+                      agent: quickAgent,
+                      ...(startup ? { startup } : {}),
+                      runtimeEnvironmentId
+                    })
+                    return {
+                      activation: fallbackActivation,
+                      primaryTabId:
+                        fallbackActivation === false ? null : fallbackActivation.primaryTabId
+                    }
+                  }
+                },
             { worktreeId: folderWorkspaceKey(workspace.id) }
           )
         : null
@@ -248,7 +263,23 @@ export async function submitFolderWorkspaceCreate({
       // Why: the workspace exists either way. Unknown keeps reporting false and failed true, as
       // the boolean did before the loop was shared; the launch layer owns the failure toast.
       if (settlement.kind === 'visibility-unknown') {
-        return false
+        // Num Start estrito a workspace existe e uma única sessão a detém: recriar abriria um
+        // segundo writer, então o desfecho desconhecido não torna a criação repetível.
+        return strictWorkItemStart
+      }
+      if (strictWorkItemStart && settlement.kind === 'structured') {
+        // Entrega estrita é prova: sem `delivered` confirmado avisa-se uma vez, sem retry.
+        const delivery = launchDraftPrompt ? await settlement.promptDeliveryResult : undefined
+        // `deliveryUnknown` não é recusa: avisar aqui transformaria incerteza em falha.
+        if (
+          delivery &&
+          !delivery.delivered &&
+          delivery.deliveryUnknown !== true &&
+          delivery.failureNotified !== true
+        ) {
+          toast.error(structuredWorkItemPromptDeliveryFailedMessage())
+        }
+        return true
       }
       if (settlement.kind === 'failed' || settlement.kind === 'cancelled') {
         return true

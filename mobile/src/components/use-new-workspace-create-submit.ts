@@ -1,3 +1,4 @@
+import { resolveWorkItemStartSettingsRefresh } from '../tasks/work-item-start-settings-refresh'
 import { settingsRead } from '../transport/settings-read-operations'
 import { useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import type { PersistedTrustedOrcaHooks } from '../../../src/shared/orca-yaml-hook-types'
@@ -91,8 +92,12 @@ export function useNewWorkspaceCreateSubmit(args: {
         const settingsReply = await settingsRead.request(client)
         const settings = settingsRead.interpret(settingsReply)
         if (settings.accepted) {
-          // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: Preserve the established response shape at this boundary.
-          latestRuntimeSettings = settings.value as NewWorktreeRuntimeSettings
+          const refreshed = resolveWorkItemStartSettingsRefresh(
+            latestRuntimeSettings,
+            settings.value
+          )
+          // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: retain the opaque legacy settings contract after protecting known strict delivery.
+          latestRuntimeSettings = refreshed as NewWorktreeRuntimeSettings
           args.setRuntimeSettings(latestRuntimeSettings)
         }
       } catch {
@@ -157,6 +162,7 @@ export function useNewWorkspaceCreateSubmit(args: {
         ? await createWorkspaceFromComposerSource({
             client,
             selection,
+            runtimeSettings: latestRuntimeSettings,
             targetRepoId: selectedRepo.id,
             setupDecision,
             agent: { choice: normalizeWorkspaceAgent(args.selectedAgent.id) ?? 'blank' },

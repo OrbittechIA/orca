@@ -3,14 +3,20 @@
 // repopulated per test, so a suite can read `hostCalls.close` without re-importing it.
 
 import { vi } from 'vitest'
-import type { AgentJournalRenderItem } from '../../../../shared/agent-session-journal-types'
-import type { AgentSessionJournal } from '../../../native-chat/agent-session-journal/journal-store'
 import type { StructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-host'
 import { setStructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-registry'
+import type { StructuredAgentSessionStatusSubscriber } from '../../../native-chat/agent-session-wire/structured-agent-session-status-feed'
 import {
-  StructuredAgentSessionStatusFeed,
-  type StructuredAgentSessionStatusSubscriber
-} from '../../../native-chat/agent-session-wire/structured-agent-session-status-feed'
+  resetStatusFeed,
+  statusFeedInstance
+} from './structured-agent-session-rpc-status.test-fixture'
+
+export {
+  publishStatusItems,
+  STATUS_ITEMS,
+  STATUS_SESSION,
+  statusFeedInstance
+} from './structured-agent-session-rpc-status.test-fixture'
 import type { OrcaRuntimeService } from '../../orca-runtime'
 import {
   AGENT_SESSION_PENDING_SEND_RESULT_RUNTIME_CAPABILITY,
@@ -73,48 +79,9 @@ function reset(record: Record<string, ReturnType<typeof vi.fn>>): void {
   }
 }
 
-export const STATUS_SESSION = 'session-status'
-export const STATUS_ITEMS: AgentJournalRenderItem[] = [
-  {
-    itemId: 'user-1',
-    sequence: 1,
-    revision: 1,
-    observedAt: 1,
-    body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'write a poem' }] }
-  },
-  {
-    itemId: 'turn-1',
-    sequence: 2,
-    revision: 1,
-    observedAt: 2,
-    body: { kind: 'status', text: 'Working', turnLifecycle: { turnId: 'turn-1', state: 'running' } }
-  }
-]
-
-/** One indexed session over a journal that reads back fixed items; the projection is real. */
-function statusFeed(): StructuredAgentSessionStatusFeed {
-  return new StructuredAgentSessionStatusFeed({
-    sessions: new Map([
-      [
-        STATUS_SESSION,
-        {
-          journal: {
-            isReadOnly: false,
-            cursor: () => ({ epoch: 'epoch-status', sequence: 2 }),
-            lastActivityAt: () => 2,
-            snapshot: () => ({ items: STATUS_ITEMS })
-          } as unknown as AgentSessionJournal,
-          params: { location: { workspaceId: 'workspace-1' }, provider: 'codex' as const }
-        }
-      ]
-    ]),
-    getRecord: () => null,
-    now: () => 1_000
-  })
-}
-
 export function hostStub(): StructuredAgentSessionHost {
   reset(hostCalls)
+  resetStatusFeed()
   Object.assign(hostCalls, {
     attach: vi.fn(async () => ({
       ok: true,
@@ -200,13 +167,29 @@ export function hostStub(): StructuredAgentSessionHost {
     subscribe: vi.fn(() => () => undefined),
     // A real feed, so the snapshot this method hands back is a genuine projection rather
     // than a shape the stub restated.
-    subscribeStatus: vi.fn((subscriber: StructuredAgentSessionStatusSubscriber) =>
-      statusFeed().subscribe(subscriber)
+    getRecord: vi.fn(() => null),
+    listRecords: vi.fn(() => []),
+    subscribeStatus: vi.fn(
+      (
+        subscriber: StructuredAgentSessionStatusSubscriber,
+        includeSession?: (sessionId: string) => boolean
+      ) => statusFeedInstance().subscribe(subscriber, includeSession)
     ),
     unsubscribe: vi.fn(),
     release: vi.fn()
   })
-  return hostCalls as unknown as StructuredAgentSessionHost
+  // O gate escopado do Work Item Start lê o registro pelo store do host; sem expor
+  // `deps.store` a fixture não consegue exercer nem a admissão nem a recusa.
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the dispatcher suites exercise the host through `hostCalls` plus `deps.store`; every member they reach is a spy declared above.
+  return {
+    ...hostCalls,
+    deps: {
+      store: {
+        getRecord: hostCalls.getRecord,
+        listRecords: hostCalls.listRecords
+      }
+    }
+  } as unknown as StructuredAgentSessionHost
 }
 
 export function dispatcher(runtimeOverrides: Record<string, unknown> = {}): RpcDispatcher {
@@ -233,7 +216,18 @@ export function dispatcher(runtimeOverrides: Record<string, unknown> = {}): RpcD
           : { model: 'gpt-5.6-sol', effort: 'medium' },
       runtimeKind: 'native'
     })),
-    publishStructuredAgentSessionTab: vi.fn()
+    publishStructuredAgentSessionTab: vi.fn(),
+    // The lifecycle hold a create keeps from resolution through attach; released per call.
+    holdWorktreeLifecycle: vi.fn(async () => () => undefined),
+    resolveStructuredAgentSessionCreateWorktreeTarget: vi.fn(async () => ({
+      worktreeId: 'workspace-1',
+      workspacePath: '/workspaces/workspace-1',
+      instanceId: null,
+      identityKey: null,
+      executionHostId: 'local',
+      creatorKind: 'host',
+      creatorDeviceId: null
+    }))
   })
   const runtime = {
     getRuntimeId: () => 'runtime-1',
@@ -252,17 +246,27 @@ export function dispatcher(runtimeOverrides: Record<string, unknown> = {}): RpcD
 
 /** The reply path is the only one that carries a client's negotiated identity,
  *  which is exactly what the capability gate reads. */
-export async function call(
+type FixtureClient = {
+  clientId?: string
+  /** Streams are keyed per connection; two clients on one test need two of these. */
+  connectionId?: string
+  clientKind?: 'mobile' | 'runtime'
+  clientCapabilities?: string[]
+  // O gate do Work Item Start decide por estes dois; sem eles a fixture não consegue
+  // exercer nem a autoridade local nem a de device pareado.
+  localDesktopAuthority?: true
+  pairedDeviceId?: string
+  signal?: AbortSignal
+}
+
+/** Like `call`, but keeps the live reply list: a streaming method keeps writing to it after
+ *  the dispatch resolves, which is what a subscription boundary test has to observe. */
+export async function callStreaming(
   method: string,
   params: unknown,
-  client?: {
-    clientId?: string
-    clientKind?: 'mobile' | 'runtime'
-    clientCapabilities?: string[]
-    signal?: AbortSignal
-  },
+  client?: FixtureClient,
   runtimeOverrides: Record<string, unknown> = {}
-): Promise<RpcResponse> {
+): Promise<{ first: RpcResponse; replies: RpcResponse[] }> {
   const replies: RpcResponse[] = []
   await dispatcher(runtimeOverrides).dispatchStreaming(
     request(method, params),
@@ -273,7 +277,16 @@ export async function call(
   if (!first) {
     throw new Error(`no reply for ${method}`)
   }
-  return first
+  return { first, replies }
+}
+
+export async function call(
+  method: string,
+  params: unknown,
+  client?: FixtureClient,
+  runtimeOverrides: Record<string, unknown> = {}
+): Promise<RpcResponse> {
+  return (await callStreaming(method, params, client, runtimeOverrides)).first
 }
 
 export const STRUCTURED_CLIENT = {
