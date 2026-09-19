@@ -86,14 +86,22 @@ export type AgentStatusLegacyAdapterOptions = {
   isCanonicalPaneKey?: (paneKey: string) => boolean
 }
 
-function freezeStatusEntry(entry: AgentHookEventPayload): void {
-  for (const subagent of entry.payload.subagents ?? []) {
-    Object.freeze(subagent)
+function freezeRecursively(value: unknown, seen: WeakSet<object>): void {
+  if (typeof value !== 'object' || value === null || seen.has(value)) {
+    return
   }
-  Object.freeze(entry.payload.subagents)
-  Object.freeze(entry.payload)
-  Object.freeze(entry.providerSession)
-  Object.freeze(entry)
+  seen.add(value)
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    if (descriptor && 'value' in descriptor) {
+      freezeRecursively(descriptor.value, seen)
+    }
+  }
+  Object.freeze(value)
+}
+
+function freezeStatusEntry(entry: AgentHookEventPayload): void {
+  freezeRecursively(entry, new WeakSet())
 }
 
 function createReadonlyView(
