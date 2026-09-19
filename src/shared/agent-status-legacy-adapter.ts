@@ -91,8 +91,9 @@ function freezeRecursively(value: unknown, seen: WeakSet<object>): void {
     return
   }
   seen.add(value)
-  for (const key of Reflect.ownKeys(value)) {
-    freezeRecursively(Reflect.get(value, key), seen)
+  const record = value as Record<PropertyKey, unknown>
+  for (const key of Reflect.ownKeys(record)) {
+    freezeRecursively(record[key], seen)
   }
   Object.freeze(value)
 }

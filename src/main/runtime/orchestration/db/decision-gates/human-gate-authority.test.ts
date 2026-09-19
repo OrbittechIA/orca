@@ -196,9 +196,13 @@ describe('native typed Human Gate authority', () => {
     const request = humanGateFixture(db)
     for (const humanGate of [null, false, '']) {
       expect(() =>
-        Reflect.apply(db.createGate, db, [
-          { taskId: request.identity.task_id, question: request.reason, humanGate }
-        ])
+        (
+          db.createGate as unknown as (input: {
+            taskId: string
+            question: string
+            humanGate: unknown
+          }) => unknown
+        )({ taskId: request.identity.task_id, question: request.reason, humanGate })
       ).toThrow()
     }
     expect(db.listGates()).toEqual([])
