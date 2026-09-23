@@ -8,7 +8,7 @@ import { FakeSession } from '../transport/mobile-endpoint-supervisor-test-fakes'
 import type { RpcResponse } from '../transport/types'
 import type { MobileComposerCreateSelection } from '../tasks/mobile-composer-source-types'
 import { useMobileComposerSource } from '../tasks/use-mobile-composer-source'
-import { WORK_ITEM_START_ADMISSION_TIMEOUT_MS } from '../tasks/work-item-start-structured-session'
+import { WORK_ITEM_START_ADMISSION_TIMEOUT_MS } from '../tasks/work-item-start-route'
 import { useNewWorkspaceCreateSubmit } from './use-new-workspace-create-submit'
 
 vi.mock('@react-native-async-storage/async-storage', () => ({
