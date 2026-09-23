@@ -169,7 +169,32 @@ describe('strict Work Item Start (submit-after-ready)', () => {
   })
   const strictRequest = { ...request, workItemStartPromptDelivery: 'submit-after-ready' as const }
 
-  it('keeps the scoped launch origin the preflight was admitted under', async () => {
+  it('keeps the scoped launch origin and strict delivery the preflight was admitted under', async () => {
+    mocks.startStructuredAgentLaunch.mockReturnValue({
+      sessionId: 'session-1',
+      recovery: RECOVERY,
+      launchResult: Promise.resolve({ sessionId: 'session-1', fence: 1 }),
+      promptDeliveryResult: Promise.resolve({ delivered: true, failureNotified: false }),
+      isVisibilityUnknown: () => false,
+      releaseCallerAfterUnknownOutcome: vi.fn()
+    })
+    await launchStructuredWorktreeSession({
+      creationId: 'creation-1',
+      request: strictRequest,
+      agentLaunchRoute: 'structured-native-chat',
+      worktreeId: 'worktree-1',
+      shouldActivateOnCompletion: true,
+      activation: false,
+      primaryTabId: null
+    })
+    expect(mocks.startStructuredAgentLaunch).toHaveBeenCalledWith('worktree-1', 'codex', {
+      prompt: 'Fix the route',
+      promptDelivery: 'submit-after-ready',
+      launchOrigin: 'work-item-start'
+    })
+  })
+
+  it('pins strict delivery even when a stale request still carries auto-submit', async () => {
     mocks.startStructuredAgentLaunch.mockReturnValue({
       sessionId: 'session-1',
       recovery: RECOVERY,
@@ -187,10 +212,37 @@ describe('strict Work Item Start (submit-after-ready)', () => {
       activation: false,
       primaryTabId: null
     })
+    expect(mocks.startStructuredAgentLaunch).toHaveBeenCalledWith(
+      'worktree-1',
+      'codex',
+      expect.objectContaining({
+        promptDelivery: 'submit-after-ready',
+        launchOrigin: 'work-item-start'
+      })
+    )
+  })
+
+  it('keeps a non-strict request on its own delivery with no scoped origin', async () => {
+    mocks.startStructuredAgentLaunch.mockReturnValue({
+      sessionId: 'session-1',
+      recovery: RECOVERY,
+      launchResult: Promise.resolve({ sessionId: 'session-1', fence: 1 }),
+      promptDeliveryResult: Promise.resolve({ delivered: true, failureNotified: false }),
+      isVisibilityUnknown: () => false,
+      releaseCallerAfterUnknownOutcome: vi.fn()
+    })
+    await launchStructuredWorktreeSession({
+      creationId: 'creation-1',
+      request: { ...request, promptDelivery: 'auto-submit' },
+      agentLaunchRoute: 'structured-native-chat',
+      worktreeId: 'worktree-1',
+      shouldActivateOnCompletion: true,
+      activation: false,
+      primaryTabId: null
+    })
     expect(mocks.startStructuredAgentLaunch).toHaveBeenCalledWith('worktree-1', 'codex', {
       prompt: 'Fix the route',
-      promptDelivery: 'auto-submit',
-      launchOrigin: 'work-item-start'
+      promptDelivery: 'auto-submit'
     })
   })
 

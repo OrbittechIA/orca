@@ -1,5 +1,8 @@
 import { planAgentSessionLaunch } from '@/lib/agent-session-launch-plan'
-import { structuredWorkItemComposerPreflightUnavailableMessage } from '@/lib/launch-work-item-direct-messages'
+import {
+  structuredWorkItemComposerPreflightUnavailableMessage,
+  structuredWorkItemComposerEmptyPromptMessage
+} from '@/lib/launch-work-item-direct-messages'
 import type { GlobalSettings } from '../../../../shared/global-settings-types'
 import type { WorkItemStartPromptDelivery } from '../../../../shared/agent-session-options'
 import { resolveWorkItemStartPromptDelivery } from '../../../../shared/agent-session-options'
@@ -128,11 +131,15 @@ export async function resolveQuickCreationAgentLaunchRoute(args: {
   workspaceKind: 'git-worktree' | 'folder'
   launchText: string
   nativeChatTranscriptIsLocalReadable: boolean
-  prompt: string
-  promptDelivery: 'draft' | 'auto-submit'
+  quickPrompt: string
+  draftPrompt: string | null
   workspaceExecutionHostId: string | undefined
   initialSessionOptions?: Readonly<Record<string, unknown>>
-}): Promise<AgentLaunchRoute> {
+}): Promise<{ route: AgentLaunchRoute; promptDelivery: QuickCreationPromptDelivery }> {
+  const promptDelivery = resolveQuickCreationPromptDelivery(
+    args.workItemPromptDelivery,
+    args.draftPrompt
+  )
   // The verdict travels in the request as data and is re-entered once the worktree exists.
   const plannedRoute = args.agent
     ? planAgentSessionLaunch(useAppStore.getState(), {
@@ -142,13 +149,13 @@ export async function resolveQuickCreationAgentLaunchRoute(args: {
           repoId: args.repoId,
           executionHostId: args.workspaceExecutionHostId
         },
-        prompt: args.prompt,
-        promptDelivery: args.promptDelivery,
+        prompt: args.draftPrompt ?? args.quickPrompt,
+        promptDelivery,
         initialSessionOptions: args.initialSessionOptions
       }).route
     : 'terminal-tui'
   if (args.workItemPromptDelivery !== 'submit-after-ready') {
-    return plannedRoute
+    return { route: plannedRoute, promptDelivery }
   }
   const resolution = await prepareQuickWorkItemStartRoute({
     agent: args.agent,
@@ -167,7 +174,9 @@ export async function resolveQuickCreationAgentLaunchRoute(args: {
   if (!resolution.ok) {
     throw new Error(structuredWorkItemComposerPreflightUnavailableMessage())
   }
-  return resolution.route
+  // After the route check, so an unsupported agent keeps its own refusal; still before create.
+  refuseStrictStartWithoutPrompt(args.workItemPromptDelivery, args.quickPrompt)
+  return { route: resolution.route, promptDelivery }
 }
 
 /** An ephemeral VM is never a local execution host, so a strict Start on one is refused before
@@ -177,5 +186,30 @@ export function refuseStrictStartOnEphemeralVm(
 ): void {
   if (workItemPromptDelivery === 'submit-after-ready') {
     throw new Error(structuredWorkItemComposerPreflightUnavailableMessage())
+  }
+}
+
+export type QuickCreationPromptDelivery = 'draft' | 'auto-submit' | 'submit-after-ready'
+
+/** A strict Start delivers only after readiness under its scoped origin; `auto-submit` would miss
+ *  the strict guard and let a refused send requeue into the legacy outbox. */
+function resolveQuickCreationPromptDelivery(
+  workItemPromptDelivery: WorkItemStartPromptDelivery | undefined,
+  draftPrompt: string | null
+): QuickCreationPromptDelivery {
+  if (workItemPromptDelivery === 'submit-after-ready') {
+    return 'submit-after-ready'
+  }
+  return draftPrompt ? 'draft' : 'auto-submit'
+}
+
+/** A strict Start with nothing to submit has no delivery to prove, so it is refused before any
+ *  workspace exists instead of completing (or reconciling) on an empty send. */
+function refuseStrictStartWithoutPrompt(
+  workItemPromptDelivery: WorkItemStartPromptDelivery | undefined,
+  prompt: string
+): void {
+  if (workItemPromptDelivery === 'submit-after-ready' && !prompt.trim()) {
+    throw new Error(structuredWorkItemComposerEmptyPromptMessage())
   }
 }

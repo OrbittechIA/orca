@@ -46,6 +46,12 @@ export const structuredWorkItemComposerPreflightUnavailableMessage = (): string 
     'Submit after ready requires a local structured Codex or Claude session without a custom launch command. No workspace, terminal, or prompt was started.'
   )
 
+export const structuredWorkItemComposerEmptyPromptMessage = (): string =>
+  translate(
+    'auto.lib.launch.work.item.composer.structuredEmptyPrompt',
+    'Submit after ready needs a work item prompt to send. No workspace, terminal, or prompt was started.'
+  )
+
 export const structuredWorkItemPromptDeliveryFailedMessage = (): string =>
   translate(
     'auto.lib.launch.work.item.direct.structuredPromptDeliveryFailed',

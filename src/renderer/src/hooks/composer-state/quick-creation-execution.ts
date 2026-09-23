@@ -203,8 +203,7 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
         }
       }
 
-      const promptDelivery = quickDraftPrompt ? 'draft' : 'auto-submit'
-      const agentLaunchRoute = await quickWorkItemStartRoute.resolveQuickCreationAgentLaunchRoute({
+      const launch = await quickWorkItemStartRoute.resolveQuickCreationAgentLaunchRoute({
         agent,
         workItemPromptDelivery: workItemStartPromptDelivery,
         settings,
@@ -213,13 +212,14 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
         workspaceKind: selectedRepoIsGit ? 'git-worktree' : 'folder',
         launchText: quickPrompt,
         nativeChatTranscriptIsLocalReadable: !selectedRepoIsRemote,
-        prompt: quickDraftPrompt ?? quickPrompt,
-        promptDelivery,
+        quickPrompt,
+        draftPrompt: quickDraftPrompt,
         workspaceExecutionHostId: ephemeralVmRecipe
           ? 'runtime:pending-ephemeral-vm'
           : (workspaceRunContext?.hostId ?? selectedRepoExecutionHostId ?? undefined),
         initialSessionOptions: startupPlan?.sessionOptions
       })
+      const { route: agentLaunchRoute, promptDelivery } = launch
       const structuredLaunch = agentLaunchRoute === 'structured-native-chat'
 
       const request = buildQuickCreationRequest({

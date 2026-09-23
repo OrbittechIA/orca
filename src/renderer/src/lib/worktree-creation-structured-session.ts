@@ -69,7 +69,13 @@ export async function launchStructuredWorktreeSession(
     agent,
     ...(strict ? { launchOrigin: 'work-item-start' as const } : {}),
     prompt: args.request.launchDraftPrompt ?? args.request.quickPrompt,
-    ...(args.request.promptDelivery ? { promptDelivery: args.request.promptDelivery } : {}),
+    // Strict delivery is pinned here too: `auto-submit` would miss the strict send guard, and a
+    // refused send would requeue into the legacy outbox behind the Start.
+    ...(strict
+      ? { promptDelivery: 'submit-after-ready' as const }
+      : args.request.promptDelivery
+        ? { promptDelivery: args.request.promptDelivery }
+        : {}),
     ...(args.recover ? { recover: args.recover } : {})
   })
   const abandoned = new AbortController()

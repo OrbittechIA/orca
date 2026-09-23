@@ -184,6 +184,8 @@ describe('TaskPage composer work-item start delivery', () => {
         agent: 'codex',
         agentLaunchRoute: 'structured-native-chat',
         workItemStartPromptDelivery: 'submit-after-ready',
+        // `auto-submit` here would miss the strict send guard and requeue a refused prompt.
+        promptDelivery: 'submit-after-ready',
         quickPrompt: linkedIssue.url,
         linkedIssue: 58
       })
@@ -200,6 +202,7 @@ describe('TaskPage composer work-item start delivery', () => {
       expect.objectContaining({
         agentLaunchRoute: 'terminal-tui',
         workItemStartPromptDelivery: 'draft',
+        promptDelivery: 'draft',
         quickPrompt: '',
         launchDraftPrompt: linkedIssue.url
       })
@@ -224,11 +227,38 @@ describe('TaskPage composer work-item start delivery', () => {
     )
 
     expect(mocks.runBackgroundWorktreeCreation).toHaveBeenCalledWith(
-      expect.objectContaining({ agentLaunchRoute: 'terminal-tui' })
+      expect.objectContaining({ agentLaunchRoute: 'terminal-tui', promptDelivery: 'auto-submit' })
     )
     expect(mocks.runBackgroundWorktreeCreation.mock.calls[0]?.[0]).not.toHaveProperty(
       'workItemStartPromptDelivery'
     )
+  })
+
+  it('keeps a non-strict typed prompt on legacy auto-submit', async () => {
+    await execute(
+      executionInput(settingsWithDelivery('submit-after-ready'), {
+        ...preparedQuickSubmit(null),
+        trimmedNote: 'Fix the flaky test'
+      })
+    )
+
+    expect(mocks.runBackgroundWorktreeCreation).toHaveBeenCalledWith(
+      expect.objectContaining({ promptDelivery: 'auto-submit' })
+    )
+    expect(mocks.runBackgroundWorktreeCreation.mock.calls[0]?.[0]).not.toHaveProperty(
+      'workItemStartPromptDelivery'
+    )
+  })
+
+  it('refuses a strict Start with no prompt before any workspace, instead of queueing later', async () => {
+    const prepared = preparedQuickSubmit({ ...linkedIssue, url: '' })
+
+    await expect(
+      execute(executionInput(settingsWithDelivery('submit-after-ready'), prepared))
+    ).rejects.toThrow(
+      'Submit after ready needs a work item prompt to send. No workspace, terminal, or prompt was started.'
+    )
+    expect(mocks.runBackgroundWorktreeCreation).not.toHaveBeenCalled()
   })
 
   it('does not change an ordinary composer draft route', () => {

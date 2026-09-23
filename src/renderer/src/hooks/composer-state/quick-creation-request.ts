@@ -48,7 +48,7 @@ export type QuickCreationRequestInput = {
   startupPlan: AgentStartupPlan | null
   quickPrompt: string
   launchDraftPrompt: string | null | undefined
-  promptDelivery: 'draft' | 'auto-submit'
+  promptDelivery: 'draft' | 'auto-submit' | 'submit-after-ready'
   workItemStartPromptDelivery?: WorkItemStartPromptDelivery
   quickTelemetry: AgentStartedTelemetry | null
   suppressTerminalFocusOnCompletion: boolean

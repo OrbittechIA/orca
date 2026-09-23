@@ -112,7 +112,7 @@ export type WorktreeCreationRequest = {
   launchDraftPrompt?: string
   /** How a structured launch delivers `launchDraftPrompt ?? quickPrompt`; decided once by the
    *  composer beside `agentLaunchRoute`, never re-derived from the prompt fields. */
-  promptDelivery?: 'draft' | 'auto-submit'
+  promptDelivery?: 'draft' | 'auto-submit' | 'submit-after-ready'
   quickTelemetry: AgentStartedTelemetry | null
   /** When the composer stays open for sequential creates, completion must not
    *  steal focus from the next workspace name field. */
