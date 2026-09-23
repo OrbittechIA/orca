@@ -73,6 +73,12 @@ export class OrcaRuntimeWithResolveRecoveredStructuredTuiTranscript extends Orca
     return this.getStructuredAgentSessionCreateSupportForLocation(location, agent)
   }
 
+  /** The create-support verdict for a workspace a strict Work Item Start has not created yet. */
+  async getWorkItemStartPreCreateSupport(repoSelector: string, agent: 'claude' | 'codex') {
+    const location = await this.resolveWorkItemStartPreCreateLocation(repoSelector)
+    return this.getStructuredAgentSessionCreateSupportForLocation(location, agent)
+  }
+
   /**
    * The create target for a scoped Work Item Start, resolved the same way the support probe
    * resolves it.

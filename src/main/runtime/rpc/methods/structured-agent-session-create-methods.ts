@@ -30,6 +30,17 @@ export const STRUCTURED_AGENT_SESSION_CREATE_METHODS = [
     name: 'agentSession.createSupport',
     params: CreateSupportParams,
     handler: async (params, ctx) => {
+      if (params.repo !== undefined) {
+        // Pre-create: same scoped gate, then the source repo's own runtime, before any workspace.
+        if (!supportsWorkItemStartStructuredSessionCreate(ctx, params.launchOrigin)) {
+          throw new Error('structured_agent_session_unsupported')
+        }
+        return ctx.runtime.getWorkItemStartPreCreateSupport(params.repo, params.agent)
+      }
+      const worktree = params.worktree
+      if (worktree === undefined) {
+        throw new Error('Invalid worktree selector')
+      }
       // Sem `launchOrigin` o caminho é o da 1.4.201, intacto. Com ele, a admissão é a
       // estreita do Work Item Start: escopo resolvido no servidor, nunca asserido pelo
       // cliente, e uma sessão já existente só passa se este chamador puder alcançá-la.
@@ -54,7 +65,7 @@ export const STRUCTURED_AGENT_SESSION_CREATE_METHODS = [
         params.launchOrigin &&
         !reconcilesDurableSession &&
         supportsWorkItemStartStructuredSessionCreate(ctx, params.launchOrigin)
-          ? await resolveWorkItemStartStructuredCreateAuthority(ctx, params.worktree)
+          ? await resolveWorkItemStartStructuredCreateAuthority(ctx, worktree)
           : null
       const admitted = params.launchOrigin
         ? scopedAdmission !== null || reconcilesDurableSession
@@ -66,7 +77,7 @@ export const STRUCTURED_AGENT_SESSION_CREATE_METHODS = [
         return { supported: true }
       }
       return ctx.runtime.getStructuredAgentSessionCreateSupport(
-        scopedAdmission ? `id:${scopedAdmission.worktreeTarget.worktreeId}` : params.worktree,
+        scopedAdmission ? `id:${scopedAdmission.worktreeTarget.worktreeId}` : worktree,
         params.agent
       )
     }

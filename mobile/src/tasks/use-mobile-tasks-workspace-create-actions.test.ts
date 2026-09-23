@@ -6,6 +6,7 @@ import type { RpcResponse } from '../transport/types'
 import type { ActionableTaskItem } from './mobile-tasks-project-workspace-types'
 import type { WorkspaceSshStateModel } from './use-mobile-tasks-workspace-ssh-state'
 import { useMobileTasksWorkspaceCreateActions } from './use-mobile-tasks-workspace-create-actions'
+import { WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY } from '../../../src/shared/protocol-version'
 
 // Keep the real launch decisions while avoiding the native screen barrel in this hook test.
 vi.mock('./mobile-tasks-dependencies', async () => ({
@@ -55,7 +56,12 @@ afterEach(async () => {
 
 async function submit(
   settings: unknown,
-  options: { repo?: Record<string, unknown>; taps?: number } = {}
+  options: {
+    repo?: Record<string, unknown>
+    taps?: number
+    /** Admits the strict route and answers `agentSession.createSupport` with this. */
+    createSupport?: () => Promise<RpcResponse>
+  } = {}
 ) {
   const client = new FakeSession('connected')
   client.sendRequest.mockImplementation(async (method: string) => {
@@ -63,7 +69,15 @@ async function submit(
       return reply({ settings })
     }
     if (method === 'status.get') {
-      return reply({ capabilities: [], deviceScope: 'runtime' })
+      return reply({
+        capabilities: options.createSupport
+          ? [WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY]
+          : [],
+        deviceScope: 'runtime'
+      })
+    }
+    if (method === 'agentSession.createSupport' && options.createSupport) {
+      return options.createSupport()
     }
     if (method === 'worktree.create') {
       return reply({ worktree: { id: 'wt-1', displayName: 'Fix Start' } })
@@ -173,5 +187,87 @@ describe('Tasks strict Start before worktree.create', () => {
     expect(
       client.sendRequest.mock.calls.filter((call) => call[0] === 'worktree.create')
     ).toHaveLength(1)
+  })
+})
+
+describe('Tasks strict Start asks the host about the repo before worktree.create', () => {
+  const strict = { workItemStartPromptDelivery: 'submit-after-ready' }
+  const verdict = (result: unknown) => async () => reply(result)
+
+  function methods(client: FakeSession): unknown[] {
+    return client.sendRequest.mock.calls.map((call) => call[0])
+  }
+
+  it('continues into exactly one create for a supported local repo', async () => {
+    const { client } = await submit(strict, { createSupport: verdict({ supported: true }) })
+    expect(methods(client).slice(0, 4)).toEqual([
+      'settings.get',
+      'status.get',
+      'agentSession.createSupport',
+      'worktree.create'
+    ])
+    expect(client.sendRequest.mock.calls[2]?.[1]).toEqual({
+      repo: 'id:repo-1',
+      agent: 'codex',
+      launchOrigin: 'work-item-start'
+    })
+    expect(methods(client).filter((method) => method === 'worktree.create')).toHaveLength(1)
+  })
+
+  it.each([
+    ['a C:\\ repo the host runs in WSL', { path: 'C:\\src\\orca' }, 'wsl', 'inside WSL'],
+    ['a repo the host reports remote', {}, 'remote', 'remote execution host'],
+    ['an agent the host refuses here', {}, 'agent', 'for this agent']
+  ])('creates nothing for %s', async (_label, repo, reason, text) => {
+    const { client, model } = await submit(strict, {
+      repo,
+      createSupport: verdict({ supported: false, reason })
+    })
+    expect(methods(client)).toEqual(['settings.get', 'status.get', 'agentSession.createSupport'])
+    expect(model.setError).toHaveBeenLastCalledWith(expect.stringContaining(text))
+    expect(model.setError).not.toHaveBeenCalledWith(expect.stringContaining('without an agent'))
+    expect(model.resolveCreateSetupDecision).not.toHaveBeenCalled()
+    expect(model.router.push).not.toHaveBeenCalled()
+  })
+
+  it('refuses a WSL UNC repo with zero create', async () => {
+    const { client, model } = await submit(strict, {
+      repo: { path: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\orca' },
+      createSupport: verdict({ supported: false, reason: 'wsl' })
+    })
+    expect(methods(client)).not.toContain('worktree.create')
+    expect(model.setError).toHaveBeenLastCalledWith(expect.stringContaining('inside WSL'))
+  })
+
+  it.each([
+    [
+      'method_not_found',
+      async (): Promise<RpcResponse> => ({
+        id: 'rpc-1',
+        ok: false,
+        error: { code: 'method_not_found', message: 'Unknown method' },
+        _meta: { runtimeId: 'runtime-1' }
+      })
+    ],
+    [
+      'a dropped reply',
+      async (): Promise<RpcResponse> => {
+        throw new Error('socket closed')
+      }
+    ],
+    ['an unknown verdict', verdict({})]
+  ])('fails closed with zero create on %s', async (_label, createSupport) => {
+    const { client, model } = await submit(strict, { createSupport })
+    expect(methods(client)).toEqual(['settings.get', 'status.get', 'agentSession.createSupport'])
+    expect(model.setError).toHaveBeenLastCalledWith(expect.stringContaining('Nothing was created'))
+    expect(model.router.push).not.toHaveBeenCalled()
+  })
+
+  it('keeps draft mode on the legacy create without the repo probe', async () => {
+    const { client } = await submit(
+      { workItemStartPromptDelivery: 'draft' },
+      { createSupport: verdict({ supported: false, reason: 'wsl' }) }
+    )
+    expect(methods(client)).toEqual(['settings.get', 'worktree.create'])
   })
 })

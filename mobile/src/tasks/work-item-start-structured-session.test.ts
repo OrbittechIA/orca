@@ -111,7 +111,7 @@ function taskCreateParams(structuredStart: boolean): Record<string, unknown> {
 
 const SEND_JOURNAL_KEY = 'orca:mobileStructuredSendOperations:v1'
 const ATTEMPT_JOURNAL_KEY = 'orca:mobileWorkItemStartAttempts:v1'
-const LOCAL_REPO = { path: '/repos/orca', connectionId: null }
+const LOCAL_REPO = { id: 'repo-1', path: '/repos/orca', connectionId: null }
 
 /** The params of one RPC call as a record; an unexpected shape reads as empty, never as a cast. */
 function paramsOf(params: unknown): Record<string, unknown> {
@@ -391,13 +391,16 @@ describe('work item start route is decided before anything is created', () => {
   })
 
   it('is structured only when the host admits a runtime-scoped pairing with the capability', async () => {
-    const client = clientReturning({
-      ok: true,
-      result: {
-        capabilities: [WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY],
-        deviceScope: 'runtime'
-      }
-    })
+    const client = clientReturning(
+      {
+        ok: true,
+        result: {
+          capabilities: [WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY],
+          deviceScope: 'runtime'
+        }
+      },
+      SUPPORTED
+    )
     await expect(
       resolveWorkItemStartRoute({ client, settings: strict, agent: 'codex', repo: LOCAL_REPO })
     ).resolves.toEqual({
@@ -696,13 +699,21 @@ describe('strict Start refuses an unsupported execution host before anything is 
   const strict = { workItemStartPromptDelivery: 'submit-after-ready' as const }
 
   it.each([
-    ['an SSH repo', { path: '/srv/orca', connectionId: 'ssh-1' }, 'remote execution host'],
     [
-      'a runtime-hosted repo',
-      { path: '/srv/orca', executionHostId: 'runtime:environment-1' },
+      'an SSH repo',
+      { id: 'repo-1', path: '/srv/orca', connectionId: 'ssh-1' },
       'remote execution host'
     ],
-    ['a WSL checkout', { path: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\orca' }, 'inside WSL']
+    [
+      'a runtime-hosted repo',
+      { id: 'repo-1', path: '/srv/orca', executionHostId: 'runtime:environment-1' },
+      'remote execution host'
+    ],
+    [
+      'a WSL checkout',
+      { id: 'repo-1', path: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\orca' },
+      'inside WSL'
+    ]
   ])('refuses %s without asking the host anything', async (_label, repo, reason) => {
     const client = clientReturning()
     await expect(
@@ -720,8 +731,8 @@ describe('strict Start refuses an unsupported execution host before anything is 
       await import('../../../src/shared/structured-native-chat-launch-route')
     const { getRepoExecutionHostId } = await import('../../../src/shared/execution-host')
     for (const repo of [
-      { path: '/srv/orca', connectionId: 'ssh-1' },
-      { path: '/srv/orca', executionHostId: 'runtime:environment-1' }
+      { id: 'repo-1', path: '/srv/orca', connectionId: 'ssh-1' },
+      { id: 'repo-1', path: '/srv/orca', executionHostId: 'runtime:environment-1' }
     ]) {
       const desktop = resolveStructuredNativeChatSupport({
         agent: 'codex',

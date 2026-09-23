@@ -64,7 +64,11 @@ function routedClient(byMethod: Record<string, unknown[]>): RpcClient & {
     }
     const index = cursors[method] ?? 0
     cursors[method] = index + 1
-    return queue[Math.min(index, queue.length - 1)]
+    const next = queue[Math.min(index, queue.length - 1)]
+    if (next instanceof Error) {
+      throw next
+    }
+    return next
   })
   return { sendRequest } as unknown as RpcClient & { sendRequest: ReturnType<typeof vi.fn> }
 }
@@ -84,7 +88,7 @@ function composerArgs(client: RpcClient, delivery: 'draft' | 'submit-after-ready
       }
     },
     targetRepoId: 'repo-1',
-    targetRepo: { path: '/repos/orca', connectionId: null },
+    targetRepo: { id: 'repo-1', path: '/repos/orca', connectionId: null },
     setupDecision: 'run' as const,
     agent: { choice: 'codex' as const },
     workspaceName: undefined,
@@ -98,6 +102,21 @@ function composerArgs(client: RpcClient, delivery: 'draft' | 'submit-after-ready
 function paramsOf(method: string, client: { sendRequest: ReturnType<typeof vi.fn> }) {
   const params: unknown = client.sendRequest.mock.calls.find((entry) => entry[0] === method)?.[1]
   return isUnknownRecord(params) ? params : {}
+}
+
+/** The post-create probes; the pre-create one names the repo and carries no session. */
+function sessionProbeParams(client: {
+  sendRequest: ReturnType<typeof vi.fn>
+}): Record<string, unknown>[] {
+  return client.sendRequest.mock.calls
+    .filter((entry) => entry[0] === 'agentSession.createSupport')
+    .map((entry): unknown => entry[1])
+    .filter(isUnknownRecord)
+    .filter((params) => params.repo === undefined)
+}
+
+function methodsOf(client: { sendRequest: ReturnType<typeof vi.fn> }): unknown[] {
+  return client.sendRequest.mock.calls.map((entry) => entry[0])
 }
 
 function createParams(client: { sendRequest: ReturnType<typeof vi.fn> }): Record<string, unknown> {
@@ -174,7 +193,11 @@ describe('composer work item Start', () => {
     const client = routedClient({
       'status.get': [ADMITTED_STATUS],
       'worktree.create': [CREATED],
-      'agentSession.createSupport': [{ ok: true, result: { supported: false, reason: 'wsl' } }]
+      // Supported before create, then WSL once the workspace exists: the post-create verdict still wins.
+      'agentSession.createSupport': [
+        SUPPORTED,
+        { ok: true, result: { supported: false, reason: 'wsl' } }
+      ]
     })
 
     const result = await createWorkspaceFromComposerSource(
@@ -189,8 +212,8 @@ describe('composer work item Start', () => {
   })
 
   it.each([
-    ['an SSH repo', { path: '/srv/orca', connectionId: 'ssh-1' }],
-    ['a WSL checkout', { path: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\orca' }]
+    ['an SSH repo', { id: 'repo-1', path: '/srv/orca', connectionId: 'ssh-1' }],
+    ['a WSL checkout', { id: 'repo-1', path: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\orca' }]
   ])('refuses %s before worktree.create with zero side effects', async (_label, targetRepo) => {
     const client = routedClient({ 'status.get': [ADMITTED_STATUS], 'worktree.create': [CREATED] })
 
@@ -208,14 +231,14 @@ describe('composer work item Start', () => {
     const client = routedClient({
       'status.get': [ADMITTED_STATUS],
       'worktree.create': [CREATED],
-      'agentSession.createSupport': [lost]
+      'agentSession.createSupport': [SUPPORTED, lost]
     })
 
     const result = await createWorkspaceFromComposerSource(
       composerArgs(client, 'submit-after-ready')
     )
     expect(result).toMatchObject({ worktreeId: 'wt-1' })
-    const firstSessionId = paramsOf('agentSession.createSupport', client).sessionId
+    const firstSessionId = sessionProbeParams(client)[0]?.sessionId
 
     client.sendRequest.mockImplementation(async (method: string, params: unknown) => {
       if (method === 'agentSession.createSupport') {
@@ -240,6 +263,7 @@ describe('composer work item Start', () => {
     const sessionIds = new Set(
       client.sendRequest.mock.calls
         .filter((entry) => String(entry[0]).startsWith('agentSession.create'))
+        .filter((entry) => !isUnknownRecord(entry[1]) || entry[1].repo === undefined)
         .map((entry) => {
           const params: unknown = entry[1]
           if (!isUnknownRecord(params)) {
@@ -249,6 +273,90 @@ describe('composer work item Start', () => {
         })
     )
     expect(sessionIds).toEqual(new Set([firstSessionId]))
+  })
+})
+
+describe('composer strict Start asks the host about the repo before worktree.create', () => {
+  it('continues into exactly one create when the host supports the repo', async () => {
+    const client = routedClient({
+      'status.get': [ADMITTED_STATUS],
+      'worktree.create': [CREATED],
+      'agentSession.createSupport': [SUPPORTED],
+      'agentSession.create': [sessionCreated()],
+      'agentSession.send': [ACCEPTED_SEND]
+    })
+
+    await expect(
+      createWorkspaceFromComposerSource(composerArgs(client, 'submit-after-ready'))
+    ).resolves.toEqual({ worktreeId: 'wt-1', name: 'Caderno' })
+
+    const methods = methodsOf(client)
+    expect(methods.slice(0, 3)).toEqual([
+      'status.get',
+      'agentSession.createSupport',
+      'worktree.create'
+    ])
+    expect(methods.filter((method) => method === 'worktree.create')).toHaveLength(1)
+    expect(paramsOf('agentSession.createSupport', client)).toEqual({
+      repo: 'id:repo-1',
+      agent: 'codex',
+      launchOrigin: 'work-item-start'
+    })
+  })
+
+  it.each([
+    ['a C:\\ repo whose project runs in WSL', 'C:\\src\\orca', 'wsl', 'inside WSL'],
+    ['a repo the host reports remote', '/repos/orca', 'remote', 'remote execution host'],
+    ['an agent the host cannot open here', '/repos/orca', 'agent', 'for this agent']
+  ])('creates nothing for %s', async (_label, path, reason, text) => {
+    const client = routedClient({
+      'status.get': [ADMITTED_STATUS],
+      'worktree.create': [CREATED],
+      'agentSession.createSupport': [{ ok: true, result: { supported: false, reason } }]
+    })
+
+    const result = await createWorkspaceFromComposerSource({
+      ...composerArgs(client, 'submit-after-ready'),
+      targetRepo: { id: 'repo-1', path, connectionId: null }
+    })
+
+    expect(result).toMatchObject({ error: expect.stringContaining(text) })
+    expect('error' in result && result.error).toContain('Nothing was created')
+    expect('error' in result && result.error).not.toContain('without an agent')
+    expect(methodsOf(client)).toEqual(['status.get', 'agentSession.createSupport'])
+  })
+
+  it.each([
+    ['an older host without the method', { ok: false, error: { code: 'method_not_found' } }],
+    ['an older host rejecting the repo params', { ok: false, error: { code: 'invalid_argument' } }],
+    ['a dropped reply', new Error('socket closed')],
+    ['an empty reply', undefined],
+    ['a reply without a verdict', { ok: true, result: {} }],
+    ['a verdict of unknown shape', { ok: true, result: { supported: 'maybe' } }]
+  ])('fails closed with zero create against %s', async (_label, reply) => {
+    const client = routedClient({
+      'status.get': [ADMITTED_STATUS],
+      'worktree.create': [CREATED],
+      'agentSession.createSupport': [reply]
+    })
+
+    const result = await createWorkspaceFromComposerSource(
+      composerArgs(client, 'submit-after-ready')
+    )
+
+    expect(result).toMatchObject({ error: expect.stringContaining('Nothing was created') })
+    expect(methodsOf(client)).toEqual(['status.get', 'agentSession.createSupport'])
+  })
+
+  it('leaves draft mode on the legacy create with no repo probe', async () => {
+    const client = routedClient({ 'worktree.create': [CREATED] })
+
+    await expect(createWorkspaceFromComposerSource(composerArgs(client, 'draft'))).resolves.toEqual(
+      { worktreeId: 'wt-1', name: 'Caderno' }
+    )
+
+    expect(methodsOf(client)).toEqual(['worktree.create'])
+    expect(createParams(client).startupDraft).toBe(ISSUE_URL)
   })
 })
 

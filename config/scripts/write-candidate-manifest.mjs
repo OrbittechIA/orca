@@ -14,7 +14,6 @@ const KIND_BY_EXTENSION = new Map([
 
 const PLATFORM_BY_KIND = new Map([
   ['nsis', 'windows'],
-  ['zip', 'windows'],
   ['appimage', 'linux'],
   ['deb', 'linux'],
   ['rpm', 'linux'],
@@ -34,6 +33,35 @@ function archOf(name) {
     return 'ia32'
   }
   return 'x64'
+}
+
+// Both mac (`Orca-<v>[-arm64]-mac.zip`) and windows can emit zips; only an explicit name says which.
+const ZIP_PLATFORMS = ['macos', 'windows']
+const ZIP_PLATFORM_BY_NAME = [
+  ['macos', /(?:^|[-_.])(?:mac|macos|darwin)(?:[-_.]|$)/],
+  ['windows', /(?:^|[-_.])(?:win|windows|win32)(?:[-_.]|$)/]
+]
+
+/** A zip binds to the platform its name states, else to the one platform whose afterPack sidecar
+ *  for that arch exists. Anything else is ambiguous and refused rather than guessed. */
+function zipPlatformOf(distDir, name, arch) {
+  const lower = name.toLowerCase()
+  const named = ZIP_PLATFORM_BY_NAME.filter(([, pattern]) => pattern.test(lower)).map(([p]) => p)
+  if (named.length === 1) {
+    return named[0]
+  }
+  if (named.length > 1) {
+    throw new Error(`${name} names more than one platform: refusing to guess which app it ships`)
+  }
+  const packaged = ZIP_PLATFORMS.filter((platform) =>
+    existsSync(join(distDir, appContentSidecarName(platform, arch)))
+  )
+  if (packaged.length !== 1) {
+    throw new Error(
+      `${name} does not name its platform and ${packaged.length === 0 ? 'no' : 'more than one'} ${arch} app-content sidecar (${ZIP_PLATFORMS.map((p) => appContentSidecarName(p, arch)).join(', ')}) matches: refusing to guess which app it ships`
+    )
+  }
+  return packaged[0]
 }
 
 const PLATFORM_BY_ELECTRON = new Map([
@@ -91,8 +119,9 @@ export function buildCandidateManifest({ distDir, provenanceLiteral, requireAppC
     .map((name) => {
       const kind = KIND_BY_EXTENSION.get(name.slice(name.lastIndexOf('.')).toLowerCase())
       const path = join(distDir, name)
-      const platform = PLATFORM_BY_KIND.get(kind)
       const arch = archOf(name)
+      const platform =
+        kind === 'zip' ? zipPlatformOf(distDir, name, arch) : PLATFORM_BY_KIND.get(kind)
       const appContent = readAppContent(distDir, platform, arch)
       // Fail closed: without it the evidence could bind only the Electron executable, which every
       // Orca build on the same Electron version shares.

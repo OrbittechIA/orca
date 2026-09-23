@@ -4,7 +4,11 @@ import { structuredAgentSessionSendBody } from '../../../src/shared/structured-a
 import type { TuiAgent } from '../../../src/shared/tui-agent'
 import { resolveWorkItemStartPromptDelivery } from '../../../src/shared/agent-session-options'
 import { workItemStartExecutionHostRefusal } from '../../../src/shared/work-item-start-execution-host'
-import { createMobileStructuredAgentSession } from '../session/mobile-structured-agent-session-launch'
+import {
+  createMobileStructuredAgentSession,
+  STRUCTURED_SUPPORT_PROBE_TIMEOUT_MS
+} from '../session/mobile-structured-agent-session-launch'
+import { structuredAgentSupportProbe } from '../session/mobile-session-launch-operations'
 import { createStructuredAgentSessionId } from '../../../src/shared/structured-agent-session-create'
 import {
   clearWorkItemStartAttempt,
@@ -122,14 +126,67 @@ export const WORK_ITEM_START_ROUTE_MESSAGES = {
     'Work Item Start is set to submit after ready, but this host did not answer whether it admits the structured session. Nothing was created. Check the connection and try again.',
   remote:
     'Work Item Start is set to submit after ready, but this repository runs on a remote execution host, where the structured session is not supported. Nothing was created; no terminal was started in its place.',
-  wsl: 'Work Item Start is set to submit after ready, but this repository runs inside WSL, where the structured session is not supported. Nothing was created; no terminal was started in its place.'
+  wsl: 'Work Item Start is set to submit after ready, but this repository runs inside WSL, where the structured session is not supported. Nothing was created; no terminal was started in its place.',
+  agent:
+    'Work Item Start is set to submit after ready, but this host cannot open a structured session for this agent in this repository. Nothing was created; no terminal was started in its place.',
+  repoRefused:
+    'Work Item Start is set to submit after ready, but this host could not confirm this repository can run the structured session (an older host, or a project runtime that needs repair). Nothing was created; no terminal was started in its place.',
+  repoUnknown:
+    'Work Item Start is set to submit after ready, but this host did not answer whether this repository can run the structured session. Nothing was created. Check the connection and try again.'
 } as const
 
 /** The repo row the workspace would be created from; its execution host is checked pre-create. */
 export type WorkItemStartRepo = {
+  id: string
   path: string
   connectionId?: string | null
   executionHostId?: string | null
+}
+
+/**
+ * The host's create-support verdict for the repo, asked BEFORE `worktree.create`. Only the host
+ * knows the runtime the workspace will run in: a `C:\` repo whose project is set to WSL looks
+ * native from here. A host without the repo probe rejects its params, which refuses the Start.
+ */
+async function resolveWorkItemStartRepoSupport(
+  client: RpcClient,
+  repo: WorkItemStartRepo,
+  agent: 'claude' | 'codex'
+): Promise<WorkItemStartRoute> {
+  let reply
+  try {
+    reply = await structuredAgentSupportProbe.request(
+      client,
+      { repo: `id:${repo.id}`, agent, launchOrigin: 'work-item-start' },
+      { timeoutMs: STRUCTURED_SUPPORT_PROBE_TIMEOUT_MS }
+    )
+  } catch {
+    return { kind: 'unknown', message: WORK_ITEM_START_ROUTE_MESSAGES.repoUnknown }
+  }
+  if (!reply || typeof reply !== 'object' || typeof reply.ok !== 'boolean') {
+    return { kind: 'unknown', message: WORK_ITEM_START_ROUTE_MESSAGES.repoUnknown }
+  }
+  if (!reply.ok) {
+    return { kind: 'refused', message: WORK_ITEM_START_ROUTE_MESSAGES.repoRefused }
+  }
+  const result: unknown = reply.result
+  if (!result || typeof result !== 'object' || !('supported' in result)) {
+    return { kind: 'unknown', message: WORK_ITEM_START_ROUTE_MESSAGES.repoUnknown }
+  }
+  if (result.supported === true) {
+    return { kind: 'structured' }
+  }
+  if (result.supported !== false) {
+    return { kind: 'unknown', message: WORK_ITEM_START_ROUTE_MESSAGES.repoUnknown }
+  }
+  const reason = 'reason' in result ? result.reason : undefined
+  return {
+    kind: 'refused',
+    message:
+      reason === 'remote' || reason === 'wsl' || reason === 'agent'
+        ? WORK_ITEM_START_ROUTE_MESSAGES[reason]
+        : WORK_ITEM_START_ROUTE_MESSAGES.repoRefused
+  }
 }
 
 /**
@@ -159,9 +216,13 @@ export async function resolveWorkItemStartRoute(args: {
   if (admission === null) {
     return { kind: 'unknown', message: WORK_ITEM_START_ROUTE_MESSAGES.unknown }
   }
-  return workItemStartHostAdmitsStructuredSession(admission)
-    ? { kind: 'structured' }
-    : { kind: 'refused', message: WORK_ITEM_START_ROUTE_MESSAGES.refused }
+  if (!workItemStartHostAdmitsStructuredSession(admission)) {
+    return { kind: 'refused', message: WORK_ITEM_START_ROUTE_MESSAGES.refused }
+  }
+  // An agent without a structured session is refused by the callers, never probed.
+  return isAgentSessionHandleProvider(args.agent)
+    ? resolveWorkItemStartRepoSupport(args.client, args.repo, args.agent)
+    : { kind: 'structured' }
 }
 
 /** Kept for callers that only need the admitted case; a strict Start must read the route. */

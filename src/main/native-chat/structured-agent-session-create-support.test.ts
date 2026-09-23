@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentSessionExecutionLocation } from '../../shared/agent-session-record'
 import type { ClaudeManagedAccountGateSettings } from './claude-structured-managed-account-support'
-import { resolveStructuredAgentSessionCreateSupport } from './structured-agent-session-create-support'
+import type { Repo } from '../../shared/repo-types'
+import { supportsCodexStructuredLocation } from '../codex/codex-structured-location-support'
+import {
+  resolveStructuredAgentSessionCreateSupport,
+  workItemStartPreCreateLocation
+} from './structured-agent-session-create-support'
 
 const LOCAL: AgentSessionExecutionLocation = {
   executionHostId: 'local',
@@ -79,5 +84,75 @@ describe('resolveStructuredAgentSessionCreateSupport', () => {
       supported: false,
       reason
     })
+  })
+})
+
+describe('workItemStartPreCreateLocation', () => {
+  const repo = (overrides: Partial<Repo>): Repo => ({
+    id: 'repo-1',
+    path: '/repos/orca',
+    displayName: 'orca',
+    badgeColor: '#000',
+    addedAt: 0,
+    ...overrides
+  })
+
+  function verdict(source: Repo, configuredWslDistro: string | null) {
+    const location = workItemStartPreCreateLocation({
+      repo: source,
+      configuredWslDistro: () => configuredWslDistro
+    })
+    return resolveStructuredAgentSessionCreateSupport({
+      agent: 'codex',
+      location,
+      adapterSupportsCreate: supportsCodexStructuredLocation(location),
+      getSettings: () => HOST_SELECTED
+    })
+  }
+
+  it('supports a native local repo', () => {
+    expect(verdict(repo({}), null)).toEqual({ supported: true })
+  })
+
+  it('refuses a C:\\ repo whose project runtime is WSL', () => {
+    expect(verdict(repo({ path: 'C:\\src\\orca' }), 'Ubuntu')).toEqual({
+      supported: false,
+      reason: 'wsl'
+    })
+  })
+
+  it('refuses a WSL UNC repo without a configured runtime', () => {
+    expect(verdict(repo({ path: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\orca' }), null)).toEqual({
+      supported: false,
+      reason: 'wsl'
+    })
+  })
+
+  it('refuses a remote repo without reading the local project runtime', () => {
+    const configuredWslDistro = () => {
+      throw new Error('local runtime must not be read for a remote repo')
+    }
+    const location = workItemStartPreCreateLocation({
+      repo: repo({ connectionId: 'ssh-1' }),
+      configuredWslDistro
+    })
+    expect(location).toMatchObject({ wslDistro: null })
+    expect(
+      resolveStructuredAgentSessionCreateSupport({
+        agent: 'codex',
+        location,
+        adapterSupportsCreate: supportsCodexStructuredLocation(location),
+        getSettings: () => HOST_SELECTED
+      })
+    ).toEqual({ supported: false, reason: 'remote' })
+  })
+
+  it('keeps folder repos as folder workspaces', () => {
+    expect(
+      workItemStartPreCreateLocation({
+        repo: repo({ kind: 'folder' }),
+        configuredWslDistro: () => null
+      })
+    ).toMatchObject({ workspaceKind: 'folder', executionHostId: 'local' })
   })
 })
