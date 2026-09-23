@@ -4,6 +4,7 @@ import { isRpcDeliveryUnknown } from '../transport/rpc-delivery-ambiguity'
 import { isLogicalClientCutoverError } from '../transport/stable-logical-rpc-client'
 import { nativeChatTerminalWrite } from './mobile-session-write-operations'
 import { typeAgentTuiCommand } from '../../../src/shared/agent-tui-command-typing'
+import { MOBILE_NATIVE_CHAT_MIN_WRITE_TIMEOUT_MS } from './mobile-native-chat-write-timeout'
 
 /** What a native-chat write takes, named from an operation so no module names the raw port. */
 export type MobileNativeChatRpcSender = Parameters<typeof nativeChatTerminalWrite.request>[0]
@@ -35,7 +36,7 @@ export type MobileNativeChatSendOutcome = 'accepted' | 'rejected' | 'unknown'
  *  the composer holds `sending` (send arrow dimmed, no error) for as long as it
  *  pends. Chat writes are interactive: fail them so the user can retry. */
 export const MOBILE_NATIVE_CHAT_SEND_TIMEOUT_MS = 15_000
-export const MOBILE_NATIVE_CHAT_MIN_WRITE_TIMEOUT_MS = 2_000
+export { MOBILE_NATIVE_CHAT_MIN_WRITE_TIMEOUT_MS }
 
 /** Opens a budget for one user action. Multi-write actions (heal → paste → text, a
  *  paced selector answer) must share one so the composer's `sending` window stays

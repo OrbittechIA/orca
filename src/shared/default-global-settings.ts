@@ -16,6 +16,7 @@ import {
 } from './left-sidebar-appearance'
 import { DEFAULT_SOURCE_CONTROL_GROUP_ORDER } from './source-control-group-order'
 import { DESKTOP_TERMINAL_SCROLLBACK_ROWS_DEFAULT } from './terminal-scrollback-policy'
+import { DEFAULT_WORK_ITEM_START_PROMPT_DELIVERY } from './agent-session-options'
 
 export function buildDefaultSettings(args: {
   workspaceDir: string
@@ -201,6 +202,7 @@ export function buildDefaultSettings(args: {
     skipDeleteArtifactConfirm: false,
     skipCodexRateLimitResetConfirm: false,
     defaultTaskViewPreset: 'all',
+    workItemStartPromptDelivery: DEFAULT_WORK_ITEM_START_PROMPT_DELIVERY,
     defaultTaskSource: 'github',
     visibleTaskProviders: [...TASK_PROVIDERS],
     visibleTaskProvidersDefaultedForJira: true,

@@ -11,6 +11,7 @@ import {
   getInitialWorktreeCreationPhase,
   getWorktreeCreationIndeterminate
 } from '@/lib/worktree-creation-flow-startup'
+import { retryStructuredWorktreeLaunch } from '@/lib/worktree-creation-structured-recovery'
 import {
   formatWorkspaceCreateError,
   getWorkspaceCreateErrorToastMessage
@@ -128,11 +129,21 @@ export function continueBackgroundWorktreeCreation(
   return true
 }
 
+/** Reconciliações em voo: um segundo clique não pode abrir um segundo writer. */
+const reconcilingStructuredCreations = new Set<string>()
+
 /** Re-run a failed creation from its panel, reusing the captured request. */
 export function retryBackgroundWorktreeCreation(creationId: string): void {
   const store = useAppStore.getState()
   const entry = store.pendingWorktreeCreations[creationId]
   if (!entry) {
+    return
+  }
+  // Uma recusa definitiva de entrega mantém workspace e sessão: reenviar duplicaria a mensagem.
+  if (entry.structuredLaunchRetryDisabled) {
+    return
+  }
+  if (entry.structuredLaunchRecoveryWorktreeId && reconcilingStructuredCreations.has(creationId)) {
     return
   }
   store.updatePendingWorktreeCreation(creationId, {
@@ -148,5 +159,15 @@ export function retryBackgroundWorktreeCreation(creationId: string): void {
   store.setActivePendingWorktreeCreation(creationId)
   store.setActiveView('terminal')
   store.setSidebarOpen(true)
+  if (entry.structuredLaunchRecoveryWorktreeId) {
+    reconcilingStructuredCreations.add(creationId)
+    void retryStructuredWorktreeLaunch(
+      creationId,
+      entry.request,
+      entry.structuredLaunchRecoveryWorktreeId,
+      entry.structuredLaunchRecoveryIntent
+    ).finally(() => reconcilingStructuredCreations.delete(creationId))
+    return
+  }
   startWorktreeCreation(creationId, entry.request)
 }

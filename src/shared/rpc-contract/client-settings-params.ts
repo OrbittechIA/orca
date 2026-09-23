@@ -106,6 +106,8 @@ export const SettingsUpdate = z
       .enum(['issues', 'my-issues', 'prs', 'my-prs', 'review', 'all'])
       .optional(),
     experimentalNewWorktreeCardStyle: z.boolean().optional(),
+    // Optional so clients that omit it stay unchanged; an unknown value is refused, not dropped.
+    workItemStartPromptDelivery: z.enum(['draft', 'submit-after-ready']).optional(),
     agentStatusHooksEnabled: z.boolean().optional(),
     defaultRepoSelection: z.array(z.string()).nullable().optional(),
     defaultLinearTeamSelection: z.array(z.string()).nullable().optional(),

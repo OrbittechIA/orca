@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { CircleCheck, Copy, MessageSquarePlus, Pencil, Send, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -54,15 +54,17 @@ export function BrowserPageAnnotationTray({
   const [editComment, setEditComment] = useState('')
   const [editIntent, setEditIntent] = useState<BrowserAnnotationIntent>('change')
 
-  // Why: a delete or clear while a row is mid-edit must not leave edit state pointing at nothing.
-  useEffect(() => {
-    if (
-      editingAnnotationId &&
-      !browserAnnotations.some((annotation) => annotation.id === editingAnnotationId)
-    ) {
-      setEditingAnnotationId(null)
-    }
-  }, [browserAnnotations, editingAnnotationId])
+  // Why derived rather than cleared in an effect: the edit row only ever renders inside the map
+  // below, so a removed annotation never had a row to strand — the old effect was correcting a
+  // desync between stored state and the prop, not a visible frame. Deriving removes the desync
+  // itself, which is also what `no-adjust-state-on-prop-change` is asking for. The stored id is
+  // still cleared, by the handlers below rather than by an effect, because that is the one thing
+  // derivation does not do: without it a later annotation reusing the same id would reopen the
+  // editor.
+  const editingAnnotation =
+    editingAnnotationId === null
+      ? null
+      : (browserAnnotations.find((annotation) => annotation.id === editingAnnotationId) ?? null)
 
   const handleStartEdit = (annotation: BrowserPageAnnotation): void => {
     setEditingAnnotationId(annotation.id)
@@ -76,11 +78,23 @@ export function BrowserPageAnnotationTray({
 
   const handleSaveEdit = (): void => {
     const trimmed = editComment.trim()
-    if (!trimmed || !editingAnnotationId) {
+    if (!trimmed || !editingAnnotation) {
       return
     }
-    handleUpdateBrowserAnnotation(editingAnnotationId, trimmed, editIntent)
+    handleUpdateBrowserAnnotation(editingAnnotation.id, trimmed, editIntent)
     setEditingAnnotationId(null)
+  }
+
+  const handleClearAnnotations = (): void => {
+    setEditingAnnotationId(null)
+    handleClearBrowserAnnotations()
+  }
+
+  const handleDeleteAnnotation = (annotationId: string): void => {
+    if (annotationId === editingAnnotationId) {
+      setEditingAnnotationId(null)
+    }
+    handleDeleteBrowserAnnotation(annotationId)
   }
 
   return (
@@ -156,7 +170,7 @@ export function BrowserPageAnnotationTray({
               size="icon-xs"
               variant="ghost"
               className="text-muted-foreground hover:text-foreground"
-              onClick={handleClearBrowserAnnotations}
+              onClick={handleClearAnnotations}
               aria-label={translate(
                 'auto.components.browser.pane.BrowserPane.734e4343ec',
                 'Clear browser annotations'
@@ -172,7 +186,7 @@ export function BrowserPageAnnotationTray({
       </div>
       <div className="scrollbar-sleek min-h-0 flex-1 overflow-auto p-1.5">
         {browserAnnotations.map((annotation, index) => {
-          const isEditing = annotation.id === editingAnnotationId
+          const isEditing = annotation.id === editingAnnotation?.id
           return (
             <div
               key={annotation.id}
@@ -291,7 +305,7 @@ export function BrowserPageAnnotationTray({
                       size="icon-xs"
                       variant="ghost"
                       className="can-hover:opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 group-focus-within:opacity-100"
-                      onClick={() => handleDeleteBrowserAnnotation(annotation.id)}
+                      onClick={() => handleDeleteAnnotation(annotation.id)}
                       aria-label={translate(
                         'auto.components.browser.pane.BrowserPane.f2d0c22d67',
                         'Delete annotation {{value0}}',

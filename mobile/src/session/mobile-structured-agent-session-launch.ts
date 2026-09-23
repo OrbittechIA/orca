@@ -31,21 +31,49 @@ function delay(ms: number): Promise<void> {
 }
 
 export type MobileStructuredAgentLaunchResult =
-  | { kind: 'created'; sessionId: string }
-  | { kind: 'unsupported'; reason?: StructuredCreateSupport['reason'] }
+  /** `fence` only when the host returned one; delivery must name the create's fence. */
+  | { kind: 'created'; sessionId: string; fence?: number }
+  /**
+   * `probeFailed` separates "the host refused" from "the host did not answer"; without it a lost
+   * round trip reads as policy and a session that may exist is never reconciled.
+   */
+  | { kind: 'unsupported'; reason?: StructuredCreateSupport['reason']; probeFailed?: true }
   | { kind: 'failed'; message: string }
   | { kind: 'unknown'; message: string }
 
+export type MobileStructuredAgentLaunchOptions = {
+  launchOrigin?: 'work-item-start'
+  /** A retry's recorded identity: reused so the host replays one create, never admits a second. */
+  identity?: { sessionId: string; createClientOperationId: string }
+}
+
+/** A host that does not answer the probe in this window never refused; the caller reconciles. */
+export const STRUCTURED_SUPPORT_PROBE_TIMEOUT_MS = 10_000
+
 function createParamsFor(
   agent: AgentSessionHandleProvider,
-  worktree: string
+  worktree: string,
+  sessionId: string,
+  options: MobileStructuredAgentLaunchOptions
 ): StructuredAgentSessionCreateParams {
-  return structuredAgentSessionCreateParams({
-    sessionId: createStructuredAgentSessionId(agent, structuredSessionRandomUuid),
+  const params = structuredAgentSessionCreateParams({
+    sessionId,
     worktree,
     agent,
+    ...(options.launchOrigin ? { launchOrigin: options.launchOrigin } : {}),
     randomUuid: structuredSessionRandomUuid
   })
+  // The fingerprint covers session id and fields, not the operation id, so the recorded id
+  // rebuilds the exact envelope the first attempt sent.
+  return options.identity
+    ? {
+        ...params,
+        envelope: {
+          ...params.envelope,
+          clientOperationId: options.identity.createClientOperationId
+        }
+      }
+    : params
 }
 
 function unknownCreateResult(
@@ -80,20 +108,35 @@ function classifyCreateRefusal(
 export async function createMobileStructuredAgentSession(
   client: RpcClient,
   worktreeId: string,
-  agent: AgentSessionHandleProvider
+  agent: AgentSessionHandleProvider,
+  options: MobileStructuredAgentLaunchOptions = {}
 ): Promise<MobileStructuredAgentLaunchResult> {
   const worktree = `id:${worktreeId}`
+  // One id for probe and create: the scoped route admits the session the probe named, and a
+  // second id would have the host admit one and receive another.
+  const sessionId =
+    options.identity?.sessionId ??
+    createStructuredAgentSessionId(agent, structuredSessionRandomUuid)
+  const supportParams = {
+    worktree,
+    agent,
+    ...(options.launchOrigin ? { sessionId, launchOrigin: options.launchOrigin } : {})
+  }
   let supportResponse
   for (let attempt = 0; ; attempt += 1) {
     try {
-      supportResponse = await structuredAgentSupportProbe.request(client, { worktree, agent })
+      supportResponse = await structuredAgentSupportProbe.request(client, supportParams, {
+        timeoutMs: STRUCTURED_SUPPORT_PROBE_TIMEOUT_MS,
+        budgetSpansConnect: true
+      })
     } catch (error) {
       const retryDelayMs = CREATE_SUPPORT_RETRY_DELAYS_MS[attempt]
       if (
         retryDelayMs === undefined ||
         !hasRuntimeRpcErrorCode(error, SELECTOR_NOT_RESOLVABLE_CODE)
       ) {
-        return { kind: 'unsupported' }
+        // Transport failed: the host never answered, so it never refused.
+        return { kind: 'unsupported', probeFailed: true }
       }
       await delay(retryDelayMs)
       continue
@@ -114,14 +157,22 @@ export async function createMobileStructuredAgentSession(
     typeof supportResponse.ok !== 'boolean' ||
     !supportResponse.ok
   ) {
-    return { kind: 'unsupported' }
+    // A host without the method answered, and that answer is a verdict: no structured route.
+    if (
+      supportResponse?.ok === false &&
+      isDefinitiveAgentSessionCreateRefusal(supportResponse.error?.code)
+    ) {
+      return { kind: 'unsupported' }
+    }
+    // A malformed reply or another `ok: false` is no verdict: the probe went unanswered.
+    return { kind: 'unsupported', probeFailed: true }
   }
   const support = supportResponse.result as StructuredCreateSupport | null
   if (!support || typeof support !== 'object' || support.supported !== true) {
     return { kind: 'unsupported', reason: support?.reason }
   }
 
-  const params = createParamsFor(agent, worktree)
+  const params = createParamsFor(agent, worktree, sessionId, options)
   let response
   try {
     response = await structuredAgentSessionCreate.request(client, params, {
@@ -180,5 +231,12 @@ export async function createMobileStructuredAgentSession(
   ) {
     return unknownCreateResult(agent, new Error(unconfirmedMessage(agent)))
   }
-  return { kind: 'created', sessionId: result.value.sessionId }
+  // Fence only when it is real: a propagated `undefined` would become a fenceless send, and an
+  // invented zero would collide with a session that already moved on.
+  const fence = result.value.fence
+  return {
+    kind: 'created',
+    sessionId: result.value.sessionId,
+    ...(typeof fence === 'number' && Number.isSafeInteger(fence) ? { fence } : {})
+  }
 }

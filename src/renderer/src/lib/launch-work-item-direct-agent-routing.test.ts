@@ -56,7 +56,12 @@ describe('beginDirectWorkItemStructuredLaunch', () => {
           return true
         }
       })
-    ).toEqual({ completed: true, structuredLaunch: true, primaryTabId: 'agent-session:session-1' })
+    ).toEqual({
+      completed: true,
+      structuredLaunch: true,
+      primaryTabId: 'agent-session:session-1',
+      launch: expect.objectContaining({ sessionId: 'session-1' })
+    })
     expect(order).toEqual(['begin', 'reveal:session-1', 'open'])
   })
 

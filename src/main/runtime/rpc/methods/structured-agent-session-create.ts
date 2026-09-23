@@ -1,3 +1,13 @@
+import type {
+  StructuredAgentSessionLaunchAuthority,
+  StructuredAgentSessionLaunchOrigin,
+  StructuredAgentSessionResumeSource
+} from '../../../../shared/structured-agent-session-create'
+import {
+  structuredAgentSessionCreateLocationMatchesTarget,
+  structuredAgentSessionCreateWorktreeTargetsEqual,
+  type StructuredAgentSessionCreateWorktreeTarget
+} from '../../structured-agent-session-create-worktree-target'
 /**
  * Creating a structured session for a worktree: resolve the create intent, attach it under the
  * host-computed fingerprint, then publish its tab.
@@ -24,7 +34,6 @@ import {
 } from '../../../native-chat/agent-session-wire/structured-agent-session-attach'
 import type { StructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-host'
 import type { StructuredAgentSessionCaller } from '../../../native-chat/agent-session-wire/structured-agent-session-host-types'
-import type { StructuredAgentSessionResumeSource } from '../../../../shared/structured-agent-session-create'
 import type { OrcaRuntimeService } from '../../orca-runtime'
 import {
   resolveUncommittedStructuredCreate,
@@ -36,6 +45,11 @@ export type PreparedStructuredAgentSessionCreate = {
   attachParams: AgentSessionAttachParams
   /** Null when the caller supplied its own location; only a resolved worktree publishes a tab. */
   tab: { workspaceId: string; agent: 'claude' | 'codex' } | null
+  /** The workspace lifecycle hold taken at resolution; `commit` releases it after attach. A
+   *  caller that never commits must release it itself. */
+  releaseWorktreeLifecycle: () => void
+  /** The target the scoped authority admitted; re-checked under the hold right before attach. */
+  expectedWorktreeTarget: StructuredAgentSessionCreateWorktreeTarget | null
 }
 
 /** The pre-commit half. Throws; the caller is expected to run it inside
@@ -53,44 +67,124 @@ export async function prepareStructuredAgentSessionCreateForWorktree(args: {
    *  `--model`/`--effort` the dispatch asked for; a chat the user opened passes nothing and keeps
    *  the saved selection. Narrowed by the caller, so `{}` never reaches the reservation. */
   options?: Readonly<Record<string, string>>
+  /** Marca a admissão estreita no registro; sem isso o gate escopado não reconhece
+   *  depois a sessão que ele mesmo acabou de admitir. */
+  launchOrigin?: StructuredAgentSessionLaunchOrigin
+  launchAuthority?: StructuredAgentSessionLaunchAuthority
+  expectedWorktreeTarget?: StructuredAgentSessionCreateWorktreeTarget
 }): Promise<PreparedStructuredAgentSessionCreate> {
-  // Adoption replay may need the record loaded from disk before source discovery can be skipped.
-  let host = args.resumeFrom ? await args.ensureHost() : null
-  const resolved = await args.runtime.resolveStructuredAgentSessionCreateIntent({
-    envelope: args.envelope,
-    worktree: args.worktree,
-    agent: args.agent,
-    callerKey: args.caller.callerKey,
-    ...(args.resumeFrom ? { resumeFrom: args.resumeFrom } : {})
-  })
-  const hostFingerprint = computeAgentSessionPayloadFingerprint({
-    method: 'agentSession.attach',
-    sessionId: args.envelope.sessionId,
-    fields: attachFingerprintFields({ ...resolved, envelope: args.envelope })
-  })
-  host ??= await args.ensureHost()
-  const { agent: _resolvedAgent, provider: _resolvedProvider, ...resolvedAttach } = resolved
-  return {
-    host,
-    attachParams: {
-      ...resolvedAttach,
-      // After the fingerprint, deliberately: `attachFingerprintFields` excludes options because
-      // they are the session's initial state, not its identity, so a retry that re-resolves them
-      // must replay rather than conflict.
-      ...(args.options ? { options: args.options } : {}),
-      provider: resolved.provider as 'claude' | 'codex',
-      agent: resolved.agent as 'claude' | 'codex',
-      envelope: { ...args.envelope, payloadFingerprint: hostFingerprint }
-    },
-    tab: {
-      workspaceId: resolved.location.workspaceId,
-      agent: resolved.agent as 'claude' | 'codex'
+  // The lifecycle hold spans authoritative resolution → launch preparation → attach, so the
+  // record the authority admitted cannot be removed or replaced (removal takes the exclusive
+  // side) while the create is in flight. A scoped create knows its workspace before resolving
+  // and holds it first; a generic create holds the workspace it resolved.
+  const expectedWorktreeTarget = args.expectedWorktreeTarget ?? null
+  let releaseWorktreeLifecycle = expectedWorktreeTarget
+    ? await args.runtime.holdWorktreeLifecycle(
+        expectedWorktreeTarget.worktreeId,
+        expectedWorktreeTarget.executionHostId
+      )
+    : (): void => {}
+  try {
+    // Adoption replay may need the record loaded from disk before source discovery can be skipped.
+    let host = args.resumeFrom ? await args.ensureHost() : null
+    // The authoritative comparison lives in the resolver: it sees the worktree RECORD (path,
+    // instance, identity, creator), so a workspace replaced under the same id and host between
+    // admission and create is refused there. The location check below is the coarse second
+    // barrier for a resolver that answers without a record.
+    const resolved = await args.runtime.resolveStructuredAgentSessionCreateIntent({
+      envelope: args.envelope,
+      worktree: args.worktree,
+      agent: args.agent,
+      callerKey: args.caller.callerKey,
+      ...(args.resumeFrom ? { resumeFrom: args.resumeFrom } : {}),
+      ...(expectedWorktreeTarget ? { expectedWorktreeTarget } : {})
+    })
+    if (
+      expectedWorktreeTarget &&
+      !structuredAgentSessionCreateLocationMatchesTarget(expectedWorktreeTarget, resolved.location)
+    ) {
+      throw new Error('structured_agent_session_unsupported')
     }
+    if (!expectedWorktreeTarget) {
+      releaseWorktreeLifecycle = await args.runtime.holdWorktreeLifecycle(
+        resolved.location.workspaceId,
+        resolved.location.executionHostId
+      )
+    }
+    const resolvedWithOrigin = {
+      ...resolved,
+      ...(args.launchOrigin ? { launchOrigin: args.launchOrigin } : {}),
+      ...(args.launchAuthority ? { launchAuthority: args.launchAuthority } : {})
+    }
+    const hostFingerprint = computeAgentSessionPayloadFingerprint({
+      method: 'agentSession.attach',
+      sessionId: args.envelope.sessionId,
+      fields: attachFingerprintFields({ ...resolvedWithOrigin, envelope: args.envelope })
+    })
+    host ??= await args.ensureHost()
+    const { agent: _resolvedAgent, provider: _resolvedProvider, ...resolvedAttach } = resolved
+    return {
+      host,
+      attachParams: {
+        ...resolvedAttach,
+        // After the fingerprint, deliberately: `attachFingerprintFields` excludes options because
+        // they are the session's initial state, not its identity, so a retry that re-resolves them
+        // must replay rather than conflict.
+        ...(args.options ? { options: args.options } : {}),
+        provider: resolved.provider as 'claude' | 'codex',
+        agent: resolved.agent as 'claude' | 'codex',
+        ...(args.launchOrigin ? { launchOrigin: args.launchOrigin } : {}),
+        ...(args.launchAuthority ? { launchAuthority: args.launchAuthority } : {}),
+        envelope: { ...args.envelope, payloadFingerprint: hostFingerprint }
+      },
+      tab: {
+        workspaceId: resolved.location.workspaceId,
+        agent: resolved.agent as 'claude' | 'codex'
+      },
+      releaseWorktreeLifecycle,
+      expectedWorktreeTarget
+    }
+  } catch (error) {
+    releaseWorktreeLifecycle()
+    throw error
   }
 }
 
 /** The commit half. Past `attach`, a failure no longer proves the session does not exist. */
 export async function commitStructuredAgentSessionCreate(args: {
+  runtime: OrcaRuntimeService
+  caller: StructuredAgentSessionCaller
+  prepared: PreparedStructuredAgentSessionCreate
+  activate: boolean
+}): Promise<AgentSessionMutationResult<AgentSessionAttachResult>> {
+  const { prepared } = args
+  try {
+    // Still under the lifecycle hold, so nothing can replace the record between this check and
+    // the attach: the workspace must be the exact one the authority admitted — path, instance,
+    // identity, host, creator — or the provider child is never started.
+    if (prepared.expectedWorktreeTarget && prepared.tab) {
+      const current = await args.runtime.resolveStructuredAgentSessionCreateWorktreeTarget(
+        `id:${prepared.tab.workspaceId}`
+      )
+      if (
+        !structuredAgentSessionCreateWorktreeTargetsEqual(prepared.expectedWorktreeTarget, current)
+      ) {
+        return {
+          ok: false,
+          refusal: {
+            code: 'structured_agent_session_unsupported',
+            message: 'The workspace this session was admitted for is no longer the one at its id.'
+          }
+        }
+      }
+    }
+    return await commitPreparedStructuredAgentSessionCreate(args)
+  } finally {
+    prepared.releaseWorktreeLifecycle()
+  }
+}
+
+async function commitPreparedStructuredAgentSessionCreate(args: {
   runtime: OrcaRuntimeService
   caller: StructuredAgentSessionCaller
   prepared: PreparedStructuredAgentSessionCreate

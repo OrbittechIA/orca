@@ -79,6 +79,14 @@ export async function launchHeadlessPairedRuntimeHost(
   options: {
     agentBrowserSocketParent?: string
     executablePath?: string
+    /** Extra env for the host process; merged after the fixed E2E flags. */
+    extraEnv?: Record<string, string>
+    /**
+     * Directory prepended to the host's PATH, so it resolves a fixture provider instead of
+     * whatever the runner happens to have installed. Prepend and not replace: the host still
+     * needs git and the shell it launches agents through.
+     */
+    pathPrefixDir?: string
     /** Bind a stable loopback port so `restartServeProcess` can reclaim it. */
     pinnedServePort?: boolean
     userDataParent?: string
@@ -107,9 +115,15 @@ export async function launchHeadlessPairedRuntimeHost(
         ORCA_E2E_ENFORCE_SINGLE_INSTANCE_LOCK: '1',
         ORCA_E2E_HEADLESS: '1'
       },
-      extraEnv: {},
+      extraEnv: options.extraEnv ?? {},
       userDataDir
     })
+    if (options.pathPrefixDir) {
+      const inheritedPath = isolation.env.PATH ?? cleanEnv.PATH ?? ''
+      isolation.env.PATH = inheritedPath
+        ? `${options.pathPrefixDir}${path.delimiter}${inheritedPath}`
+        : options.pathPrefixDir
+    }
     if (agentBrowserSocketDir) {
       isolation.env.AGENT_BROWSER_SOCKET_DIR = agentBrowserSocketDir
     }

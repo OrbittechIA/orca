@@ -7,9 +7,11 @@ import { styles } from './mobile-session-styles'
 import type { MobileSessionController } from './use-mobile-session-controller'
 import { MobileSessionActiveContent } from './MobileSessionActiveContent'
 import { MobileSessionCommandDock } from './MobileSessionCommandDock'
+import { WorkItemStartRetryBanner } from './WorkItemStartRetryBanner'
 
 export function MobileSessionContentRow({ controller }: { controller: MobileSessionController }) {
   const {
+    client,
     hostId,
     worktreeId,
     worktreeName,
@@ -40,6 +42,7 @@ export function MobileSessionContentRow({ controller }: { controller: MobileSess
             </Pressable>
           </View>
         ) : null}
+        <WorkItemStartRetryBanner client={client} worktreeId={worktreeId} />
         <MobileSessionActiveContent controller={controller} />
         {/* Why: translate instead of resize so keyboard toggles don't trigger a server-side PTY viewport change. */}
         <MobileSessionCommandDock controller={controller} />

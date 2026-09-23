@@ -3,12 +3,12 @@
   "family": "agentSession.structured-launch",
   "namedDeltas": [],
   "runnerVersion": 1,
-  "baseline": "e8a7be4ce24a3c4fed44b4488966db6f7596e396",
-  "lockfileSha256": "afafc16f7989373be291e3475af6b99bda6b9235f9e446398a94c5e49411188f",
+  "baseline": "b52fac3be3443b8ae6b3cf07106d82e12bef933f",
+  "lockfileSha256": "2bc53d3e8628a9bb8cbc51288065161216ea577912ab91961d8b026982774a0f",
   "recorderSha256": "f67c2f5b753d2a4f572599f6861fae8e6e917fe89ac75b58288f8e84be609d86",
   "adapterSha256": "d340697a64a198066b1037a550afb9a0de7507246a545901d2fc0a23407f38d6",
   "scenarioSha256": "64916f2d8ab51132b08c3e8c72f89c3a2698d83945def294f42edf22eb6d08ea",
-  "platform": "darwin",
+  "platform": "linux",
   "scenarioVersion": 1,
   "projectionVersion": 2,
   "goldenFormatVersion": 5,
@@ -80,7 +80,7 @@
       "ordinal": 4,
       "json": "{\"id\":\"frame-2\",\"deviceToken\":\"recording-device\",\"method\":\"agentSession.create\",\"params\":{\"envelope\":{\"sessionId\":\"claude_00000000_0000_4000_8000_000000000001\",\"clientOperationId\":\"1767225600000-00000000000040008000000000000002\",\"expectedRuntimeFence\":null,\"payloadFingerprint\":\"ce04a6ad4f07079b36cb0b4e9b1bcfd95481b5cb2428fbe93b3c0cf995ef8605\"},\"worktree\":\"id:workspace-1\",\"agent\":\"claude\"}}"
     },
-    "a75955abbbbc": {
+    "ab280baa5b58": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -98,7 +98,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -128,7 +129,7 @@
       {
         "id": "refused",
         "observation": {
-          "sender": ["a75955abbbbc", "1cd1542a5d9c"],
+          "sender": ["ab280baa5b58", "1cd1542a5d9c"],
           "payloads": ["568aa5cfc6b5", "91f56e5d551d"],
           "settlements": {
             "claude": "57068cb6a8b6"

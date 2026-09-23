@@ -98,6 +98,57 @@ function renderTray(): {
   return { handleDeleteBrowserAnnotation, handleUpdateBrowserAnnotation }
 }
 
+function renderTrayWithAnnotations(annotations: BrowserPageAnnotation[]): {
+  rerender: (next: BrowserPageAnnotation[]) => void
+  handleClearBrowserAnnotations: ReturnType<typeof vi.fn>
+  handleUpdateBrowserAnnotation: ReturnType<typeof vi.fn>
+} {
+  const handleClearBrowserAnnotations = vi.fn()
+  const handleUpdateBrowserAnnotation = vi.fn()
+  const tray = (next: BrowserPageAnnotation[]): React.JSX.Element => (
+    <TooltipProvider>
+      <BrowserPageAnnotationTray
+        browserAnnotations={next}
+        annotationTraySendOpen={false}
+        handleAnnotationTraySendOpenChange={vi.fn()}
+        worktreeId="wt-1"
+        activeGroupId={undefined}
+        browserAnnotationsPrompt="prompt"
+        handleBrowserAnnotationsSentToAgent={vi.fn()}
+        handleCopyBrowserAnnotations={vi.fn()}
+        browserAnnotationsCopied={false}
+        handleClearBrowserAnnotations={handleClearBrowserAnnotations}
+        handleDeleteBrowserAnnotation={vi.fn()}
+        handleUpdateBrowserAnnotation={handleUpdateBrowserAnnotation}
+      />
+    </TooltipProvider>
+  )
+  const view = render(tray(annotations))
+  return {
+    rerender: (next) => view.rerender(tray(next)),
+    handleClearBrowserAnnotations,
+    handleUpdateBrowserAnnotation
+  }
+}
+
+describe('BrowserPageAnnotationTray edit row lifetime', () => {
+  it('does not reopen the editor for a later annotation that reuses the id', () => {
+    const { rerender, handleClearBrowserAnnotations } = renderTrayWithAnnotations([
+      makeAnnotation()
+    ])
+    fireEvent.click(screen.getByRole('button', { name: 'Edit annotation 1' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Clear browser annotations' }))
+    expect(handleClearBrowserAnnotations).toHaveBeenCalledTimes(1)
+
+    // Deliberately no empty render in between: that is what used to let the effect clear the id
+    // before the annotation came back. Without it, only the handler-side reset keeps the editor
+    // shut, which is exactly the behaviour the effect used to provide and derivation does not.
+    rerender([makeAnnotation()])
+
+    expect(screen.queryByRole('textbox', { name: 'Annotation comment' })).not.toBeInTheDocument()
+  })
+})
+
 describe('BrowserPageAnnotationTray edit mode', () => {
   it('seeds the textarea with the current comment when entering edit mode', () => {
     renderTray()

@@ -7,7 +7,10 @@ export async function sendStructuredAgentSessionForClient(
   params: Parameters<StructuredAgentSessionHost['send']>[1],
   context: RpcContext
 ) {
-  const host = requireStructuredHost(context)
+  // Escopado à sessão: uma sessão criada por Work Item Start é alcançável pelo seu
+  // dono mesmo com o ajuste estruturado global desligado — era isso que recusava o
+  // envio do prompt logo depois de a própria sessão ter sido admitida.
+  const host = requireStructuredHost(context, params.envelope?.sessionId)
   const result = await host.send(structuredCallerFor(context), params)
   if (
     !result.ok ||

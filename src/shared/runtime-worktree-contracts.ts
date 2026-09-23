@@ -1,3 +1,4 @@
+import type { AgentProviderSessionMetadata } from './agent-session-resume'
 import type { AgentStatusState, AgentType, AgentWorkingMode } from './agent-status-types'
 import type { BaseRefSearchResult, Repo } from './repo-types'
 import type { CreateWorktreeResult, RemoveWorktreeResult } from './worktree/create-types'
@@ -28,6 +29,10 @@ export type RuntimeWorktreeAgentRow = {
   /** The structured session host still runs this row's provider child, so it is fresh regardless
    *  of age. Optional on the wire: old hosts never send it. */
   structuredHostOwned?: true
+  /** Present for native structured sessions; absent on terminal-backed agents and older hosts. */
+  sessionId?: string
+  /** Provider-confirmed identity, excluding host-local transcript paths. */
+  providerSession?: Pick<AgentProviderSessionMetadata, 'key' | 'id'>
 }
 
 export type RuntimeWorktreePsSummary = {

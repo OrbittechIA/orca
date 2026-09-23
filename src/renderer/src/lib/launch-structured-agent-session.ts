@@ -1,3 +1,5 @@
+import type { RuntimeClientTarget } from '@/runtime/runtime-client-target'
+import { runtimeTargetForWorktreeOwner } from '@/lib/worktree-runtime-owner-target'
 import type { AgentSessionHandleProvider } from '../../../shared/agent-session-provider-handle'
 import type {
   AgentSessionAttachResult,
@@ -6,6 +8,7 @@ import type {
 import {
   createStructuredAgentSessionId,
   structuredAgentSessionCreateParams,
+  type StructuredAgentSessionLaunchOrigin,
   type StructuredAgentSessionCreateParams,
   type StructuredAgentSessionResumeSource
 } from '../../../shared/structured-agent-session-create'
@@ -26,6 +29,13 @@ export type StructuredAgentSessionLaunchIntent = {
   worktreeId: string
   agent: AgentSessionHandleProvider
   params: StructuredAgentSessionCreateParams
+  /**
+   * O runtime que EXECUTA esta sessão — o mesmo que criou a workspace.
+   *
+   * Num Desktop pareado a workspace nasce no ambiente ativo; procurar ou criar a sessão
+   * no runtime local acharia nada e criaria um segundo dono.
+   */
+  target: RuntimeClientTarget
 }
 
 class StructuredAgentSessionCreateError extends Error {
@@ -89,17 +99,25 @@ export function isDefinitiveStructuredAgentSessionCreateError(error: unknown): b
 export function createStructuredAgentSessionLaunchIntent(
   worktreeId: string,
   agent: AgentSessionHandleProvider,
-  resumeFrom?: StructuredAgentSessionResumeSource
+  resumeFrom?: StructuredAgentSessionResumeSource,
+  launchOrigin?: StructuredAgentSessionLaunchOrigin
 ): StructuredAgentSessionLaunchIntent {
   const sessionId = createStructuredAgentSessionId(agent, () => crypto.randomUUID())
-  return buildStructuredAgentSessionLaunchIntent(worktreeId, agent, sessionId, resumeFrom)
+  return buildStructuredAgentSessionLaunchIntent(
+    worktreeId,
+    agent,
+    sessionId,
+    resumeFrom,
+    launchOrigin
+  )
 }
 
 function buildStructuredAgentSessionLaunchIntent(
   worktreeId: string,
   agent: AgentSessionHandleProvider,
   sessionId: string,
-  resumeFrom?: StructuredAgentSessionResumeSource
+  resumeFrom?: StructuredAgentSessionResumeSource,
+  launchOrigin?: StructuredAgentSessionLaunchOrigin
 ): StructuredAgentSessionLaunchIntent {
   const state = useAppStore.getState()
   recordWebSessionFocusIntent(
@@ -113,11 +131,15 @@ function buildStructuredAgentSessionLaunchIntent(
     sessionId,
     worktreeId,
     agent,
+    // O owner EXATO desta worktree, não o foco global: um repo explícito pode pertencer a
+    // outro ambiente, e criar a sessão no runtime errado abriria um segundo dono.
+    target: runtimeTargetForWorktreeOwner(state, worktreeId),
     params: structuredAgentSessionCreateParams({
       sessionId,
       worktree: toRuntimeWorktreeSelector(worktreeId),
       agent,
       ...(resumeFrom ? { resumeFrom } : {}),
+      ...(launchOrigin ? { launchOrigin } : {}),
       randomUuid: () => crypto.randomUUID()
     })
   }
@@ -131,7 +153,8 @@ export function retryStructuredAgentSessionLaunchIntent(
     intent.worktreeId,
     intent.agent,
     intent.sessionId,
-    intent.params.resumeFrom
+    intent.params.resumeFrom,
+    intent.params.launchOrigin
   )
 }
 
@@ -144,6 +167,7 @@ export function restoreStructuredAgentSessionLaunchIntent(args: {
   payloadFingerprint: string
   expectedRuntimeFence: number | null
   resumeFrom?: StructuredAgentSessionResumeSource
+  launchOrigin?: StructuredAgentSessionLaunchOrigin
 }): StructuredAgentSessionLaunchIntent {
   const state = useAppStore.getState()
   recordWebSessionFocusIntent(
@@ -157,6 +181,7 @@ export function restoreStructuredAgentSessionLaunchIntent(args: {
     sessionId: args.sessionId,
     worktreeId: args.worktreeId,
     agent: args.agent,
+    target: runtimeTargetForWorktreeOwner(state, args.worktreeId),
     params: {
       envelope: {
         sessionId: args.sessionId,
@@ -166,7 +191,8 @@ export function restoreStructuredAgentSessionLaunchIntent(args: {
       },
       worktree: toRuntimeWorktreeSelector(args.worktreeId),
       agent: args.agent,
-      ...(args.resumeFrom ? { resumeFrom: args.resumeFrom } : {})
+      ...(args.resumeFrom ? { resumeFrom: args.resumeFrom } : {}),
+      ...(args.launchOrigin ? { launchOrigin: args.launchOrigin } : {})
     }
   }
 }
@@ -210,13 +236,36 @@ function runtimeErrorCode(error: unknown): string {
  * The unknown branch remains on the chat surface for reconciliation instead of becoming a
  * terminal fallback.
  */
+/** A local runtime call ignores `timeoutMs`, so the probe is bounded here. Expiry rejects with a code
+ *  that is not a definitive refusal, which the catch below reports as an unknown outcome. */
+export const CREATE_SUPPORT_PROBE_TIMEOUT_MS = 10_000
+
+function boundedSupportProbe<T>(probe: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const expiry = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(Object.assign(new Error('runtime_timeout'), { code: 'runtime_timeout' })),
+      CREATE_SUPPORT_PROBE_TIMEOUT_MS
+    )
+  })
+  return Promise.race([probe, expiry]).finally(() => clearTimeout(timer))
+}
+
 async function hostSupportsCreate(intent: StructuredAgentSessionLaunchIntent): Promise<boolean> {
   for (let attempt = 0; ; attempt += 1) {
     try {
-      const support = await callStructuredAgentSession<{ supported: boolean; reason?: string }>(
-        { kind: 'local' },
-        'agentSession.createSupport',
-        { worktree: intent.params.worktree, agent: intent.agent }
+      const support = await boundedSupportProbe(
+        callStructuredAgentSession<{ supported: boolean; reason?: string }>(
+          intent.target,
+          'agentSession.createSupport',
+          {
+            worktree: intent.params.worktree,
+            agent: intent.agent,
+            ...(intent.params.launchOrigin
+              ? { sessionId: intent.sessionId, launchOrigin: intent.params.launchOrigin }
+              : {})
+          }
+        )
       )
       return support.supported === true
     } catch (error) {
@@ -264,7 +313,7 @@ export async function launchStructuredAgentSession(
   let result: AgentSessionMutationResult<AgentSessionAttachResult>
   try {
     result = await callStructuredAgentSession<AgentSessionMutationResult<AgentSessionAttachResult>>(
-      { kind: 'local' },
+      intent.target,
       'agentSession.create',
       intent.params
     )

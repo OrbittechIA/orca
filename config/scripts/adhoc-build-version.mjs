@@ -89,7 +89,9 @@ export function formatAdhocReleaseName(version, label, commit, date) {
 
 export function getAdhocBuildIdentity(now = new Date(), label = '', publishedVersions = []) {
   const packageJson = JSON.parse(readFileSync(resolve('package.json'), 'utf8'))
-  const commit = execFileSync('git', ['rev-parse', '--short=12', 'HEAD'], {
+  // Full sha: the packager asserts ORCA_BUILD_COMMIT against `git rev-parse HEAD` byte for byte.
+  // Display names slice their own short form.
+  const commit = execFileSync('git', ['rev-parse', 'HEAD'], {
     encoding: 'utf8'
   }).trim()
   const base = resolveDevChannelBaseVersion(packageJson.version, publishedVersions)

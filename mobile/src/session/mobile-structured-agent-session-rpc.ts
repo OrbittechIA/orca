@@ -12,7 +12,7 @@ import { structuredSessionOperationId } from './structured-session-operation-id'
 import { isRpcDeliveryUnknown } from '../transport/rpc-delivery-ambiguity'
 import type { RpcClient } from '../transport/rpc-client'
 import { isLogicalClientCutoverError } from '../transport/stable-logical-rpc-client'
-import { MOBILE_NATIVE_CHAT_MIN_WRITE_TIMEOUT_MS } from './mobile-native-chat-send'
+import { MOBILE_NATIVE_CHAT_MIN_WRITE_TIMEOUT_MS } from './mobile-native-chat-write-timeout'
 
 export const STRUCTURED_SEND_TIMEOUT_MS = 15_000
 
@@ -154,9 +154,14 @@ export async function requestStructuredAgentSessionMutation<TValue>(args: {
       },
       timeoutMs
     )
+    // `agent_session_operation_unknown` is the host saying the ledger cannot tell what this
+    // operation did. For a send that means the message may already be in provider context, so
+    // it is `unknown` — replayed under the SAME id, never refused and re-minted.
     if (
       !result.ok &&
-      (method === 'agentSession.cancel' || method === 'agentSession.conversationCommand') &&
+      (method === 'agentSession.cancel' ||
+        method === 'agentSession.conversationCommand' ||
+        method === 'agentSession.send') &&
       result.refusal.code === 'agent_session_operation_unknown'
     ) {
       return { status: 'unknown', hostReportedOperationUnknown: true }

@@ -26,6 +26,8 @@ export type DirectWorkItemAgentLaunchPreparation = {
 }
 
 export async function prepareDirectWorkItemAgentLaunch(args: {
+  /** Um Work Item Start estrito não aceita writer de terminal como substituto. */
+  structuredSessionRequired: boolean
   worktreeId: string
   worktreePath: string
   repoId: string
@@ -98,7 +100,9 @@ export async function prepareDirectWorkItemAgentLaunch(args: {
           workspace: { kind: 'git-worktree', worktreeId: args.worktreeId, repoId: args.repoId },
           prompt: args.draftContent,
           promptDelivery: args.promptDelivery,
-          initialSessionOptions: startupPlan?.sessionOptions
+          initialSessionOptions: startupPlan?.sessionOptions,
+          // Strict only: makes the route require the scoped Work Item Start capability too.
+          ...(args.structuredSessionRequired ? { launchOrigin: 'work-item-start' as const } : {})
         })
   const structuredLaunch = plan?.route === 'structured-native-chat'
 

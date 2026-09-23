@@ -3,12 +3,12 @@
   "family": "agentSession.structured-create",
   "namedDeltas": [],
   "runnerVersion": 1,
-  "baseline": "e8a7be4ce24a3c4fed44b4488966db6f7596e396",
-  "lockfileSha256": "afafc16f7989373be291e3475af6b99bda6b9235f9e446398a94c5e49411188f",
+  "baseline": "b52fac3be3443b8ae6b3cf07106d82e12bef933f",
+  "lockfileSha256": "2bc53d3e8628a9bb8cbc51288065161216ea577912ab91961d8b026982774a0f",
   "recorderSha256": "f67c2f5b753d2a4f572599f6861fae8e6e917fe89ac75b58288f8e84be609d86",
   "adapterSha256": "d340697a64a198066b1037a550afb9a0de7507246a545901d2fc0a23407f38d6",
   "scenarioSha256": "eed54b1c4c77eec4b411d8daa197b20c8cfb4b86ac2d01f1d7ee2de23c27dff8",
-  "platform": "darwin",
+  "platform": "linux",
   "scenarioVersion": 1,
   "projectionVersion": 2,
   "goldenFormatVersion": 5,
@@ -21,7 +21,7 @@
         }
       }
     },
-    "0dd78669f08d": {
+    "11ad1e92357c": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -39,7 +39,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -49,15 +50,15 @@
         "settledAt": 0,
         "value": {
           "error": {
-            "code": "refused",
-            "message": ""
+            "code": "method_not_found",
+            "message": "Unknown method"
           },
           "id": "frame-1",
           "ok": false
         }
       }
     },
-    "1554c780f755": {
+    "29cb5b4fae94": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -75,78 +76,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
-          }
-        }
-      ],
-      "settlement": {
-        "status": "fulfilled",
-        "startedAt": 0,
-        "settledAt": 0,
-        "value": {
-          "id": "frame-1",
-          "ok": true,
-          "result": {
-            "error": "inner refused",
-            "ok": false
-          }
-        }
-      }
-    },
-    "25ff00540c46": {
-      "name": "agentSession.createSupport#1",
-      "ordinal": 1,
-      "args": [
-        {
-          "name": "method",
-          "value": "agentSession.createSupport"
-        },
-        {
-          "name": "params",
-          "value": {
-            "agent": "claude",
-            "worktree": "id:workspace-1"
-          }
-        },
-        {
-          "name": "options",
-          "value": {
-            "$rpc": "absent"
-          }
-        }
-      ],
-      "settlement": {
-        "status": "fulfilled",
-        "startedAt": 0,
-        "settledAt": 0,
-        "value": {
-          "id": "frame-1",
-          "ok": true,
-          "result": {
-            "error": "refused"
-          }
-        }
-      }
-    },
-    "27cc7a2b58c9": {
-      "name": "agentSession.createSupport#1",
-      "ordinal": 1,
-      "args": [
-        {
-          "name": "method",
-          "value": "agentSession.createSupport"
-        },
-        {
-          "name": "params",
-          "value": {
-            "agent": "claude",
-            "worktree": "id:workspace-1"
-          }
-        },
-        {
-          "name": "options",
-          "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -174,7 +105,7 @@
         "kind": "unsupported"
       }
     },
-    "553200ba8c0f": {
+    "2c36cc4fa7f9": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -192,7 +123,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -210,21 +142,7 @@
         }
       }
     },
-    "568aa5cfc6b5": {
-      "name": "agentSession.createSupport#1",
-      "ordinal": 2,
-      "json": "{\"id\":\"frame-1\",\"deviceToken\":\"recording-device\",\"method\":\"agentSession.createSupport\",\"params\":{\"worktree\":\"id:workspace-1\",\"agent\":\"claude\"}}"
-    },
-    "6d6669cd1a85": {
-      "status": "fulfilled",
-      "startedAt": 0,
-      "settledAt": 0,
-      "value": {
-        "kind": "created",
-        "sessionId": "claude_00000000_0000_4000_8000_000000000001"
-      }
-    },
-    "8201501565d9": {
+    "2e66eab74342": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -242,7 +160,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -251,20 +170,30 @@
         "startedAt": 0,
         "settledAt": 0,
         "value": {
+          "error": {
+            "code": "refused",
+            "message": ""
+          },
           "id": "frame-1",
-          "ok": true,
-          "result": {
-            "$rpc": "null"
-          }
+          "ok": false
         }
       }
     },
-    "91f56e5d551d": {
-      "name": "agentSession.create#1",
-      "ordinal": 4,
-      "json": "{\"id\":\"frame-2\",\"deviceToken\":\"recording-device\",\"method\":\"agentSession.create\",\"params\":{\"envelope\":{\"sessionId\":\"claude_00000000_0000_4000_8000_000000000001\",\"clientOperationId\":\"1767225600000-00000000000040008000000000000002\",\"expectedRuntimeFence\":null,\"payloadFingerprint\":\"ce04a6ad4f07079b36cb0b4e9b1bcfd95481b5cb2428fbe93b3c0cf995ef8605\"},\"worktree\":\"id:workspace-1\",\"agent\":\"claude\"}}"
+    "5342fdf67056": {
+      "status": "fulfilled",
+      "startedAt": 0,
+      "settledAt": 0,
+      "value": {
+        "kind": "unsupported",
+        "probeFailed": true
+      }
     },
-    "a4da7b5347e4": {
+    "568aa5cfc6b5": {
+      "name": "agentSession.createSupport#1",
+      "ordinal": 2,
+      "json": "{\"id\":\"frame-1\",\"deviceToken\":\"recording-device\",\"method\":\"agentSession.createSupport\",\"params\":{\"worktree\":\"id:workspace-1\",\"agent\":\"claude\"}}"
+    },
+    "5b67727ad5db": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -282,7 +211,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -297,7 +227,13 @@
         }
       }
     },
-    "a75955abbbbc": {
+    "61cdc6b785a8": {
+      "launched": {
+        "kind": "unsupported",
+        "probeFailed": true
+      }
+    },
+    "6c47d103d515": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -315,7 +251,128 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
+          }
+        }
+      ],
+      "settlement": {
+        "status": "fulfilled",
+        "startedAt": 0,
+        "settledAt": 0,
+        "value": {
+          "id": "frame-1",
+          "ok": true,
+          "result": {
+            "error": "inner refused",
+            "ok": false
+          }
+        }
+      }
+    },
+    "6d08ad2ae66e": {
+      "name": "agentSession.createSupport#1",
+      "ordinal": 1,
+      "args": [
+        {
+          "name": "method",
+          "value": "agentSession.createSupport"
+        },
+        {
+          "name": "params",
+          "value": {
+            "agent": "claude",
+            "worktree": "id:workspace-1"
+          }
+        },
+        {
+          "name": "options",
+          "value": {
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
+          }
+        }
+      ],
+      "settlement": {
+        "status": "fulfilled",
+        "startedAt": 0,
+        "settledAt": 0,
+        "value": {
+          "id": "frame-1",
+          "ok": true
+        }
+      }
+    },
+    "6d6669cd1a85": {
+      "status": "fulfilled",
+      "startedAt": 0,
+      "settledAt": 0,
+      "value": {
+        "kind": "created",
+        "sessionId": "claude_00000000_0000_4000_8000_000000000001"
+      }
+    },
+    "876715aac081": {
+      "name": "agentSession.createSupport#1",
+      "ordinal": 1,
+      "args": [
+        {
+          "name": "method",
+          "value": "agentSession.createSupport"
+        },
+        {
+          "name": "params",
+          "value": {
+            "agent": "claude",
+            "worktree": "id:workspace-1"
+          }
+        },
+        {
+          "name": "options",
+          "value": {
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
+          }
+        }
+      ],
+      "settlement": {
+        "status": "fulfilled",
+        "startedAt": 0,
+        "settledAt": 0,
+        "value": {
+          "id": "frame-1",
+          "ok": true,
+          "result": {
+            "error": "refused"
+          }
+        }
+      }
+    },
+    "91f56e5d551d": {
+      "name": "agentSession.create#1",
+      "ordinal": 4,
+      "json": "{\"id\":\"frame-2\",\"deviceToken\":\"recording-device\",\"method\":\"agentSession.create\",\"params\":{\"envelope\":{\"sessionId\":\"claude_00000000_0000_4000_8000_000000000001\",\"clientOperationId\":\"1767225600000-00000000000040008000000000000002\",\"expectedRuntimeFence\":null,\"payloadFingerprint\":\"ce04a6ad4f07079b36cb0b4e9b1bcfd95481b5cb2428fbe93b3c0cf995ef8605\"},\"worktree\":\"id:workspace-1\",\"agent\":\"claude\"}}"
+    },
+    "ab280baa5b58": {
+      "name": "agentSession.createSupport#1",
+      "ordinal": 1,
+      "args": [
+        {
+          "name": "method",
+          "value": "agentSession.createSupport"
+        },
+        {
+          "name": "params",
+          "value": {
+            "agent": "claude",
+            "worktree": "id:workspace-1"
+          }
+        },
+        {
+          "name": "options",
+          "value": {
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -379,45 +436,13 @@
         }
       }
     },
-    "be9e3b9ce2e7": {
-      "name": "agentSession.createSupport#1",
-      "ordinal": 1,
-      "args": [
-        {
-          "name": "method",
-          "value": "agentSession.createSupport"
-        },
-        {
-          "name": "params",
-          "value": {
-            "agent": "claude",
-            "worktree": "id:workspace-1"
-          }
-        },
-        {
-          "name": "options",
-          "value": {
-            "$rpc": "absent"
-          }
-        }
-      ],
-      "settlement": {
-        "status": "fulfilled",
-        "startedAt": 0,
-        "settledAt": 0,
-        "value": {
-          "id": "frame-1",
-          "ok": true
-        }
-      }
-    },
     "d00057b53c3e": {
       "launched": {
         "kind": "created",
         "sessionId": "claude_00000000_0000_4000_8000_000000000001"
       }
     },
-    "da841ebfb6b9": {
+    "db2ad6592bd7": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -435,7 +460,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -447,42 +473,6 @@
           "category": "Error",
           "message": "transport failure",
           "isRpcDeliveryUnknown": true
-        }
-      }
-    },
-    "efee3e1e1620": {
-      "name": "agentSession.createSupport#1",
-      "ordinal": 1,
-      "args": [
-        {
-          "name": "method",
-          "value": "agentSession.createSupport"
-        },
-        {
-          "name": "params",
-          "value": {
-            "agent": "claude",
-            "worktree": "id:workspace-1"
-          }
-        },
-        {
-          "name": "options",
-          "value": {
-            "$rpc": "absent"
-          }
-        }
-      ],
-      "settlement": {
-        "status": "fulfilled",
-        "startedAt": 0,
-        "settledAt": 0,
-        "value": {
-          "error": {
-            "code": "method_not_found",
-            "message": "Unknown method"
-          },
-          "id": "frame-1",
-          "ok": false
         }
       }
     },
@@ -501,6 +491,42 @@
       "launched": {
         "kind": "unsupported"
       }
+    },
+    "f7bfc9ab61e6": {
+      "name": "agentSession.createSupport#1",
+      "ordinal": 1,
+      "args": [
+        {
+          "name": "method",
+          "value": "agentSession.createSupport"
+        },
+        {
+          "name": "params",
+          "value": {
+            "agent": "claude",
+            "worktree": "id:workspace-1"
+          }
+        },
+        {
+          "name": "options",
+          "value": {
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
+          }
+        }
+      ],
+      "settlement": {
+        "status": "fulfilled",
+        "startedAt": 0,
+        "settledAt": 0,
+        "value": {
+          "id": "frame-1",
+          "ok": true,
+          "result": {
+            "$rpc": "null"
+          }
+        }
+      }
     }
   },
   "recording": {
@@ -509,7 +535,7 @@
       {
         "id": "structured-agent-session-created.normal:created",
         "observation": {
-          "sender": ["a75955abbbbc", "b5f7cf9d778d"],
+          "sender": ["ab280baa5b58", "b5f7cf9d778d"],
           "payloads": ["568aa5cfc6b5", "91f56e5d551d"],
           "settlements": {
             "claude": "6d6669cd1a85"
@@ -521,7 +547,7 @@
       {
         "id": "structured-agent-session-created.result-absent:created",
         "observation": {
-          "sender": ["be9e3b9ce2e7"],
+          "sender": ["6d08ad2ae66e"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
             "claude": "f0bb9de9827c"
@@ -533,7 +559,7 @@
       {
         "id": "structured-agent-session-created.result-null:created",
         "observation": {
-          "sender": ["8201501565d9"],
+          "sender": ["f7bfc9ab61e6"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
             "claude": "f0bb9de9827c"
@@ -545,7 +571,7 @@
       {
         "id": "structured-agent-session-created.inner-ok-missing:created",
         "observation": {
-          "sender": ["25ff00540c46"],
+          "sender": ["876715aac081"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
             "claude": "f0bb9de9827c"
@@ -557,7 +583,7 @@
       {
         "id": "structured-agent-session-created.inner-false-string-error:created",
         "observation": {
-          "sender": ["1554c780f755"],
+          "sender": ["6c47d103d515"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
             "claude": "f0bb9de9827c"
@@ -569,7 +595,7 @@
       {
         "id": "structured-agent-session-created.inner-false-object-error:created",
         "observation": {
-          "sender": ["27cc7a2b58c9"],
+          "sender": ["29cb5b4fae94"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
             "claude": "f0bb9de9827c"
@@ -581,31 +607,31 @@
       {
         "id": "structured-agent-session-created.outer-refused:created",
         "observation": {
-          "sender": ["553200ba8c0f"],
+          "sender": ["2c36cc4fa7f9"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
-            "claude": "2c227fd1941f"
+            "claude": "5342fdf67056"
           },
-          "state": "f40adca316f9",
+          "state": "61cdc6b785a8",
           "effects": []
         }
       },
       {
         "id": "structured-agent-session-created.outer-refused-no-message:created",
         "observation": {
-          "sender": ["0dd78669f08d"],
+          "sender": ["2e66eab74342"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
-            "claude": "2c227fd1941f"
+            "claude": "5342fdf67056"
           },
-          "state": "f40adca316f9",
+          "state": "61cdc6b785a8",
           "effects": []
         }
       },
       {
         "id": "structured-agent-session-created.method-not-found:created",
         "observation": {
-          "sender": ["efee3e1e1620"],
+          "sender": ["11ad1e92357c"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
             "claude": "2c227fd1941f"
@@ -617,24 +643,24 @@
       {
         "id": "structured-agent-session-created.transport-rejection:created",
         "observation": {
-          "sender": ["da841ebfb6b9"],
+          "sender": ["db2ad6592bd7"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
-            "claude": "2c227fd1941f"
+            "claude": "5342fdf67056"
           },
-          "state": "f40adca316f9",
+          "state": "61cdc6b785a8",
           "effects": []
         }
       },
       {
         "id": "structured-agent-session-created.transport-rejection-no-message:created",
         "observation": {
-          "sender": ["a4da7b5347e4"],
+          "sender": ["5b67727ad5db"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
-            "claude": "2c227fd1941f"
+            "claude": "5342fdf67056"
           },
-          "state": "f40adca316f9",
+          "state": "61cdc6b785a8",
           "effects": []
         }
       }

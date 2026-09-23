@@ -6,18 +6,22 @@ import {
   type StructuredAgentLaunchOptions
 } from '@/lib/structured-agent-session-launch'
 import type { StructuredPromptDeliveryResult } from '@/lib/structured-agent-session-launch-prompt'
+import type { StructuredAgentLaunchRecovery } from '@/lib/structured-agent-session-launch-callers'
 
 export type StructuredAgentLaunchSettlement =
   | {
       kind: 'structured'
       sessionId: string
+      /** What a later retry must re-enter with should the delivery end up unknown. Always set by
+       *  the settle loop; optional so hand-built settlements outside it stay valid. */
+      recovery?: StructuredAgentLaunchRecovery
       promptDeliveryResult?: Promise<StructuredPromptDeliveryResult>
     }
   | {
       kind: 'cancelled'
       sessionId: string
     }
-  | { kind: 'visibility-unknown'; sessionId: string }
+  | { kind: 'visibility-unknown'; sessionId: string; recovery?: StructuredAgentLaunchRecovery }
   | { kind: 'failed'; error: unknown }
 
 export type StructuredAgentLaunchHooks = {
@@ -29,6 +33,8 @@ export type StructuredAgentLaunchHooks = {
 
 export type StructuredAgentLaunchHandle = {
   sessionId: string
+  /** What a retry must re-enter with if this launch's outcome ends up unknown. */
+  recovery: StructuredAgentLaunchRecovery
   settlement: Promise<StructuredAgentLaunchSettlement>
   promptDeliveryResult?: Promise<StructuredPromptDeliveryResult>
   cancel: () => void
@@ -67,6 +73,7 @@ async function settleStartedStructuredAgentLaunch(
     return {
       kind: 'structured',
       sessionId: receipt.sessionId,
+      recovery: launch.recovery,
       ...(launch.promptDeliveryResult ? { promptDeliveryResult: launch.promptDeliveryResult } : {})
     }
   } catch (error) {
@@ -79,7 +86,7 @@ async function settleStartedStructuredAgentLaunch(
     if (launch.isVisibilityUnknown()) {
       // Why: the state stays pending for the unknown badge and retry, but this caller is done.
       launch.releaseCallerAfterUnknownOutcome()
-      return { kind: 'visibility-unknown', sessionId: launch.sessionId }
+      return { kind: 'visibility-unknown', sessionId: launch.sessionId, recovery: launch.recovery }
     }
     return { kind: 'failed', error }
   } finally {
@@ -97,6 +104,7 @@ export function beginStructuredAgentLaunchSettlement(
   const launch = startStructuredAgentLaunch(worktreeId, agent, options)
   return {
     sessionId: launch.sessionId,
+    recovery: launch.recovery,
     settlement: settleStartedStructuredAgentLaunch(worktreeId, launch, hooks),
     cancel: () => cancelStructuredAgentLaunch(worktreeId, launch.sessionId),
     ...(launch.promptDeliveryResult ? { promptDeliveryResult: launch.promptDeliveryResult } : {})
