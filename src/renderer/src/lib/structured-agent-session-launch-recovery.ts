@@ -1,3 +1,4 @@
+import type { RuntimeMobileSessionTabsResult } from '../../../shared/runtime-session-contracts'
 import type { AgentSessionHistoryResult } from '../../../shared/agent-session-wire'
 import {
   launchStructuredAgentSession,
@@ -31,7 +32,17 @@ function throwIfLaunchCancelled(state: StructuredLaunchRecoveryState): void {
 }
 
 async function verifyPublishedSession(state: StructuredLaunchRecoveryState): Promise<void> {
-  const snapshots = await refreshLocalStructuredSessionTabs(undefined, { authoritative: true })
+  // Why: a paired Desktop's local IPC does not know a remote workspace; verify on the owning runtime.
+  const snapshots =
+    state.intent.target.kind === 'local'
+      ? await refreshLocalStructuredSessionTabs(undefined, { authoritative: true })
+      : ((
+          await callStructuredAgentSession<{ snapshots?: RuntimeMobileSessionTabsResult[] }>(
+            state.intent.target,
+            'session.tabs.listAll',
+            {}
+          )
+        ).snapshots ?? [])
   throwIfLaunchCancelled(state)
   const published = snapshots.some(
     (snapshot) =>
@@ -50,7 +61,7 @@ async function recoverPublishedSessionReceipt(
 ): Promise<StructuredAgentLaunchReceipt> {
   await verifyPublishedSession(state)
   const history = await callStructuredAgentSession<AgentSessionHistoryResult>(
-    { kind: 'local' },
+    state.intent.target,
     'agentSession.history',
     { sessionId: state.intent.sessionId, direction: 'tail', limit: 1 }
   )

@@ -106,7 +106,7 @@ function persistStructuredLaunchState(state: StructuredLaunchState): void {
     deleteStructuredAgentLaunchRecord(state.intent.sessionId)
     return
   }
-  const { envelope, resumeFrom } = state.intent.params
+  const { envelope, resumeFrom, launchOrigin } = state.intent.params
   const record: StructuredAgentLaunchPersistedRecord = {
     sessionId: state.intent.sessionId,
     agent: state.intent.agent,
@@ -114,7 +114,8 @@ function persistStructuredLaunchState(state: StructuredLaunchState): void {
     clientOperationId: envelope.clientOperationId,
     payloadFingerprint: envelope.payloadFingerprint,
     expectedRuntimeFence: envelope.expectedRuntimeFence,
-    ...(resumeFrom ? { resumeFrom } : {})
+    ...(resumeFrom ? { resumeFrom } : {}),
+    ...(launchOrigin ? { launchOrigin } : {})
   }
   writeStructuredAgentLaunchRecord(record)
 }

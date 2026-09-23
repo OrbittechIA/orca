@@ -1,5 +1,8 @@
 import type { AgentSessionHandleProvider } from '../../../shared/agent-session-provider-handle'
-import type { StructuredAgentSessionResumeSource } from '../../../shared/structured-agent-session-create'
+import type {
+  StructuredAgentSessionLaunchOrigin,
+  StructuredAgentSessionResumeSource
+} from '../../../shared/structured-agent-session-create'
 
 export type StructuredAgentLaunchPersistedLifecycle = 'pending' | 'visibility-unknown' | 'failed'
 
@@ -11,6 +14,8 @@ export type StructuredAgentLaunchPersistedRecord = {
   payloadFingerprint: string
   expectedRuntimeFence: number | null
   resumeFrom?: StructuredAgentSessionResumeSource
+  /** Part of the create fingerprint, so a restored intent must replay it verbatim. */
+  launchOrigin?: StructuredAgentSessionLaunchOrigin
 }
 
 const LAUNCH_STORAGE_KEY = 'orca:structuredAgentLaunches:v1'
@@ -42,7 +47,9 @@ function validRecord(value: unknown): value is StructuredAgentLaunchPersistedRec
     expectedRuntimeFence
   } = value
   const resumeFrom = 'resumeFrom' in value ? value.resumeFrom : undefined
+  const launchOrigin = 'launchOrigin' in value ? value.launchOrigin : undefined
   return (
+    (launchOrigin === undefined || launchOrigin === 'work-item-start') &&
     typeof sessionId === 'string' &&
     sessionId.length > 0 &&
     (agent === 'claude' || agent === 'codex') &&

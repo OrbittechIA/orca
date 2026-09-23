@@ -16,7 +16,13 @@ import {
 } from './workspace-create-params'
 import { createWorktreeWithNameRetry, type WorktreeCreateResult } from './worktree-create-retry'
 import type { WorktreeCreateAgentLaunch } from './agent-launch-worktree-create'
+import type { RuntimeTaskSettings } from './mobile-tasks-view-state-types'
+import {
+  finishComposerWorkItemStart,
+  resolveComposerWorkItemStart
+} from './composer-work-item-start'
 import type { WorktreeCreateIdempotencyProbe } from './worktree-create-idempotency-policy'
+import type { WorkItemStartRepo } from './work-item-start-route'
 
 // The agent bundle the modal resolved: `choice` drives launch resolution — the
 // host applies the agent's launch args (permission flags) and shell quoting.
@@ -36,6 +42,10 @@ export type CreateWorkspaceFromComposerArgs = {
   worktreeCreateIdempotency: WorktreeCreateIdempotencyProbe
   /** Whether the host can settle the surface itself; false keeps the agent-first create. */
   agentLaunchSupported: WorktreeCreateAgentLaunch['supported']
+  /** Only the work-item selection reads it; a branch Start has no work item to submit. */
+  runtimeSettings?: Pick<RuntimeTaskSettings, 'workItemStartPromptDelivery'> | null
+  /** The repo row the workspace is created from: a strict Start checks its execution host. */
+  targetRepo: WorkItemStartRepo
 }
 
 export async function createWorkspaceFromComposerSource(
@@ -106,10 +116,22 @@ async function createWorkItemWorkspace(args: {
   nameIsAutoManaged?: boolean
   note: string | undefined
   worktreeCreateIdempotency: WorktreeCreateIdempotencyProbe
+  runtimeSettings?: Pick<RuntimeTaskSettings, 'workItemStartPromptDelivery'> | null
+  targetRepo: WorkItemStartRepo
 }): Promise<WorktreeCreateResult> {
   const { client, selection, targetRepoId, setupDecision, agent, workspaceName, note } = args
   const item = selection.item
   const taskItem = toTaskItem(item, targetRepoId)
+  const start = await resolveComposerWorkItemStart({
+    client,
+    settings: args.runtimeSettings,
+    agent: agent.choice,
+    repo: args.targetRepo
+  })
+  if ('error' in start) {
+    return start
+  }
+  const structuredStart = start.structuredAgent !== null
 
   // The composer resolves PR/MR base at select time; only re-resolve as a
   // fallback when a linked PR/MR reached create without one.
@@ -142,19 +164,27 @@ async function createWorkItemWorkspace(args: {
     compareBaseRef,
     branchNameOverride,
     pushTarget,
-    nameIsAutoManaged: args.nameIsAutoManaged
+    nameIsAutoManaged: args.nameIsAutoManaged,
+    structuredStart
   })
   // buildTaskWorkspaceCreateParams computes the name; reuse it as the retry base
   // so collisions still append -2, -3, ... like the blank path does.
   const baseName = String(params.name)
   // Deliberately NOT routed through `agent.launch`: an agent-carrying work-item create pre-fills
   // the issue/PR URL as an unsent `startupDraft`, and a structured session has nowhere to put one
-  // — routing it would submit the URL as the first turn. Keep the terminal until drafts land.
-  return createWorktreeWithNameRetry({
+  // — routing it would submit the URL as the first turn. A strict Start instead creates no startup
+  // agent and opens its own scoped structured session below.
+  const created = await createWorktreeWithNameRetry({
     client,
     baseName,
     worktreeCreateIdempotency: args.worktreeCreateIdempotency,
     buildParams: (name) => ({ ...params, name })
+  })
+  return finishComposerWorkItemStart({
+    client,
+    created,
+    structuredAgent: start.structuredAgent,
+    prompt: item.url
   })
 }
 

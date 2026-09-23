@@ -99,11 +99,12 @@ export function writeOutbox(
 
 export function enqueueStructuredAgentSessionLaunchPrompt(
   sessionId: string,
-  text: string
+  text: string,
+  clientMessageId: string = createStructuredAgentSessionOperationId(() => crypto.randomUUID())
 ): StructuredAgentSessionOutboxEntry | null {
   const entry = {
     ...createStructuredAgentSessionOutboxEntry({
-      clientMessageId: createStructuredAgentSessionOperationId(() => crypto.randomUUID()),
+      clientMessageId,
       sessionId,
       text,
       attachments: [],
@@ -112,6 +113,47 @@ export function enqueueStructuredAgentSessionLaunchPrompt(
     source: 'launch' as const
   }
   return writeOutbox(sessionId, [...readOutbox(sessionId), entry]) ? entry : null
+}
+
+/**
+ * Re-stages a recovered launch prompt under the operation id it already owns. The host ledger keys
+ * delivery on that id, so a send it already accepted replays instead of delivering twice.
+ */
+export function restageStructuredAgentSessionLaunchPrompt(
+  sessionId: string,
+  clientMessageId: string,
+  text: string
+): StructuredAgentSessionOutboxEntry | null {
+  const existing = readOutbox(sessionId).find((entry) => entry.clientMessageId === clientMessageId)
+  return existing ?? enqueueStructuredAgentSessionLaunchPrompt(sessionId, text, clientMessageId)
+}
+
+export function findStructuredAgentSessionLaunchPrompt(
+  sessionId: string,
+  text: string
+): StructuredAgentSessionOutboxEntry | null {
+  const expected = text.trimEnd()
+  return (
+    readOutbox(sessionId).find(
+      (entry) =>
+        entry.body.blocks.length === 1 &&
+        entry.body.blocks[0]?.type === 'text' &&
+        entry.body.blocks[0].text === expected
+    ) ?? null
+  )
+}
+
+/** The staged prompt a re-entered launch left behind: by its operation id when the launch
+ *  recorded one, else by text. `null` means the delivery state was lost, not that it was sent. */
+export function findStructuredAgentSessionLaunchPromptEntry(
+  sessionId: string,
+  clientMessageId: string | null,
+  text: string
+): StructuredAgentSessionOutboxEntry | null {
+  if (clientMessageId) {
+    return readOutbox(sessionId).find((entry) => entry.clientMessageId === clientMessageId) ?? null
+  }
+  return findStructuredAgentSessionLaunchPrompt(sessionId, text)
 }
 
 export function discardStructuredAgentSessionLaunchOutbox(sessionId: string): void {

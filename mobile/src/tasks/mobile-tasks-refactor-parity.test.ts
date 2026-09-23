@@ -107,18 +107,20 @@ const hash = (parts: string[] | string): string =>
 // moves. The render-token stream gains the four tokens that one attribute is, 35,203 -> 35,207.
 // Nothing else in the family moves.
 
-const SCREEN_RPC_SCREEN_HOOKS = '0f66df2141117dfec2f8a0adb3f598312e6fda8e80833a365a645796f5ab48c3'
+// Refreshed for the Work Item Start create guard: the workspace-create hook gained one `useRef`
+// (the synchronous in-flight flag) and its three statements, and nothing else in this family moved.
+const SCREEN_RPC_SCREEN_HOOKS = '401694432c041c21a7515583b934b68f00926792c8861f45bd8ef86259c2c48a'
 const PRE_REFACTOR_DIFF_HOOKS = '93c7189b32bed8456cc51814fffa8ce80cf62011ef968a9d53ddec2b9686f58f'
-const SCREEN_RPC_STATEMENTS = 'dd8f33cb3cf96f5c39abac397cb77e35f59079291033a1866ead462b041ab979'
-const MAIN_REBASED_DECLARATIONS = '920a1b66445d10e2a64fbdbe9d7138a4ebe21bbccde1b9ac9c89267cecc584b9'
-const SCREEN_RPC_SEMANTICS = 'e07a63387d57106483ee703ec6c19dea593e0eca5c651758f42bcb36254850b7'
+const SCREEN_RPC_STATEMENTS = 'a0ede09170950e61e70f98daf3906a7bae0293e8eaf88df54d91a5d2389b827a'
+const MAIN_REBASED_DECLARATIONS = '525efce181cdfcf72d6b21215dba22d4352b4cfcf19582074a9992e5526a42e0'
+const SCREEN_RPC_SEMANTICS = '4a2f2c17ef334cba893088db21e4ca2547ee8ed1b966bc95b1f3a2c39ba9fc17'
 const PRE_REFACTOR_STYLES = '1db6af69c791d9963928541ad5310942fcbda6d984b422c90b6eb92b6816579a'
 const SCREEN_RPC_RENDER_TREE = '086742f95f1e87fb89d8c67ffd9f7a229799ae05115f9f4bcc1a925e56dcc8bb'
 
 describe('Mobile Tasks refactor parity', () => {
   it('preserves recursively flattened hook and dependency order', () => {
     const screenHooks = readFlattenedMobileTasksHookSignatures('MobileTasksScreen')
-    expect(screenHooks).toHaveLength(351)
+    expect(screenHooks).toHaveLength(352)
     expect(hash(screenHooks)).toBe(SCREEN_RPC_SCREEN_HOOKS)
 
     const diffHooks = readFlattenedMobileTasksHookSignatures('GitHubPrFileDiff')
@@ -128,7 +130,7 @@ describe('Mobile Tasks refactor parity', () => {
 
   it('preserves every screen statement in execution order', () => {
     const statements = readFlattenedMobileTasksCoreStatements()
-    expect(statements).toHaveLength(418)
+    expect(statements).toHaveLength(419)
     expect(hash(statements)).toBe(SCREEN_RPC_STATEMENTS)
   })
 
@@ -140,7 +142,7 @@ describe('Mobile Tasks refactor parity', () => {
 
   it('preserves RPC calls, runtime strings, and JSX host signatures', () => {
     const semantics = readMobileTasksSemanticSource()
-    expect(semantics.split('\n')).toHaveLength(3_274)
+    expect(semantics.split('\n')).toHaveLength(3_280)
     expect(hash(semantics)).toBe(SCREEN_RPC_SEMANTICS)
   })
 

@@ -75,6 +75,7 @@ function runtimeStub(): unknown {
   return {
     getRuntimeId: () => 'runtime-1',
     getClientSettings: () => ({ experimentalStructuredNativeChat: true }),
+    holdWorktreeLifecycle: async () => () => undefined,
     ensureStructuredAgentSessionHost: async () => undefined,
     getStructuredAgentSessionCreateSupport: async () => ({ supported: true }),
     resolveStructuredAgentSessionCreateIntent: async () => {
@@ -721,6 +722,7 @@ describe('cross-version structured agent sessions', () => {
 
     it('refuses a write still fenced to the host generation that died', async () => {
       const created = await answer('agentSession.create', createIntentParams())
+      expect(created.ok).toBe(true)
       await bootHost('b')
       const reattached = await reattach(created.fence)
       expect(reattached.fence).toBeGreaterThan(created.fence)

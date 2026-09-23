@@ -21,6 +21,10 @@ import { normalizeTerminalCustomThemes } from '../../../../shared/terminal-custo
 import { normalizeUiLanguage } from '../../../../shared/ui-language'
 import { readStoredWebRuntimeEnvironment } from '../web-runtime-environment'
 import { mergeSettings, mergeWebUIState } from './web-preference-normalization'
+import {
+  hostEnforcedSettingsInUpdate,
+  runtimeSettingsUpdatePayload
+} from './web-runtime-settings-crossing'
 import { callRuntimeResult } from './web-runtime-calls'
 import { requireActiveEnvironmentOrNull, webRuntimeState } from './web-runtime-session'
 import { SETTINGS_STORAGE_KEY, UI_STORAGE_KEY, readJson, writeJson } from './web-storage'
@@ -117,7 +121,19 @@ export async function getRuntimeBackedStoredSettings(): Promise<GlobalSettings> 
     )
     const runtimeSettings: Partial<GlobalSettings> = {}
     const currentEnvironment = requireActiveEnvironmentOrNull()
-    if (currentEnvironment?.id === requestedEnvironment.id) {
+    if (currentEnvironment && currentEnvironment.id !== requestedEnvironment.id) {
+      // The active host CHANGED while this read was in flight, so the answer describes a
+      // host this client is no longer talking to. The fence used to guard only the
+      // visibility defaults; every other mirrored field was applied anyway — including the
+      // one the host enforces, which is how a client came to believe host B had asked for a
+      // route host B then refuses.
+      //
+      // Removal is not that case and keeps its existing behaviour: with no active host
+      // there is no other host to misattribute the answer to, and discarding a completed
+      // merge would lose settings for no safety gain.
+      return local
+    }
+    {
       const visibilityDefaults = normalizeWorktreeVisibilityDefaults(
         result.settings.worktreeVisibilityDefaults
       )
@@ -158,6 +174,17 @@ export async function getRuntimeBackedStoredSettings(): Promise<GlobalSettings> 
     if (typeof result.settings.agentSkillSharingEnabled === 'boolean') {
       runtimeSettings.agentSkillSharingEnabled = result.settings.agentSkillSharingEnabled
     }
+    // The host decides whether a Work Item Start is structured, so the client has to read
+    // the host's value rather than its own. Left unmirrored, the two disagree in both
+    // directions and both are broken: a host on `submit-after-ready` still gets the legacy
+    // terminal Start from here, and a client that sets it locally drops the terminal
+    // startup for a session the host then refuses — a workspace with no writer at all.
+    if (
+      result.settings.workItemStartPromptDelivery === 'submit-after-ready' ||
+      result.settings.workItemStartPromptDelivery === 'draft'
+    ) {
+      runtimeSettings.workItemStartPromptDelivery = result.settings.workItemStartPromptDelivery
+    }
     const next = mergeSettings(local, runtimeSettings)
     writeStoredSettings(next)
     return settingsForActiveVisibilityOwner(next)
@@ -193,31 +220,8 @@ export async function syncRuntimeBackedSettings(
   if (!requestedEnvironment) {
     return localNext
   }
-  const runtimeUpdates: Partial<GlobalSettings> = {}
-  const visibilityDefaults = normalizeWorktreeVisibilityDefaults(updates.worktreeVisibilityDefaults)
-  if (visibilityDefaults) {
-    runtimeUpdates.worktreeVisibilityDefaults = visibilityDefaults
-  }
-  if (typeof updates.experimentalNewWorktreeCardStyle === 'boolean') {
-    runtimeUpdates.experimentalNewWorktreeCardStyle = updates.experimentalNewWorktreeCardStyle
-  }
-  if (typeof updates.compactWorktreeCards === 'boolean') {
-    runtimeUpdates.compactWorktreeCards = updates.compactWorktreeCards
-  }
-  if (typeof updates.minimaxGroupId === 'string') {
-    runtimeUpdates.minimaxGroupId = updates.minimaxGroupId
-  }
-  if (typeof updates.minimaxUsageModels === 'string') {
-    runtimeUpdates.minimaxUsageModels = updates.minimaxUsageModels
-  }
-  if (updates.minimaxEndpoint === 'overseas' || updates.minimaxEndpoint === 'cn') {
-    runtimeUpdates.minimaxEndpoint = updates.minimaxEndpoint
-  }
-  if (Array.isArray(updates.prBotAuthorOverrides)) {
-    runtimeUpdates.prBotAuthorOverrides = normalizePRBotAuthorOverrides(
-      updates.prBotAuthorOverrides
-    )
-  }
+  const runtimeUpdates = runtimeSettingsUpdatePayload(updates)
+  const visibilityDefaults = runtimeUpdates.worktreeVisibilityDefaults ?? null
   if (Object.keys(runtimeUpdates).length === 0) {
     return localNext
   }
@@ -244,7 +248,12 @@ export async function syncRuntimeBackedSettings(
     writeStoredSettings(next)
     return next
   } catch (error) {
-    if (visibilityDefaults) {
+    // A setting the HOST enforces must never be reported as saved when the host did not take
+    // it. Swallowing one leaves the client believing `submit-after-ready` while the host still
+    // answers `draft`: the next Work Item Start takes the strict route, drops the terminal
+    // startup, and is then definitively refused — a workspace with no writer, which is the
+    // failure this whole path exists to remove.
+    if (visibilityDefaults || hostEnforcedSettingsInUpdate(updates).length > 0) {
       throw error
     }
     // Why: unpaired/offline web clients still need local settings persistence.

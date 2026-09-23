@@ -5,10 +5,6 @@
 // not exist rather than receiving the journal or mutation surface. Session-tab
 // inventory may expose only a metadata placeholder for an incapable mobile client.
 
-import {
-  agentSessionFingerprintConflict,
-  computeAgentSessionPayloadFingerprint
-} from '../../../../shared/agent-session-mutation-envelope'
 import type { z } from 'zod'
 import {
   projectBackgroundTaskEvent,
@@ -24,18 +20,13 @@ import {
   requireStructuredCapability,
   requireStructuredCleanupHost,
   requireStructuredHost as requireHost,
-  structuredCallerFor as callerFor,
-  supportsStructuredSessions
+  structuredCallerFor as callerFor
 } from './structured-agent-session-gate'
 import type { AgentSessionAttachParams } from '../../../native-chat/agent-session-wire/structured-agent-session-attach'
-import {
-  commitStructuredAgentSessionCreate,
-  prepareStructuredAgentSessionCreateForWorktree
-} from './structured-agent-session-create'
+import { STRUCTURED_AGENT_SESSION_CREATE_METHODS } from './structured-agent-session-create-methods'
 import { STRUCTURED_AGENT_SESSION_HOLD_METHODS } from './structured-agent-session-hold'
 import { STRUCTURED_AGENT_SESSION_REVEAL_METHODS } from './structured-agent-session-reveal'
 import { STRUCTURED_AGENT_SESSION_RESTART_RESUME_METHODS } from './structured-agent-session-restart-resume'
-import { resolveUncommittedStructuredCreate } from './structured-agent-session-precommit-refusal'
 import {
   bindStructuredAgentSessionStream,
   STRUCTURED_AGENT_SESSION_STATUS_METHODS
@@ -48,8 +39,6 @@ import {
   AttachParams,
   CancelParams,
   ConversationCommandParams,
-  CreateParams,
-  CreateSupportParams,
   HistoryParams,
   HandoffParams,
   HandoffStatusParams,
@@ -69,7 +58,10 @@ import { sendStructuredAgentSessionForClient } from './structured-agent-session-
  * host the same question directly: the answer includes host-measured facts the client cannot see
  * or forge, such as whether this machine can read a provider child's process start time.
  */
-async function resolveClientSuppliedAttach(params: z.infer<typeof AttachParams>, ctx: RpcContext) {
+export async function resolveClientSuppliedAttach(
+  params: z.infer<typeof AttachParams>,
+  ctx: RpcContext
+) {
   await ensureHostInstalled(ctx)
   const host = requireHost(ctx)
   if (!host.supportsCreate(params.location, params.agent)) {
@@ -99,7 +91,7 @@ export const STRUCTURED_AGENT_SESSION_METHODS = [
     handler: async (params, ctx) => {
       requireStructuredCapability(ctx)
       await ensureHostInstalled(ctx)
-      return requireHost(ctx).rewind(callerFor(ctx), params)
+      return requireHost(ctx, params.envelope.sessionId).rewind(callerFor(ctx), params)
     }
   }),
   defineMethod({
@@ -108,7 +100,7 @@ export const STRUCTURED_AGENT_SESSION_METHODS = [
     handler: async (params, ctx) => {
       requireStructuredCapability(ctx)
       await ensureHostInstalled(ctx)
-      const host = requireHost(ctx)
+      const host = requireHost(ctx, params.envelope.sessionId)
       await host.revealSession(params.envelope.sessionId)
       const result = await host.conversationCommand(callerFor(ctx), params)
       if (result.ok && result.value.command === 'clear' && result.value.replacementSessionId) {
@@ -123,71 +115,7 @@ export const STRUCTURED_AGENT_SESSION_METHODS = [
       return result
     }
   }),
-  defineMethod({
-    name: 'agentSession.createSupport',
-    params: CreateSupportParams,
-    handler: async (params, ctx) => {
-      if (!supportsStructuredSessions(ctx)) {
-        throw new Error('structured_agent_session_unsupported')
-      }
-      return ctx.runtime.getStructuredAgentSessionCreateSupport(params.worktree, params.agent)
-    }
-  }),
-  defineMethod({
-    name: 'agentSession.create',
-    params: CreateParams,
-    handler: async (params, ctx) => {
-      requireStructuredCapability(ctx)
-      if (params.envelope.expectedRuntimeFence !== null) {
-        throw new Error('agent_session_operation_invalid')
-      }
-      // Everything up to `attach` is pre-commit, and answers with a refusal rather than a throw so
-      // a client can tell "nothing was created" from "the outcome is unknown".
-      const prepared = await resolveUncommittedStructuredCreate(async () => {
-        if ('worktree' in params) {
-          const intentFingerprint = computeAgentSessionPayloadFingerprint({
-            method: 'agentSession.create',
-            sessionId: params.envelope.sessionId,
-            // `resumeFrom` is part of the intent, not a detail of it: without it here, a retry of
-            // "adopt this conversation" would replay as, or conflict with, a blank create. The
-            // canonicalizer drops `undefined`, so plain creates keep the digest they always had.
-            fields: {
-              worktree: params.worktree,
-              agent: params.agent,
-              resumeFrom: params.resumeFrom
-            }
-          })
-          const conflict = agentSessionFingerprintConflict(params.envelope, intentFingerprint)
-          if (conflict) {
-            return { refusal: conflict }
-          }
-          return prepareStructuredAgentSessionCreateForWorktree({
-            runtime: ctx.runtime,
-            ensureHost: async () => {
-              await ensureHostInstalled(ctx)
-              return requireHost(ctx)
-            },
-            envelope: params.envelope,
-            worktree: params.worktree,
-            agent: params.agent as 'claude' | 'codex',
-            caller: callerFor(ctx),
-            ...(params.resumeFrom ? { resumeFrom: params.resumeFrom } : {})
-          })
-        }
-        const { host, attachParams } = await resolveClientSuppliedAttach(params, ctx)
-        return { host, attachParams, tab: null }
-      })
-      if ('refusal' in prepared) {
-        return { ok: false, refusal: prepared.refusal }
-      }
-      return commitStructuredAgentSessionCreate({
-        runtime: ctx.runtime,
-        caller: callerFor(ctx),
-        prepared,
-        activate: true
-      })
-    }
-  }),
+  ...STRUCTURED_AGENT_SESSION_CREATE_METHODS,
   defineMethod({
     name: 'agentSession.ensure',
     params: AttachParams,
@@ -202,7 +130,8 @@ export const STRUCTURED_AGENT_SESSION_METHODS = [
     // Stopping a turn, so it stays available after admission is revoked: see the gate's rule.
     name: 'agentSession.cancel',
     params: CancelParams,
-    handler: async (params, ctx) => requireStructuredCleanupHost(ctx).cancel(callerFor(ctx), params)
+    handler: async (params, ctx) =>
+      requireStructuredCleanupHost(ctx, params.envelope.sessionId).cancel(callerFor(ctx), params)
   }),
   defineMethod({
     // Releasing a chat view, not ending a conversation: the record and journal stay on disk so the
@@ -212,7 +141,7 @@ export const STRUCTURED_AGENT_SESSION_METHODS = [
     handler: async (params, ctx) => {
       // Cleanup gate: turning the host setting off must not strand an open chat whose owner can
       // then never close it. See the rule on `requireStructuredCleanupHost`.
-      const host = requireStructuredCleanupHost(ctx)
+      const host = requireStructuredCleanupHost(ctx, params.sessionId)
       // Terminal-disposal closes use this RPC without the session-tabs retirement RPC.
       if (typeof host.setSessionTabVisibility === 'function') {
         await host.setSessionTabVisibility(params.sessionId, false)
@@ -225,45 +154,55 @@ export const STRUCTURED_AGENT_SESSION_METHODS = [
     name: 'agentSession.respondToApproval',
     params: RespondParams,
     handler: async (params, ctx) =>
-      requireHost(ctx).respondToPrompt(callerFor(ctx), { ...params, kind: 'approval' })
+      requireHost(ctx, params.envelope.sessionId).respondToPrompt(callerFor(ctx), {
+        ...params,
+        kind: 'approval'
+      })
   }),
   defineMethod({
     name: 'agentSession.respondToQuestion',
     params: RespondParams,
     handler: async (params, ctx) =>
-      requireHost(ctx).respondToPrompt(callerFor(ctx), { ...params, kind: 'question' })
+      requireHost(ctx, params.envelope.sessionId).respondToPrompt(callerFor(ctx), {
+        ...params,
+        kind: 'question'
+      })
   }),
   defineMethod({
     name: 'agentSession.setOption',
     params: SetOptionParams,
-    handler: async (params, ctx) => requireHost(ctx).setOption(callerFor(ctx), params)
+    handler: async (params, ctx) =>
+      requireHost(ctx, params.envelope.sessionId).setOption(callerFor(ctx), params)
   }),
   defineMethod({
     name: 'agentSession.requestHandoff',
     params: HandoffParams,
-    handler: async (params, ctx) => requireHost(ctx).requestHandoff(callerFor(ctx), params)
+    handler: async (params, ctx) =>
+      requireHost(ctx, params.envelope.sessionId).requestHandoff(callerFor(ctx), params)
   }),
   defineMethod({
     name: 'agentSession.handoffStatus',
     params: HandoffStatusParams,
-    handler: async (params, ctx) => requireHost(ctx).handoffStatus(params.sessionId)
+    handler: async (params, ctx) =>
+      requireHost(ctx, params.sessionId).handoffStatus(params.sessionId)
   }),
   defineMethod({
     name: 'agentSession.options',
     params: OptionsParams,
-    handler: async (params, ctx) => requireHost(ctx).readOptions(params.sessionId)
+    handler: async (params, ctx) => requireHost(ctx, params.sessionId).readOptions(params.sessionId)
   }),
   defineMethod({
     name: 'agentSession.commands',
     params: OptionsParams,
-    handler: async (params, ctx) => requireHost(ctx).readCommands(params.sessionId)
+    handler: async (params, ctx) =>
+      requireHost(ctx, params.sessionId).readCommands(params.sessionId)
   }),
   defineMethod({
     name: 'agentSession.history',
     params: HistoryParams,
     handler: async (params, ctx) =>
       projectTurnItemHistory(
-        projectBackgroundTaskHistory(requireHost(ctx).history(params), ctx),
+        projectBackgroundTaskHistory(requireHost(ctx, params.sessionId).history(params), ctx),
         ctx
       )
   }),
@@ -271,7 +210,7 @@ export const STRUCTURED_AGENT_SESSION_METHODS = [
     name: 'agentSession.subscribe',
     params: SubscribeParams,
     handler: async (params, ctx, emit) => {
-      const host = requireHost(ctx)
+      const host = requireHost(ctx, params.sessionId)
       const subscriptionId = subscriptionIdFor(ctx, params.sessionId)
       // A live stream is a surface too: it keeps a session from being evicted while it is read and
       // releases that retention when the transport dies without a word.
@@ -314,7 +253,7 @@ export const STRUCTURED_AGENT_SESSION_METHODS = [
     handler: async (params, ctx) => {
       // Why: cleanup must stay available after the setting is disabled, so an admitted caller can
       // retire resources it already owns; the base still comes from main's shared helper.
-      requireStructuredCleanupHost(ctx)
+      requireStructuredCleanupHost(ctx, params.sessionId)
       const base = subscriptionBaseFor(ctx, params.sessionId)
       if (params.subscriptionId) {
         ctx.runtime.cleanupSubscription(`${base}:${params.subscriptionId}`)

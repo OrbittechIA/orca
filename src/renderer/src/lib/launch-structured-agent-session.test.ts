@@ -118,6 +118,34 @@ describe('structured agent session launch', () => {
     }
   )
 
+  it('identifies a Work Item Start session in the create-support probe', async () => {
+    vi.mocked(callStructuredAgentSession).mockImplementation(async (_target, method) =>
+      method === 'agentSession.createSupport'
+        ? { supported: true }
+        : { ok: true, replayed: false, value: { sessionId: 'codex_1', fence: 1 } }
+    )
+    const intent = createStructuredAgentSessionLaunchIntent(
+      'workspace-1',
+      'codex',
+      undefined,
+      'work-item-start'
+    )
+
+    await launchStructuredAgentSession(intent)
+
+    expect(callStructuredAgentSession).toHaveBeenNthCalledWith(
+      1,
+      { kind: 'local' },
+      'agentSession.createSupport',
+      {
+        worktree: 'id:workspace-1',
+        agent: 'codex',
+        sessionId: intent.sessionId,
+        launchOrigin: 'work-item-start'
+      }
+    )
+  })
+
   it.each(['claude', 'codex'] as const)(
     'refuses a %s launch the host says it cannot support, without creating',
     async (agent) => {
@@ -147,6 +175,25 @@ describe('structured agent session launch', () => {
 
   /** A worktree is not resolvable for a beat after createWorktree resolves, so the probe fails with
    *  selector_not_found instead of answering. That is "not ready", not "no". */
+  it('reads a local support probe that never answers as an unknown outcome, not a refusal', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.mocked(callStructuredAgentSession).mockImplementation(() => new Promise(() => undefined))
+      const launch = launchStructuredAgentSession(
+        createStructuredAgentSessionLaunchIntent('workspace-1', 'codex')
+      )
+      const settled = expect(launch).rejects.toBeInstanceOf(
+        StructuredAgentSessionCreateUnknownOutcomeError
+      )
+      await vi.advanceTimersByTimeAsync(10_000)
+      await settled
+      // No create was sent for a probe that never answered.
+      expect(callStructuredAgentSession).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('retries a probe the host cannot answer yet, then creates', async () => {
     const notResolvableYet = Object.assign(new Error('selector_not_found'), {
       code: 'selector_not_found'

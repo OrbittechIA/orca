@@ -6,6 +6,9 @@ import { markRpcDeliveryUnknown } from '../transport/rpc-delivery-ambiguity'
 import { useMobileSessionTerminalCreateActions } from './use-mobile-session-terminal-create-actions'
 import { SESSION_TABS_SPLIT_GROUP_PLACEMENT_RUNTIME_CAPABILITY } from '../../../src/shared/protocol-version'
 
+// Bounded so a host that never answers reads as an unanswered probe, not a hang.
+const PROBE_OPTIONS = { timeoutMs: 10_000, budgetSpansConnect: true }
+
 type PlacementTab = { id: string; parentTabId?: string }
 type PlacementUpdater = (previous: PlacementTab[]) => PlacementTab[]
 
@@ -97,10 +100,15 @@ describe('mobile + Codex tab creation routing', () => {
       await actions?.handleCreateTerminal('codex')
     })
 
-    expect(client.sendRequest).toHaveBeenNthCalledWith(1, 'agentSession.createSupport', {
-      worktree: 'id:workspace-1',
-      agent: 'codex'
-    })
+    expect(client.sendRequest).toHaveBeenNthCalledWith(
+      1,
+      'agentSession.createSupport',
+      {
+        worktree: 'id:workspace-1',
+        agent: 'codex'
+      },
+      PROBE_OPTIONS
+    )
     expect(client.sendRequest).toHaveBeenNthCalledWith(
       2,
       'agentSession.create',

@@ -6,9 +6,9 @@
  * `app/h/[hostId]/agent-history/[worktreeId].web.tsx` and everything they import. The suite next
  * door proves the whole corpus replays byte-identically or in a named class, but it proves it as
  * counts over 787 goldens, and a count cannot tell this domain's regression from another domain's
- * improvement. These 134 are the ones whose divergence would be this domain's.
+ * improvement. These 143 are the ones whose divergence would be this domain's.
  *
- * C1's 22 families are a strict subset of these 27, and their verdicts are inherited from
+ * C1's 24 families are a strict subset of these 29, and their verdicts are inherited from
  * `c1-page-closure.ts` rather than derived again. That is not tidiness: deriving them from C2's
  * classification rule disagrees with the committed file on 13 pins, in three ways that are each a
  * true statement read too far — all 7 in `tasks.smart-source-search`, all 5 in
@@ -20,10 +20,10 @@
  * is a property of the scenario a golden derives from, not of its family, so reading it family-wide
  * moves `worktree-catalog-snapshot`. The rule decides the five families C5 adds and nothing else.
  *
- * 72 replay byte for byte and 62 do not, in four of the five classes the suite next door names —
- * 50 `result-absent-settlement`, 7 `params-undefined`, 3 `result-absent-stream-release`, 2
+ * 78 replay byte for byte and 65 do not, in four of the five classes the suite next door names —
+ * 53 `result-absent-settlement`, 7 `params-undefined`, 3 `result-absent-stream-release`, 2
  * `write-ordinal`. Every one is a recorder observation artifact whose wire bytes C0.5 and C0.8
- * proved identical. What the pin buys is that the 62 are named: a sixty-third arriving is a red
+ * proved identical. What the pin buys is that the 65 are named: a sixty-sixth arriving is a red
  * test here even though every count in `BRIDGED_PARITY_BASELINE` still holds.
  *
  * The five families C5 adds are all AI Vault: `aiVault.history`, `aiVault.history-screen`,
@@ -235,5 +235,20 @@ export const C5_PAGE_CLOSURE: PageClosurePins = {
     'matrix-worktree.setup-hook-trust-ui.set-1': 'result-absent-settlement',
     'tw-setup-hook-trust-always': 'identical',
     'tw-setup-hook-trust-approved': 'identical'
+  },
+  'agentSession.structured-create': {
+    'matrix-agentsession.structured-create-agentsession.create-1': 'result-absent-settlement',
+    'matrix-agentsession.structured-create-agentsession.createsupport-1':
+      'result-absent-settlement',
+    'structured-agent-session-created': 'identical'
+  },
+  'agentSession.structured-launch': {
+    'matrix-agentsession.structured-launch-agentsession.createsupport-1':
+      'result-absent-settlement',
+    'structured-launch-created': 'identical',
+    'structured-launch-definitive-refusal': 'identical',
+    'structured-launch-replays-dropped-create': 'identical',
+    'structured-launch-support-refused': 'identical',
+    'structured-launch-unsupported': 'identical'
   }
 }

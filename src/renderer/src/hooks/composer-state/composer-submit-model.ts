@@ -1,3 +1,4 @@
+import type { WorkItemStartPromptDelivery } from '../../../../shared/agent-session-options'
 import type { TuiAgent } from '../../../../shared/tui-agent'
 import type { GitPushTarget } from '../../../../shared/worktree/types'
 import type { SetupDecision } from '../../../../shared/worktree/create-types'
@@ -65,6 +66,8 @@ export type QuickSubmitSource = {
 }
 
 export type PreparedQuickSubmit = QuickSubmitSource & {
+  /** Ausente num create comum; presente só quando o submit veio de um work item. */
+  workItemStartPromptDelivery?: WorkItemStartPromptDelivery
   effectiveSetupDecision: SetupDecision
   issueCommand: WorktreeCreationRequest['issueCommand']
   linkedLinearIssue: string | undefined

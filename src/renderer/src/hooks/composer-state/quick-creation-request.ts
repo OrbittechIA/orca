@@ -1,3 +1,4 @@
+import type { WorkItemStartPromptDelivery } from '../../../../shared/agent-session-options'
 import type { AgentStartedTelemetry } from '@/lib/worktree-startup-payload'
 import type { WorktreeCreationRequest } from '@/lib/pending-worktree-creation'
 import type { AgentStartupPlan } from '@/lib/tui-agent-startup'
@@ -47,7 +48,8 @@ export type QuickCreationRequestInput = {
   startupPlan: AgentStartupPlan | null
   quickPrompt: string
   launchDraftPrompt: string | null | undefined
-  promptDelivery: 'draft' | 'auto-submit'
+  promptDelivery: 'draft' | 'auto-submit' | 'submit-after-ready'
+  workItemStartPromptDelivery?: WorkItemStartPromptDelivery
   quickTelemetry: AgentStartedTelemetry | null
   suppressTerminalFocusOnCompletion: boolean
 }
@@ -110,6 +112,9 @@ export function buildQuickCreationRequest(
     quickPrompt: input.quickPrompt,
     ...(input.launchDraftPrompt ? { launchDraftPrompt: input.launchDraftPrompt } : {}),
     promptDelivery: input.promptDelivery,
+    ...(input.workItemStartPromptDelivery
+      ? { workItemStartPromptDelivery: input.workItemStartPromptDelivery }
+      : {}),
     quickTelemetry: input.quickTelemetry,
     ...(input.suppressTerminalFocusOnCompletion ? { suppressTerminalFocusOnCompletion: true } : {})
   }

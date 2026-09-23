@@ -126,14 +126,40 @@ export class StructuredAgentSessionStatusFeed {
   constructor(private readonly deps: StructuredAgentSessionStatusFeedDeps) {}
 
   /** Opens with every session this host has projected, live ones re-read, then only changes. */
-  subscribe(subscriber: StructuredAgentSessionStatusSubscriber): () => void {
+  /** A projeção corrente, sem assinar nada: é a leitura pontual que o `worktree ps` faz
+   *  para enxergar execuções estruturadas, que não têm linha no store de PTY. */
+  snapshot() {
+    for (const [sessionId] of this.deps.sessions) {
+      this.publish(sessionId, undefined, { replay: true })
+    }
+    return [...this.published.values()]
+  }
+
+  /** `includeSession` filtra POR ASSINANTE: uma sessão escopada não pode aparecer no
+   *  fluxo de quem não a alcança, nem no snapshot inicial nem nas publicações seguintes. */
+  subscribe(
+    subscriber: StructuredAgentSessionStatusSubscriber,
+    includeSession?: (sessionId: string) => boolean
+  ): () => void {
+    // A re-subscribe under the same id must not inherit an earlier filter, nor keep one it dropped.
+    if (includeSession) {
+      this.filters.set(subscriber.id, includeSession)
+    } else {
+      this.filters.delete(subscriber.id)
+    }
     // Re-project before registering: a change found here has to reach the subscribers that
     // already read the old value, and the arriving one carries it in its snapshot instead.
     for (const [sessionId] of this.deps.sessions) {
       this.publish(sessionId, undefined, { replay: true })
     }
     this.subscribers.set(subscriber.id, subscriber)
-    this.emit(subscriber, { type: 'snapshot', sessions: [...this.published.values()] })
+    const snapshot = scopeStatusEvent(
+      { type: 'snapshot', sessions: [...this.published.values()] },
+      includeSession
+    )
+    if (snapshot) {
+      this.emit(subscriber, snapshot)
+    }
     return () => this.unsubscribe(subscriber.id)
   }
 
@@ -158,7 +184,7 @@ export class StructuredAgentSessionStatusFeed {
     if (!subscriber) {
       return
     }
-    this.subscribers.delete(id)
+    this.drop(id)
     try {
       subscriber.emit({ type: 'end' })
     } catch {
@@ -277,10 +303,21 @@ export class StructuredAgentSessionStatusFeed {
     }
   }
 
+  private readonly filters = new Map<string, (sessionId: string) => boolean>()
+
+  /** The filter lives and dies with its subscriber, whichever path removes it. */
+  private drop(id: string): void {
+    this.subscribers.delete(id)
+    this.filters.delete(id)
+  }
+
   private broadcast(event: AgentSessionStatusEvent): void {
     // A Map skips entries deleted mid-iteration, so a failing subscriber can drop itself here.
     for (const subscriber of this.subscribers.values()) {
-      this.emit(subscriber, event)
+      const scoped = scopeStatusEvent(event, this.filters.get(subscriber.id))
+      if (scoped) {
+        this.emit(subscriber, scoped)
+      }
     }
   }
 
@@ -289,7 +326,33 @@ export class StructuredAgentSessionStatusFeed {
     try {
       subscriber.emit(event)
     } catch {
-      this.subscribers.delete(subscriber.id)
+      this.drop(subscriber.id)
     }
+  }
+}
+
+/**
+ * Every session-bearing event passes the subscriber's filter, not only the opening snapshot:
+ * a later `status` (a publish, an ownership revoke) names its session at `event.session`,
+ * and a scoped session must be as invisible there as it was at subscribe time. `end` carries
+ * no session and always reaches the subscriber. Returns `null` when nothing may be sent.
+ */
+export function scopeStatusEvent(
+  event: AgentSessionStatusEvent,
+  includeSession: ((sessionId: string) => boolean) | undefined
+): AgentSessionStatusEvent | null {
+  if (!includeSession) {
+    return event
+  }
+  switch (event.type) {
+    case 'status':
+      return includeSession(event.session.sessionId) ? event : null
+    case 'snapshot':
+      return {
+        type: 'snapshot',
+        sessions: event.sessions.filter((session) => includeSession(session.sessionId))
+      }
+    case 'end':
+      return event
   }
 }

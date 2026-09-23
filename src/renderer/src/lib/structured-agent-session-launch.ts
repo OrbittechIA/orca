@@ -6,16 +6,22 @@ import {
   retryStructuredAgentSessionLaunchIntent,
   StructuredAgentSessionCreateRefusalError
 } from '@/lib/launch-structured-agent-session'
+import { discardStructuredAgentSessionLaunchOutbox } from '@/components/native-chat/structured-agent-session-outbox-storage'
 import {
-  discardStructuredAgentSessionLaunchOutbox,
-  enqueueStructuredAgentSessionLaunchPrompt
-} from '@/components/native-chat/structured-agent-session-outbox-storage'
+  joinLaunchDelivery,
+  outboxPromptText,
+  stageLaunchPrompt,
+  stageStrictRetryPrompt
+} from '@/lib/structured-agent-session-launch-staging'
 import {
   launchAndReconcile,
   reconcileUnknownLaunch,
   type StructuredAgentLaunchReceipt
 } from '@/lib/structured-agent-session-launch-recovery'
-import type { StructuredPromptDeliveryResult } from '@/lib/structured-agent-session-launch-prompt'
+import {
+  isStrictWorkItemStartPrompt,
+  type StructuredPromptDeliveryResult
+} from '@/lib/structured-agent-session-launch-prompt'
 import {
   addStructuredLaunchCaller,
   createStructuredLaunchCallerGroup,
@@ -23,6 +29,7 @@ import {
   settleStructuredLaunchCallers,
   structuredLaunchCallersHavePendingWork,
   type StructuredAgentLaunchOptions,
+  type StructuredAgentLaunchRecovery,
   type StructuredLaunchCaller
 } from '@/lib/structured-agent-session-launch-callers'
 import * as launchDraft from './structured-agent-session-launch-draft'
@@ -62,26 +69,21 @@ type StructuredLaunchStateResult = {
 
 export type StructuredAgentLaunchResult = {
   sessionId: string
+  /** What a retry must re-enter with if this launch's outcome ends up unknown. */
+  recovery: StructuredAgentLaunchRecovery
   launchResult: Promise<StructuredAgentLaunchReceipt>
   promptDeliveryResult?: Promise<StructuredPromptDeliveryResult>
   isVisibilityUnknown: () => boolean
   releaseCallerAfterUnknownOutcome: () => boolean
 }
 
-/** What the outbox must carry: a draft goes to the composer seed instead. */
-function outboxPromptText(options: StructuredAgentLaunchOptions): string {
-  return options.promptDelivery === 'draft' ? '' : (options.prompt?.trim() ?? '')
-}
-
-function joinLaunchDelivery(
+/** The durable intent, not the joining caller, decides whether a launch is a Work Item Start. */
+function withIntentLaunchOrigin(
   options: StructuredAgentLaunchOptions,
-  established: StructuredAgentLaunchOptions['promptDelivery']
+  intent: StructuredLaunchState['intent']
 ): StructuredAgentLaunchOptions {
-  // Why: the first caller's mode wins, but with none established an absent mode reads as submit —
-  // that would send a joiner's draft it never consented to send.
-  const mode = established ?? options.promptDelivery
-  const { promptDelivery: _joinerMode, ...rest } = options
-  return mode ? { ...rest, promptDelivery: mode } : rest
+  const launchOrigin = intent.params.launchOrigin ?? options.launchOrigin
+  return launchOrigin ? { ...options, launchOrigin } : options
 }
 
 function cleanupLaunchState(state: StructuredLaunchState): void {
@@ -177,24 +179,33 @@ function structuredAgentLaunchState(
     if (retrying) {
       restartStructuredLaunchState(existing)
     }
-    const joined = joinLaunchDelivery(options, existing.promptDelivery)
-    // Why: failed launches keep their draft/outbox, so a retry must not stage the same prompt twice.
-    const text = retrying ? '' : outboxPromptText(joined)
-    const stagedPrompt = text
-      ? enqueueStructuredAgentSessionLaunchPrompt(existing.intent.sessionId, text)
-      : null
+    const joined = withIntentLaunchOrigin(
+      joinLaunchDelivery(options, existing.promptDelivery),
+      existing.intent
+    )
+    // Why: failed launches keep their draft/outbox, so a plain retry must not stage the same prompt
+    // twice; a recovery finds the operation it staged before instead of dropping its delivery. A
+    // strict retry re-attaches the prompt it never dispatched, or its Start could never complete.
+    const strictRetry = retrying && !options.recover && isStrictWorkItemStartPrompt(joined)
+    const restagesPrompt = !retrying || Boolean(options.recover) || strictRetry
+    const stagedPrompt = !restagesPrompt
+      ? null
+      : strictRetry
+        ? stageStrictRetryPrompt(existing.intent.sessionId, joined)
+        : stageLaunchPrompt(existing.intent.sessionId, joined)
     if (!retrying) {
       launchDraft.seedStructuredAgentLaunchDraft(existing.intent.sessionId, agent, joined)
     }
     const { prompt: _retryPrompt, ...joinedWithoutPrompt } = joined
-    const callerOptions = retrying ? joinedWithoutPrompt : joined
+    const callerOptions = restagesPrompt ? joined : joinedWithoutPrompt
     return {
       state: existing,
       caller: addStructuredLaunchCaller({
         group: existing.callers,
         launchResult: existing.promise,
         options: callerOptions,
-        stagedEntry: stagedPrompt
+        stagedEntry: stagedPrompt,
+        target: existing.intent.target
       })
     }
   }
@@ -202,13 +213,21 @@ function structuredAgentLaunchState(
   // Only pass the third argument when adopting: every ordinary launch keeps the two-argument call
   // it has always made, so this change adds no trailing `undefined` for call-site assertions to
   // absorb.
-  const intent = options.resumeFrom
-    ? createStructuredAgentSessionLaunchIntent(worktreeId, agent, options.resumeFrom)
-    : createStructuredAgentSessionLaunchIntent(worktreeId, agent)
+  // A recovery re-enters with the intent it persisted: the same session id and create envelope
+  // (the host replays that create, never a second session) and the prompt operation it staged.
+  const recover = options.recover
+  const intent = recover
+    ? recover.intent
+    : options.resumeFrom || options.launchOrigin
+      ? createStructuredAgentSessionLaunchIntent(
+          worktreeId,
+          agent,
+          options.resumeFrom,
+          options.launchOrigin
+        )
+      : createStructuredAgentSessionLaunchIntent(worktreeId, agent)
   const text = outboxPromptText(options)
-  const stagedPrompt = text
-    ? enqueueStructuredAgentSessionLaunchPrompt(intent.sessionId, text)
-    : null
+  const stagedPrompt = stageLaunchPrompt(intent.sessionId, options)
   launchDraft.seedStructuredAgentLaunchDraft(intent.sessionId, agent, options)
   const callers = createStructuredLaunchCallerGroup()
   const state: StructuredLaunchState = {
@@ -222,8 +241,10 @@ function structuredAgentLaunchState(
     callers
   }
   callers.onSettled = () => maybeCleanupLaunchState(state)
-  state.promise =
-    text && !stagedPrompt
+  state.promise = recover
+    ? // The session may already exist: look for it before replaying the same create.
+      reconcileUnknownLaunch(state)
+    : text && !stagedPrompt
       ? Promise.reject(
           new StructuredAgentSessionCreateRefusalError(
             `Could not durably stage the ${structuredAgentLabel(agent)} launch prompt.`
@@ -233,8 +254,9 @@ function structuredAgentLaunchState(
   const caller = addStructuredLaunchCaller({
     group: state.callers,
     launchResult: state.promise,
-    options,
-    stagedEntry: stagedPrompt
+    options: withIntentLaunchOrigin(options, intent),
+    stagedEntry: stagedPrompt,
+    target: state.intent.target
   })
   setStructuredLaunchState(state)
   notifyStructuredLaunchListeners()
@@ -267,6 +289,7 @@ export function startStructuredAgentLaunch(
   const { state, caller } = structuredAgentLaunchState(worktreeId, agent, options)
   return {
     sessionId: state.intent.sessionId,
+    recovery: { intent: state.intent, clientMessageId: caller.stagedClientMessageId },
     launchResult: state.promise,
     ...(caller.promptDeliveryResult ? { promptDeliveryResult: caller.promptDeliveryResult } : {}),
     isVisibilityUnknown: () => state.visibilityUnknown,

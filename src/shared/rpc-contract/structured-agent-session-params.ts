@@ -108,12 +108,17 @@ export const ResumeSource = z
   })
   .strict()
 
+/** The one origin that earns the narrow Work Item Start admission. A literal, not an
+ *  enum: any other value must fail validation rather than widen the admission. */
+const LaunchOrigin = z.literal('work-item-start')
+
 export const CreateIntentParams = z
   .object({
     envelope: MutationEnvelope,
     worktree: Identifier('Invalid worktree selector'),
     agent: z.enum(['claude', 'codex']),
-    resumeFrom: ResumeSource.optional()
+    resumeFrom: ResumeSource.optional(),
+    launchOrigin: LaunchOrigin.optional()
   })
   .strict()
 
@@ -121,10 +126,26 @@ export const CreateParams = z.union([AttachParams, CreateIntentParams])
 
 export const CreateSupportParams = z
   .object({
-    worktree: Identifier('Invalid worktree selector'),
-    agent: z.enum(['claude', 'codex'])
+    worktree: Identifier('Invalid worktree selector').optional(),
+    // A strict Work Item Start's probe BEFORE `worktree.create` names the source repo instead.
+    // Strict object, so a host without it rejects the params and the Start creates nothing.
+    repo: Identifier('Invalid repo selector').optional(),
+    agent: z.enum(['claude', 'codex']),
+    // A feasibility probe for an EXISTING session names it; without this the caller
+    // could only ask about a worktree, and a Work Item Start joiner needs the session.
+    sessionId: SessionId.optional(),
+    launchOrigin: LaunchOrigin.optional()
   })
   .strict()
+  .refine(
+    (value) =>
+      value.repo === undefined
+        ? value.worktree !== undefined
+        : value.worktree === undefined &&
+          value.sessionId === undefined &&
+          value.launchOrigin !== undefined,
+    { message: 'Name either a worktree, or a repo with launchOrigin and no session' }
+  )
 
 /** Clients may only author user turns. Accepting an assistant or tool role here
  *  would let one client write words into the agent's mouth in another's

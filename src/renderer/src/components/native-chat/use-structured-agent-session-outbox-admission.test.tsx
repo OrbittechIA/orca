@@ -173,7 +173,8 @@ describe('structured agent session outbox admission', () => {
       const delivery = settleStructuredAgentLaunchPrompt({
         launchResult: Promise.resolve({ sessionId: 'session-1', fence: 1 }),
         options: { prompt: 'review this' },
-        stagedEntry
+        stagedEntry,
+        target: { kind: 'local' }
       })
       await waitFor(() => expect(mocks.call).toHaveBeenCalledTimes(1))
 
