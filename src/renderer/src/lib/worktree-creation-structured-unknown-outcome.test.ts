@@ -42,10 +42,17 @@ const RECOVERY = {
   clientMessageId: 'message-op-1'
 }
 
-const store = {
+type PendingCreationState = {
+  activePendingCreationId: string | null
+  pendingWorktreeCreations: Record<string, PendingWorktreeCreation>
+}
+const pendingCreationState: PendingCreationState = {
+  activePendingCreationId: 'creation-1',
+  pendingWorktreeCreations: {}
+}
+
+const store = Object.assign(pendingCreationState, {
   activeView: 'terminal',
-  activePendingCreationId: 'creation-1' as string | null,
-  pendingWorktreeCreations: {} as Record<string, PendingWorktreeCreation>,
   repos: [],
   createWorktree: vi.fn(),
   updatePendingWorktreeCreation: vi.fn(
@@ -63,7 +70,7 @@ const store = {
   setActivePendingWorktreeCreation: vi.fn(),
   setActiveView: vi.fn(),
   setSidebarOpen: vi.fn()
-}
+})
 
 vi.mock('@/store', () => ({
   useAppStore: { getState: () => store }

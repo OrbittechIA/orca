@@ -1,5 +1,3 @@
-import { toast } from 'sonner'
-import { structuredWorkItemPromptDeliveryFailedMessage } from '@/lib/launch-work-item-direct-messages'
 import type { TuiAgent } from '../../../shared/tui-agent'
 import type { AppState } from '@/store/types'
 import { TUI_AGENT_CONFIG } from '../../../shared/tui-agent-config'
@@ -134,35 +132,4 @@ export function beginDirectWorkItemStructuredLaunch(args: {
     primaryTabId: launch.tab.id,
     launch
   }
-}
-
-/**
- * Strict delivery is proof, not intent: a strict Start only reports started once the host
- * confirmed the prompt. Without a prompt there is nothing to deliver, so it holds vacuously.
- */
-export async function settleStrictDirectWorkItemDelivery(args: {
-  launch: StructuredAgentSessionProvisionalLaunch
-  hasPrompt: boolean
-}): Promise<boolean> {
-  let settlement: Awaited<StructuredAgentSessionProvisionalLaunch['settlement']>
-  try {
-    settlement = await args.launch.settlement
-  } catch {
-    return false
-  }
-  // Why: failed, cancelled and unknown launches are surfaced by the launch layer and its chat tab.
-  if (settlement.kind !== 'structured') {
-    return false
-  }
-  if (!args.hasPrompt) {
-    return true
-  }
-  const delivery = await settlement.promptDeliveryResult
-  if (delivery?.delivered === true) {
-    return true
-  }
-  if (delivery?.failureNotified !== true && delivery?.deliveryUnknown !== true) {
-    toast.error(structuredWorkItemPromptDeliveryFailedMessage())
-  }
-  return false
 }

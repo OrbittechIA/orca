@@ -3,6 +3,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY } from '../../../src/shared/protocol-version'
 import { isUnknownRecord } from '../../../src/shared/unknown-record'
+import { EMPTY_RETIRED_NAME_REGISTRY } from '../../../src/shared/worktree/retired-name-registry'
 import { FakeSession } from '../transport/mobile-endpoint-supervisor-test-fakes'
 import type { RpcResponse } from '../transport/types'
 import type { MobileComposerCreateSelection } from '../tasks/mobile-composer-source-types'
@@ -114,7 +115,7 @@ async function mount(client: FakeSession, overrides: Partial<Args> = {}, source 
       sshGate: { status: null, requiresConnection: false, connectInProgress: false, error: null },
       composer: { ...composer, name: 'Fix Start', createSelection: source },
       note: '',
-      retiredWorktreeNames: {},
+      retiredWorktreeNames: EMPTY_RETIRED_NAME_REGISTRY,
       setupCommand: null,
       setupTrust: null,
       setupRunPolicy: 'skip-by-default',

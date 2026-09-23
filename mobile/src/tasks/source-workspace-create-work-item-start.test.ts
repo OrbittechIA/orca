@@ -88,6 +88,7 @@ function composerArgs(client: RpcClient, delivery: 'draft' | 'submit-after-ready
     workspaceName: undefined,
     note: undefined,
     worktreeCreateIdempotency: false as const,
+    agentLaunchSupported: false as const,
     runtimeSettings: { workItemStartPromptDelivery: delivery }
   }
 }

@@ -1,10 +1,13 @@
+import { toast } from 'sonner'
 import { getSetupConfig } from '@/lib/new-workspace'
+import { resolvePrHeadErrorMessage } from '@/lib/launch-work-item-direct-messages'
 import { checkRuntimeHooks } from '@/runtime/runtime-hooks-client'
 import { resolveGitHubPrStartPointForRepo } from '@/lib/github-pr-start-point'
 import type { GlobalSettings } from '../../../shared/global-settings-types'
 import type { OrcaHooks, RepoHookSettings } from '../../../shared/orca-yaml-hook-types'
 import type { SetupDecision } from '../../../shared/worktree/create-types'
 import type { GitHubPrStartPoint } from '../../../shared/worktree/types'
+import type { LaunchWorkItemDirectArgs } from '@/lib/launch-work-item-direct-types'
 
 // Why: preflight routes by the repo's owner host, which `getSettingsForRepoRuntimeOwner`
 // hands back as a narrow runtime-scope pick rather than the full GlobalSettings.
@@ -29,6 +32,28 @@ export async function resolveDirectPrStartPoint(
     baseRefName: hints.baseRefName,
     isCrossRepository: hints.isCrossRepository
   })
+}
+
+/**
+ * The start point a direct launch creates from. Direct "Use PR" launches bypass the Start-from
+ * picker, so they must still resolve the PR head before `git worktree add`; `null` means that
+ * failed and was reported.
+ */
+export async function resolveDirectWorkItemStartPoint(
+  args: Pick<LaunchWorkItemDirectArgs, 'baseBranch' | 'item' | 'repoId'>,
+  itemType: string,
+  itemNumber: number | null,
+  settings: PreflightSettings
+): Promise<Partial<GitHubPrStartPoint> | null> {
+  if (args.baseBranch || itemType !== 'pr' || !itemNumber) {
+    return { baseBranch: args.baseBranch }
+  }
+  try {
+    return await resolveDirectPrStartPoint(args.repoId, itemNumber, settings, args.item)
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : resolvePrHeadErrorMessage())
+    return null
+  }
 }
 
 export async function resolveDirectSetupDecision(

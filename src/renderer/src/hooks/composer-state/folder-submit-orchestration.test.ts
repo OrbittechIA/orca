@@ -25,7 +25,11 @@ const mocks = vi.hoisted(() => ({
     settings: null as GlobalSettings | null,
     worktreesByRepo: {},
     seedNativeChatLaunchDraft: vi.fn(),
-    updateFolderWorkspace: vi.fn()
+    updateFolderWorkspace: vi.fn(),
+    // The provisional chat tab opens before the launch settles.
+    unifiedTabsByWorktree: {},
+    createUnifiedTab: vi.fn((_worktreeId: string, _type: string, tab: { id: string }) => tab),
+    setActiveTabType: vi.fn()
   }
 }))
 
@@ -43,7 +47,8 @@ vi.mock('@/lib/new-workspace', async (importOriginal) => {
 })
 
 vi.mock('@/lib/structured-agent-session-launch', () => ({
-  startStructuredAgentLaunch: mocks.startStructuredAgentLaunch
+  startStructuredAgentLaunch: mocks.startStructuredAgentLaunch,
+  cancelStructuredAgentLaunch: vi.fn()
 }))
 
 vi.mock('sonner', () => ({ toast: { error: mocks.toastError } }))
@@ -224,10 +229,6 @@ describe('folder composer production submit', () => {
     [
       'custom command',
       { settings: { ...strictSettings, agentCmdOverrides: { codex: 'custom-codex' } } }
-    ],
-    [
-      'custom args',
-      { settings: { ...strictSettings, agentDefaultArgs: { codex: '--custom-flag' } } }
     ]
   ] satisfies [string, Partial<Input>][])(
     'refuses %s before creating',
@@ -247,6 +248,18 @@ describe('folder composer production submit', () => {
       expect(args.setCreating).toHaveBeenLastCalledWith(false)
     }
   )
+
+  // Terminal arguments are not a structured-route input (the structured session ignores them), so
+  // they neither block a strict Start nor reach the provider.
+  it('keeps a strict Start structured when only terminal arguments are customized', async () => {
+    const args = input({
+      settings: { ...strictSettings, agentDefaultArgs: { codex: '--custom-flag' } }
+    })
+    await submit(args)
+    expect(args.createFolderWorkspace).toHaveBeenCalledOnce()
+    expect(mocks.startStructuredAgentLaunch).toHaveBeenCalledOnce()
+    expect(mocks.ensureAgentStartupInTerminal).not.toHaveBeenCalled()
+  })
 
   it('keeps draft on the terminal path', async () => {
     const args = input({ settings: { ...strictSettings, workItemStartPromptDelivery: 'draft' } })

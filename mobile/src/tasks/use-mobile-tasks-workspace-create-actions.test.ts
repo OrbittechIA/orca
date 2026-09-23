@@ -37,7 +37,8 @@ const item: ActionableTaskItem = {
     labels: [],
     updatedAt: '',
     author: null,
-    repoId: 'repo-1'
+    repoId: 'repo-1',
+    repoName: 'orca'
   }
 }
 function reply(result: unknown): RpcResponse {

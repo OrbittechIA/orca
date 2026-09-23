@@ -262,7 +262,7 @@ describe('launchWorkItemDirect structured submission', () => {
     expect(pasteDraftWhenAgentReady).not.toHaveBeenCalled()
     expect(mocks.activateAndRevealWorktree).not.toHaveBeenCalled()
     expect(mocks.toastError).toHaveBeenCalledWith(
-      'Submit after ready requires a local structured Codex or Claude session without custom launch arguments. The workspace was created, but no agent or prompt was started.'
+      'Submit after ready requires a local structured Codex or Claude session without a custom launch command. The workspace was created, but no agent or prompt was started.'
     )
   })
 

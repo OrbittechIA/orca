@@ -4,6 +4,12 @@ import { isUnknownRecord } from '../../../shared/unknown-record'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as RecoveryModule from '@/lib/structured-agent-session-launch-recovery'
 
+type RendererTab = { contentType: string; entityId: string; worktreeId: string }
+
+function noRendererTabs(): Record<string, RendererTab[]> {
+  return {}
+}
+
 const mocks = vi.hoisted(() => ({
   abandonIntent: vi.fn(),
   callStructuredAgentSession: vi.fn(),
@@ -11,7 +17,7 @@ const mocks = vi.hoisted(() => ({
   launch: vi.fn(),
   seedDraft: vi.fn(),
   clearDraft: vi.fn(),
-  rendererTabs: {} as Record<string, unknown[]>,
+  rendererTabs: noRendererTabs(),
   listeners: new Set<(state: { unifiedTabsByWorktree: Record<string, unknown[]> }) => void>()
 }))
 
@@ -47,7 +53,7 @@ vi.mock('@/runtime/local-structured-session-tabs-sync', () => ({
       worktree,
       tabs: tabs.map((tab) => ({
         type: 'agent-session',
-        sessionId: (tab as { entityId: string }).entityId
+        sessionId: tab.entityId
       }))
     }))
   )

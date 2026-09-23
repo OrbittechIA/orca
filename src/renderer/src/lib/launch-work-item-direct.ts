@@ -1,4 +1,3 @@
-import { workItemStartStrictPreflightBlocks } from '@/lib/work-item-start-precreate-preflight'
 import { toast } from 'sonner'
 import { useAppStore } from '@/store'
 import {
@@ -9,17 +8,14 @@ import { planAgentCliArgsSuffix } from '@/lib/tui-agent-startup'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
 import { CLIENT_PLATFORM, getWorkspaceIntentName, getWorkspaceSeedName } from '@/lib/new-workspace'
 import {
-  structuredWorkItemLaunchUnavailableMessage,
   agentLaunchCommandErrorMessage,
   gitLabIssueNumber,
-  resolvePrHeadErrorMessage,
   unavailableAgentErrorMessage,
   workspaceActivationErrorMessage
 } from '@/lib/launch-work-item-direct-messages'
 import { ensureHooksConfirmed } from '@/lib/ensure-hooks-confirmed'
 import type { TuiAgent } from '../../../shared/tui-agent'
 import type { SetupDecision } from '../../../shared/worktree/create-types'
-import type { GitPushTarget } from '../../../shared/worktree/types'
 import { getLinearIssueWorkspaceName } from '../../../shared/workspace-name'
 import { resolveGitHubWorkItemIdentity } from '@/lib/github-work-item-identity'
 import type { buildDirectWorkItemAgentStartupPlan } from '@/lib/launch-work-item-direct-agent'
@@ -29,17 +25,20 @@ import {
 } from '@/lib/launch-work-item-direct-agent'
 import { getDirectWorkItemDraftContent } from '@/lib/launch-work-item-direct-draft'
 import {
-  resolveDirectPrStartPoint,
-  resolveDirectSetupDecision
+  resolveDirectSetupDecision,
+  resolveDirectWorkItemStartPoint
 } from '@/lib/launch-work-item-direct-preflight'
 import type { LaunchWorkItemDirectArgs } from '@/lib/launch-work-item-direct-types'
 import { resolveSourceControlLaunchPlatform } from '@/lib/source-control-launch-platform'
 import { getSettingsForRepoRuntimeOwner } from '@/lib/repo-runtime-owner'
 import { getLocalRepoProjectExecutionRuntimeContext } from '@/lib/local-preflight-context'
+import { beginDirectWorkItemStructuredLaunch } from '@/lib/launch-work-item-direct-agent-routing'
 import {
-  beginDirectWorkItemStructuredLaunch,
+  claimStrictDirectWorkItemLaunch,
+  isStrictDirectWorkItemStart,
+  refuseStrictDirectWorkItemBeforeCreate,
   settleStrictDirectWorkItemDelivery
-} from '@/lib/launch-work-item-direct-agent-routing'
+} from '@/lib/launch-work-item-direct-strict-start'
 import type { StructuredAgentSessionProvisionalLaunch } from '@/lib/structured-agent-session-provisional-tab'
 import { prepareDirectWorkItemAgentLaunch } from '@/lib/launch-work-item-direct-route-preparation'
 import {
@@ -64,7 +63,6 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
     item,
     repoId,
     openModalFallback,
-    baseBranch,
     telemetrySource,
     launchSource,
     agentOverride,
@@ -82,10 +80,7 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
   // matches the owner-routed createWorktree below, not the focused runtime.
   const repoOwnerSettings = getSettingsForRepoRuntimeOwner(store, repoId)
   const promptDelivery = args.promptDelivery ?? 'draft'
-  // Estrito por padrão quando a entrega é `submit-after-ready`: só um opt-in explícito
-  // aceita que um writer de terminal receba o prompt no lugar da sessão estruturada.
-  const structuredSessionRequired =
-    promptDelivery === 'submit-after-ready' && args.allowLegacyTerminalPromptSubmission !== true
+  const structuredSessionRequired = isStrictDirectWorkItemStart(promptDelivery, args)
   const repoConnectionId = repo.connectionId?.trim() || null
   const githubIdentity =
     item.number !== null && (item.type === 'issue' || item.type === 'pr')
@@ -148,24 +143,15 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
     linkedIssueNumber: itemType === 'issue' ? (itemNumber ?? null) : null,
     linkedPR: itemType === 'pr' ? (itemNumber ?? null) : null
   })
-  let resolvedBaseBranch = baseBranch
-  let resolvedPushTarget: GitPushTarget | undefined
-  let resolvedBranchNameOverride: string | undefined
-  let resolvedCompareBaseRef: string | undefined
-  if (!resolvedBaseBranch && itemType === 'pr' && itemNumber) {
-    try {
-      // Why: direct "Use PR" launches bypass the Start-from picker, so they
-      // must still resolve the PR head before `git worktree add`.
-      const result = await resolveDirectPrStartPoint(repoId, itemNumber, repoOwnerSettings, item)
-      resolvedBaseBranch = result.baseBranch
-      resolvedPushTarget = result.pushTarget
-      resolvedBranchNameOverride = result.branchNameOverride
-      resolvedCompareBaseRef = result.compareBaseRef
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : resolvePrHeadErrorMessage())
-      openModalFallback()
-      return false
-    }
+  const startPoint = await resolveDirectWorkItemStartPoint(
+    args,
+    itemType,
+    itemNumber,
+    repoOwnerSettings
+  )
+  if (!startPoint) {
+    openModalFallback()
+    return false
   }
 
   let worktreeId: string,
@@ -178,20 +164,11 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
   let structuredLaunchCompleted = false
   let strictLaunch: StructuredAgentSessionProvisionalLaunch | undefined
   const draftContent = await getDirectWorkItemDraftContent(item, repoConnectionId)
-
+  const strictInputs = { draftContent, detectedAgentsPromise, settings }
   if (
     structuredSessionRequired &&
-    (await workItemStartStrictPreflightBlocks({
-      agentOverride,
-      draftContent,
-      detectedAgentsPromise,
-      repo,
-      repoConnectionId,
-      repoId,
-      settings
-    }))
+    (await refuseStrictDirectWorkItemBeforeCreate(args, repo, strictInputs))
   ) {
-    toast.error(structuredWorkItemLaunchUnavailableMessage())
     return false
   }
   let startupPlanFailed = false
@@ -199,17 +176,17 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
     const result = await store.createWorktree(
       repoId,
       workspaceName,
-      resolvedBaseBranch,
+      startPoint.baseBranch,
       finalSetupDecision,
       undefined,
       telemetrySource,
       workspaceIntentName?.displayName ?? item.title,
       itemType === 'issue' && itemNumber ? itemNumber : undefined,
       itemType === 'pr' && itemNumber ? itemNumber : undefined,
-      resolvedPushTarget,
+      startPoint.pushTarget,
       undefined,
       item.linearIdentifier,
-      resolvedBranchNameOverride,
+      startPoint.branchNameOverride,
       undefined,
       itemType === 'mr' && itemNumber ? itemNumber : undefined,
       gitLabIssueNumber({ ...item, type: itemType, number: itemNumber }),
@@ -221,7 +198,7 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
       undefined,
       undefined,
       undefined,
-      resolvedCompareBaseRef
+      startPoint.compareBaseRef
     )
     worktreeId = result.worktree.id
     worktreePath = result.worktree.path
@@ -270,14 +247,12 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
         defaultTabs: result.defaultTabs,
         ...(launchPreparation.structuredLaunch
           ? { providesInitialSurface: true }
-          : strictRouteLost
-            ? {}
-            : buildDirectWorkItemStartupOpts(
-                effectiveAgent,
-                startupPlan,
-                launchSource,
-                promptDelivery === 'draft' ? draftContent : undefined
-              ))
+          : buildDirectWorkItemStartupOpts(
+              effectiveAgent,
+              strictRouteLost ? null : startupPlan,
+              launchSource,
+              promptDelivery === 'draft' ? draftContent : undefined
+            ))
       })
       return activationHolder.value !== false
     }
@@ -296,15 +271,11 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
       toast.error(workspaceActivationErrorMessage())
       return false
     }
-    if (strictRouteLost) {
-      toast.error(structuredWorkItemLaunchUnavailableMessage())
-      return false
-    }
     if (structuredSessionRequired) {
-      if (!structuredResult.launch) {
+      strictLaunch = claimStrictDirectWorkItemLaunch(strictRouteLost, structuredResult.launch)
+      if (!strictLaunch) {
         return false
       }
-      strictLaunch = structuredResult.launch
     }
     structuredLaunchCompleted = structuredResult.completed
     primaryTabId = structuredResult.completed
