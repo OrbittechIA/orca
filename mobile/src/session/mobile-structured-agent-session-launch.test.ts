@@ -159,6 +159,17 @@ describe('mobile structured agent-session launch', () => {
     expect(client.sendRequest).toHaveBeenCalledTimes(1)
   })
 
+  it('reads a host without the support method as a verdict, not an unanswered probe', async () => {
+    const client = clientReturning({
+      ok: false,
+      error: { code: 'method_not_found', message: 'Unknown method' }
+    })
+
+    await expect(
+      createMobileStructuredAgentSession(client, 'workspace-1', 'claude')
+    ).resolves.toEqual({ kind: 'unsupported' })
+  })
+
   it('keeps an unknown create outcome distinct so callers do not create a duplicate terminal', async () => {
     const client = clientReturning({ ok: true, result: { supported: true } })
     client.sendRequest.mockImplementationOnce(async () => ({

@@ -138,7 +138,14 @@ export async function createMobileStructuredAgentSession(
     typeof supportResponse.ok !== 'boolean' ||
     !supportResponse.ok
   ) {
-    // Uma resposta malformada ou `ok: false` também não é veredito: é sonda sem resposta.
+    // Um host sem o método respondeu, e a resposta é veredito: não tem rota estruturada.
+    if (
+      supportResponse?.ok === false &&
+      isDefinitiveAgentSessionCreateRefusal(supportResponse.error?.code)
+    ) {
+      return { kind: 'unsupported' }
+    }
+    // Uma resposta malformada ou outro `ok: false` não é veredito: é sonda sem resposta.
     return { kind: 'unsupported', probeFailed: true }
   }
   const support = supportResponse.result as StructuredCreateSupport | null

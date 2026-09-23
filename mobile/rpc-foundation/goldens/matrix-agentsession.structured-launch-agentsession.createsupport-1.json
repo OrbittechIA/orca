@@ -4,11 +4,11 @@
   "namedDeltas": [],
   "runnerVersion": 1,
   "baseline": "e8a7be4ce24a3c4fed44b4488966db6f7596e396",
-  "lockfileSha256": "afafc16f7989373be291e3475af6b99bda6b9235f9e446398a94c5e49411188f",
+  "lockfileSha256": "650a446bd78a8c00bd70d9fec0d2f88f225bde885d7e050d1436f52045dce0db",
   "recorderSha256": "f67c2f5b753d2a4f572599f6861fae8e6e917fe89ac75b58288f8e84be609d86",
   "adapterSha256": "d340697a64a198066b1037a550afb9a0de7507246a545901d2fc0a23407f38d6",
   "scenarioSha256": "211e3780edc0ff5fa0529c0de0e8bc2fd746a19c8a6b4e49900f6c4e56d53f7c",
-  "platform": "darwin",
+  "platform": "linux",
   "scenarioVersion": 1,
   "projectionVersion": 2,
   "goldenFormatVersion": 5,
@@ -174,6 +174,15 @@
         "kind": "unsupported"
       }
     },
+    "5342fdf67056": {
+      "status": "fulfilled",
+      "startedAt": 0,
+      "settledAt": 0,
+      "value": {
+        "kind": "unsupported",
+        "probeFailed": true
+      }
+    },
     "551313dcc738": {
       "launched": {
         "kind": "unsupported",
@@ -255,6 +264,12 @@
             "supported": false
           }
         }
+      }
+    },
+    "61cdc6b785a8": {
+      "launched": {
+        "kind": "unsupported",
+        "probeFailed": true
       }
     },
     "8201501565d9": {
@@ -533,9 +548,9 @@
           "sender": ["553200ba8c0f"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
-            "claude": "2c227fd1941f"
+            "claude": "5342fdf67056"
           },
-          "state": "f40adca316f9",
+          "state": "61cdc6b785a8",
           "effects": []
         }
       },
@@ -545,9 +560,9 @@
           "sender": ["0dd78669f08d"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
-            "claude": "2c227fd1941f"
+            "claude": "5342fdf67056"
           },
-          "state": "f40adca316f9",
+          "state": "61cdc6b785a8",
           "effects": []
         }
       },
@@ -569,9 +584,9 @@
           "sender": ["da841ebfb6b9"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
-            "claude": "2c227fd1941f"
+            "claude": "5342fdf67056"
           },
-          "state": "f40adca316f9",
+          "state": "61cdc6b785a8",
           "effects": []
         }
       },
@@ -581,9 +596,9 @@
           "sender": ["a4da7b5347e4"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
-            "claude": "2c227fd1941f"
+            "claude": "5342fdf67056"
           },
-          "state": "f40adca316f9",
+          "state": "61cdc6b785a8",
           "effects": []
         }
       }
