@@ -33,8 +33,10 @@ export const STRUCTURED_AGENT_SESSION_HOLD_METHODS = [
     name: 'agentSession.hold',
     params: HoldParams,
     handler: async (params, ctx) => {
-      await ensureStructuredHostInstalled(ctx)
-      const host = requireStructuredHost(ctx)
+      // Session-scoped: a Work Item Start session is held by its owner alone, even with the
+      // global setting off.
+      await ensureStructuredHostInstalled(ctx, { sessionId: params.sessionId })
+      const host = requireStructuredHost(ctx, params.sessionId)
       const holderKey = holderKeyFor(ctx, params.holderId)
       const registration = ctx.runtime.registerOwnedSubscriptionCleanup(
         holdCleanupIdFor(params.sessionId, holderKey),

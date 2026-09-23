@@ -1,5 +1,6 @@
 import {
   STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
+  WORK_ITEM_START_STRUCTURED_SESSION_CLIENT_CAPABILITY,
   type RuntimeCapability
 } from '../../../../shared/protocol-version'
 import type { OrcaRuntimeService } from '../../orca-runtime'
@@ -31,6 +32,17 @@ export function supportsStructuredAgentSessionCapability(
   return (
     context.clientKind === undefined ||
     context.clientCapabilities?.includes(STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY) === true
+  )
+}
+
+/** Reach into Work Item Start sessions only; never implies the generic capability above. */
+export function supportsWorkItemStartClientCapability(
+  context: Pick<StructuredPolicyContext, 'clientCapabilities' | 'clientKind'>
+): boolean {
+  return (
+    supportsStructuredAgentSessionCapability(context) ||
+    context.clientCapabilities?.includes(WORK_ITEM_START_STRUCTURED_SESSION_CLIENT_CAPABILITY) ===
+      true
   )
 }
 
@@ -82,7 +94,7 @@ export function structuredWorkItemStartCallerAuthority(
     'clientCapabilities' | 'clientKind' | 'localDesktopAuthority' | 'pairedDeviceId'
   >
 ): StructuredAgentSessionLaunchAuthority | null {
-  if (context.clientKind !== 'runtime' || !supportsStructuredAgentSessionCapability(context)) {
+  if (context.clientKind !== 'runtime' || !supportsWorkItemStartClientCapability(context)) {
     return null
   }
   if (context.localDesktopAuthority === true) {

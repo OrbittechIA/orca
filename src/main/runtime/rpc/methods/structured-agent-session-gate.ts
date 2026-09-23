@@ -32,8 +32,13 @@ export function supportsStructuredSessions(ctx: RpcContext): boolean {
   return supportsStructuredAgentSessions(ctx)
 }
 
+/** Wire admission only: a Start-only client passes here, and `requireStructuredHost` then limits it
+ *  to the Work Item Start sessions it owns. */
 export function requireStructuredCapability(ctx: RpcContext): void {
-  if (!supportsStructuredAgentSessionCapability(ctx)) {
+  if (
+    !supportsStructuredAgentSessionCapability(ctx) &&
+    structuredWorkItemStartCallerAuthority(ctx) === null
+  ) {
     throw new Error('structured_agent_session_unsupported')
   }
 }
@@ -90,9 +95,8 @@ export function isWorkItemStartStructuredSession(
   host: StructuredAgentSessionHost | null,
   sessionId: string
 ): boolean {
-  // Defensivo de propósito: um host de versão anterior não expõe o store de registros,
-  // e versões mistas são o estado normal. Sem store não existe sessão escopada — e
-  // estourar aqui derrubaria toda a superfície para um cliente antigo.
+  // Defensive on purpose: an older host exposes no record store, and mixed versions are normal.
+  // Without a store there is no scoped session, and throwing would break the whole surface.
   return host?.deps?.store?.getRecord?.(sessionId)?.launchOrigin === 'work-item-start'
 }
 
@@ -106,13 +110,23 @@ export function requireStructuredHost(
     throw new Error('structured_agent_session_unsupported')
   }
   if (
-    sessionId && isWorkItemStartStructuredSession(host, sessionId)
-      ? !canAccessWorkItemStartStructuredSession(ctx, sessionId)
-      : !supportsStructuredSessions(ctx)
+    sessionId ? !canReachStructuredSession(ctx, host, sessionId) : !supportsStructuredSessions(ctx)
   ) {
     throw new Error('structured_agent_session_unsupported')
   }
   return host
+}
+
+/** Whether this caller may address `sessionId` at all: its own Start session, or any other
+ *  session under global admission. */
+export function canReachStructuredSession(
+  ctx: RpcContext,
+  host: StructuredAgentSessionHost,
+  sessionId: string
+): boolean {
+  return isWorkItemStartStructuredSession(host, sessionId)
+    ? canAccessWorkItemStartStructuredSession(ctx, sessionId)
+    : supportsStructuredSessions(ctx)
 }
 
 export function requireStructuredCreateHost(
@@ -175,17 +189,12 @@ export function requireStructuredCleanupHost(
   ctx: RpcContext,
   sessionId: string
 ): StructuredAgentSessionHost {
-  if (!supportsStructuredAgentSessionCapability(ctx)) {
-    throw new Error('structured_agent_session_unsupported')
-  }
   const host = getStructuredAgentSessionHost()
-  if (!host) {
-    throw new Error('structured_agent_session_unsupported')
-  }
-  if (
-    isWorkItemStartStructuredSession(host, sessionId) &&
-    !canAccessWorkItemStartStructuredSession(ctx, sessionId)
-  ) {
+  const admitted =
+    host && isWorkItemStartStructuredSession(host, sessionId)
+      ? canAccessWorkItemStartStructuredSession(ctx, sessionId)
+      : supportsStructuredAgentSessionCapability(ctx)
+  if (!admitted || !host) {
     throw new Error('structured_agent_session_unsupported')
   }
   return host
@@ -197,13 +206,19 @@ export function requireStructuredCleanupHost(
  *  addresses a session that must already be attached, and correctly reports absent when none is. */
 export async function ensureStructuredHostInstalled(
   ctx: RpcContext,
-  scoped?: { sessionId?: string; launchOrigin?: StructuredAgentSessionLaunchOrigin }
+  scoped?: {
+    sessionId?: string
+    launchOrigin?: StructuredAgentSessionLaunchOrigin
+    /** Lists only the caller's own Work Item Start sessions, so Start authority suffices. */
+    workItemStartOnly?: true
+  }
 ): Promise<void> {
   // Gated first: a client that cannot read structured sessions must not be able
   // to make the host exist, which is an observable side effect of the surface.
   const mayInstallForScopedSession =
     structuredWorkItemStartCallerAuthority(ctx) !== null &&
     (Boolean(scoped?.sessionId) ||
+      scoped?.workItemStartOnly === true ||
       supportsWorkItemStartStructuredSessionCreate(ctx, scoped?.launchOrigin))
   if (!supportsStructuredSessions(ctx) && !mayInstallForScopedSession) {
     return

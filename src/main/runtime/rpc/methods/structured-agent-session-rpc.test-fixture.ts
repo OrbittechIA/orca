@@ -178,8 +178,8 @@ export function hostStub(): StructuredAgentSessionHost {
     unsubscribe: vi.fn(),
     release: vi.fn()
   })
-  // O gate escopado do Work Item Start lê o registro pelo store do host; sem expor
-  // `deps.store` a fixture não consegue exercer nem a admissão nem a recusa.
+  // The scoped Work Item Start gate reads the record through the host store; without
+  // `deps.store` the fixture could exercise neither admission nor refusal.
   // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the dispatcher suites exercise the host through `hostCalls` plus `deps.store`; every member they reach is a spy declared above.
   return {
     ...hostCalls,
@@ -252,8 +252,8 @@ type FixtureClient = {
   connectionId?: string
   clientKind?: 'mobile' | 'runtime'
   clientCapabilities?: string[]
-  // O gate do Work Item Start decide por estes dois; sem eles a fixture não consegue
-  // exercer nem a autoridade local nem a de device pareado.
+  // The Work Item Start gate decides on these two; without them the fixture could exercise
+  // neither local nor paired-device authority.
   localDesktopAuthority?: true
   pairedDeviceId?: string
   signal?: AbortSignal

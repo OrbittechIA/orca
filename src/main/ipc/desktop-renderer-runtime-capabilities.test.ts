@@ -21,6 +21,7 @@ import {
   SESSION_TAB_CLOSE_INTENT_RUNTIME_CAPABILITY,
   SESSION_TABS_RETIREMENT_PROOF_DELTA_RUNTIME_CAPABILITY,
   STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
+  WORK_ITEM_START_STRUCTURED_SESSION_CLIENT_CAPABILITY,
   WORKTREE_GITHUB_PR_SUPPRESSION_RUNTIME_CAPABILITY,
   WORKTREE_VISIBILITY_DEFAULTS_RUNTIME_CAPABILITY,
   WORKTREE_VISIBILITY_SOURCE_DEFAULTS_RUNTIME_CAPABILITY,
@@ -47,16 +48,18 @@ const REMOTE_ONLY_BY_DECISION: readonly RuntimeCapability[] = [
   BROWSER_CLIENT_HOST_RUNTIME_CAPABILITY,
   BROWSER_CLIENT_PAGE_METADATA_RUNTIME_CAPABILITY,
   // Opts into a delta feed in place of the full tab list — a remote-transport concern.
-  SESSION_TABS_RETIREMENT_PROOF_DELTA_RUNTIME_CAPABILITY
+  SESSION_TABS_RETIREMENT_PROOF_DELTA_RUNTIME_CAPABILITY,
+  // A paired desktop reaches only its own Start sessions; locally the generic capability covers it.
+  WORK_ITEM_START_STRUCTURED_SESSION_CLIENT_CAPABILITY
 ]
 
 /** Gates the renderer must pass against its own main process. The Electron remote list omits all
- *  three. The structured-session capabilities are advertised on both sides: a paired Desktop Work
- *  Item Start is refused by `requireStructuredCapability` without them. */
+ *  of them; generic structured reach stays local so a paired desktop never gains it for Start. */
 const LOCAL_ONLY_BY_DECISION: readonly RuntimeCapability[] = [
   AGENT_SESSION_BACKGROUND_TASK_STOP_CAPABILITY,
   AGENT_SESSION_BACKGROUND_TASK_ROW_STOP_CAPABILITY,
-  AGENT_SESSION_TURN_ITEM_CAPABILITY
+  AGENT_SESSION_TURN_ITEM_CAPABILITY,
+  STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY
 ]
 
 function missingFrom(
@@ -105,13 +108,21 @@ describe('desktop renderer runtime client capabilities', () => {
     ).toEqual([...LOCAL_ONLY_BY_DECISION].sort())
   })
 
-  it('advertises the structured-session gates to both hosts', () => {
-    for (const capability of [
-      STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
-      CLAUDE_STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY
+  it('grants paired desktops Start-scoped reach, never the generic structured capability', () => {
+    expect(DESKTOP_RENDERER_RUNTIME_CLIENT_CAPABILITIES).toContain(
+      STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY
+    )
+    expect(ELECTRON_REMOTE_RUNTIME_CLIENT_CAPABILITIES).not.toContain(
+      STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY
+    )
+    expect(ELECTRON_REMOTE_RUNTIME_CLIENT_CAPABILITIES).toContain(
+      WORK_ITEM_START_STRUCTURED_SESSION_CLIENT_CAPABILITY
+    )
+    for (const list of [
+      DESKTOP_RENDERER_RUNTIME_CLIENT_CAPABILITIES,
+      ELECTRON_REMOTE_RUNTIME_CLIENT_CAPABILITIES
     ]) {
-      expect(DESKTOP_RENDERER_RUNTIME_CLIENT_CAPABILITIES).toContain(capability)
-      expect(ELECTRON_REMOTE_RUNTIME_CLIENT_CAPABILITIES).toContain(capability)
+      expect(list).toContain(CLAUDE_STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY)
     }
   })
 })

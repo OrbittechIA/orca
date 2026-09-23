@@ -176,6 +176,9 @@ export const CLAUDE_STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY =
  *  client must not drop the terminal startup from `worktree.create` against a host lacking it. */
 export const WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY =
   'agent-session.work-item-start.v1' as const
+// Client twin: reach into the caller's own Start sessions only, never ordinary structured chats.
+export const WORK_ITEM_START_STRUCTURED_SESSION_CLIENT_CAPABILITY =
+  'agent-session.work-item-start.client.v1' as const
 // Why: paired structured clients explicitly hold every visible session surface, allowing the host
 // to stop provider children after the last surface closes without tying lifetime to a transport.
 export const STRUCTURED_AGENT_SESSION_HOLD_RUNTIME_CAPABILITY =
@@ -297,10 +300,8 @@ export const ELECTRON_REMOTE_RUNTIME_CLIENT_CAPABILITIES = [
   BROWSER_CLIENT_PAGE_METADATA_RUNTIME_CAPABILITY,
   // Why: only the renderer runs the retirement-proof ledger; CLI and mobile must keep full lists.
   SESSION_TABS_RETIREMENT_PROOF_DELTA_RUNTIME_CAPABILITY,
-  // Why: the desktop renderer IS the structured native chat client. `requireStructuredCapability`
-  // refuses every `agentSession.*` from a `runtime`-scoped client that has not said so, so without
-  // these a paired Desktop Work Item Start is refusable by construction.
-  STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
+  // Why: Start-scoped only; a paired desktop never gains generic structured-session reach.
+  WORK_ITEM_START_STRUCTURED_SESSION_CLIENT_CAPABILITY,
   CLAUDE_STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY
 ] as const
 

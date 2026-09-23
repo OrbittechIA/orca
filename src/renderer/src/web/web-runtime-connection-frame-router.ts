@@ -7,7 +7,7 @@ import {
   CLAUDE_STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
   SESSION_TAB_CLOSE_INTENT_RUNTIME_CAPABILITY,
   SESSION_TABS_RETIREMENT_PROOF_DELTA_RUNTIME_CAPABILITY,
-  STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
+  WORK_ITEM_START_STRUCTURED_SESSION_CLIENT_CAPABILITY,
   WORKTREE_GITHUB_PR_SUPPRESSION_RUNTIME_CAPABILITY,
   WORKTREE_VISIBILITY_DEFAULTS_RUNTIME_CAPABILITY,
   WORKTREE_VISIBILITY_SOURCE_DEFAULTS_RUNTIME_CAPABILITY
@@ -70,12 +70,9 @@ export async function routeWebRuntimeConnectionFrame(
             WORKTREE_GITHUB_PR_SUPPRESSION_RUNTIME_CAPABILITY,
             WORKTREE_VISIBILITY_DEFAULTS_RUNTIME_CAPABILITY,
             WORKTREE_VISIBILITY_SOURCE_DEFAULTS_RUNTIME_CAPABILITY,
-            // Este cliente monta o renderer inteiro, logo roda native chat estruturado.
-            // `requireStructuredCapability` recusa todo `agentSession.*` de um cliente
-            // `runtime` que não declarou isto, e um Work Item Start pareado ficaria
-            // recusável por construção. Só estas duas entram: anunciar uma capacidade
-            // que este cliente não implementa é o risco oposto, e igualmente real.
-            STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
+            // Start-scoped only: the web client drives its own Work Item Start sessions
+            // without gaining generic structured-session reach on the host.
+            WORK_ITEM_START_STRUCTURED_SESSION_CLIENT_CAPABILITY,
             CLAUDE_STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY
           ]
         })
