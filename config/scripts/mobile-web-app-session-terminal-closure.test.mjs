@@ -183,8 +183,17 @@ const MERMAID_PACKAGE = 'node_modules/mermaid/'
  *
  * Measured, not derived: `mobile-web-app-session-dictation-capture.test.mjs` moves the web file
  * aside and walks the closure again, which puts those eight back.
+ *
+ * Then Native Work Item Start put the composer's structured Start on the page.
+ *
+ *   modules        4323 -> 4329   (+6)
+ *
+ * All six are local: `src/tasks/composer-work-item-start.ts`,
+ * `work-item-start-structured-session.ts` and `work-item-start-settings-refresh.ts`, the
+ * `src/session/mobile-native-chat-write-timeout.ts` leaf that keeps the native-chat write path out
+ * of the Tasks page, and the shared `agent-session-options.ts` and `unknown-record.ts`.
  */
-const SESSION_ROUTE_MODULES = 4323
+const SESSION_ROUTE_MODULES = 4329
 
 const artifactModules = (inputs) => inputs.filter((input) => input.includes(MERMAID_PAGE_ENGINE))
 const packageModules = (inputs) => inputs.filter((input) => input.includes(MERMAID_PACKAGE))

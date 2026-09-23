@@ -51,14 +51,12 @@ const REMOTE_ONLY_BY_DECISION: readonly RuntimeCapability[] = [
 ]
 
 /** Gates the renderer must pass against its own main process. The Electron remote list omits all
- *  five; mobile advertises the structured ones, so this is an Electron-remote gap rather than a
- *  statement that no remote client wants them. Why it is one is not recorded here. */
+ *  three. The structured-session capabilities are advertised on both sides: a paired Desktop Work
+ *  Item Start is refused by `requireStructuredCapability` without them. */
 const LOCAL_ONLY_BY_DECISION: readonly RuntimeCapability[] = [
   AGENT_SESSION_BACKGROUND_TASK_STOP_CAPABILITY,
   AGENT_SESSION_BACKGROUND_TASK_ROW_STOP_CAPABILITY,
-  AGENT_SESSION_TURN_ITEM_CAPABILITY,
-  STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
-  CLAUDE_STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY
+  AGENT_SESSION_TURN_ITEM_CAPABILITY
 ]
 
 function missingFrom(
@@ -105,5 +103,15 @@ describe('desktop renderer runtime client capabilities', () => {
         ELECTRON_REMOTE_RUNTIME_CLIENT_CAPABILITIES
       )
     ).toEqual([...LOCAL_ONLY_BY_DECISION].sort())
+  })
+
+  it('advertises the structured-session gates to both hosts', () => {
+    for (const capability of [
+      STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
+      CLAUDE_STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY
+    ]) {
+      expect(DESKTOP_RENDERER_RUNTIME_CLIENT_CAPABILITIES).toContain(capability)
+      expect(ELECTRON_REMOTE_RUNTIME_CLIENT_CAPABILITIES).toContain(capability)
+    }
   })
 })

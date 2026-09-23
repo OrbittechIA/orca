@@ -5,17 +5,20 @@
  * C1 moves a screen to the web: `app/h/_layout.tsx` and `app/h/[hostId]/index.tsx` and everything
  * they import. The suite next door already proves the corpus replays byte-identically or in a named
  * class, but it proves it as counts over 787 goldens, and a count is the wrong instrument for the
- * claim C1 needs. These 103 are the ones whose divergence would be this domain's divergence, so
+ * claim C1 needs. These 112 are the ones whose divergence would be this domain's divergence, so
  * each is pinned by id to the verdict it gives, not counted into a total another golden can pay for.
  *
- * The rule is not "none excluded". 54 replay byte for byte and 49 do not, in four of the five
- * classes the suite next door names — 37 `result-absent-settlement`, 7 `params-undefined`, 3
+ * The rule is not "none excluded". 60 replay byte for byte and 52 do not, in four of the five
+ * classes the suite next door names — 40 `result-absent-settlement`, 7 `params-undefined`, 3
  * `result-absent-stream-release`, 2 `write-ordinal`. Every one is a recorder observation artifact
  * whose wire bytes C0.5 and C0.8 proved identical: what differs is the shape the recorder injects
  * below the frame boundary, or the pre-serialization object a step is matched against, and neither
- * is something a transport carries. What the pin buys is that the 49 are named. A fiftieth arriving
+ * is something a transport carries. What the pin buys is that the 52 are named. A fifty-third arriving
  * is a red test here even though every count in `BRIDGED_PARITY_BASELINE` still holds, because the
  * class it joined has room in its bound for a golden that left.
+ *
+ * The two `agentSession.structured-*` families joined with Native Work Item Start: the layout's
+ * new-workspace composer opens the Start's structured session, so every page reaches them.
  *
  * Derived from the value-import closure of the two route modules with `.web.*` resolution applied,
  * against the module each operation's mount adapter loads. `mobileWeb.bundle-manifest` is not here:
@@ -177,5 +180,20 @@ export const C1_PAGE_CLOSURE: PageClosurePins = {
   'worktree.retired-names': {
     'matrix-worktree.retired-names-worktree.listretirednames-1': 'result-absent-settlement',
     'worktree-retired-names': 'identical'
+  },
+  'agentSession.structured-create': {
+    'matrix-agentsession.structured-create-agentsession.create-1': 'result-absent-settlement',
+    'matrix-agentsession.structured-create-agentsession.createsupport-1':
+      'result-absent-settlement',
+    'structured-agent-session-created': 'identical'
+  },
+  'agentSession.structured-launch': {
+    'matrix-agentsession.structured-launch-agentsession.createsupport-1':
+      'result-absent-settlement',
+    'structured-launch-created': 'identical',
+    'structured-launch-definitive-refusal': 'identical',
+    'structured-launch-replays-dropped-create': 'identical',
+    'structured-launch-support-refused': 'identical',
+    'structured-launch-unsupported': 'identical'
   }
 }
