@@ -149,6 +149,7 @@ function expectStrictCreate(client: FakeSession) {
   expect(client.sendRequest.mock.calls.map((call) => call[0])).toEqual([
     'settings.get',
     'status.get',
+    'agentSession.createSupport',
     'worktree.create',
     'agentSession.createSupport',
     'agentSession.create',
@@ -156,7 +157,9 @@ function expectStrictCreate(client: FakeSession) {
   ])
   expect(requestParams(client, 'worktree.create')).not.toHaveProperty('startupDraft')
   expect(requestParams(client, 'worktree.create')).not.toHaveProperty('startupAgent')
+  // The first probe is the repo-scoped pre-create check.
   expect(requestParams(client, 'agentSession.createSupport')).toMatchObject({
+    repo: 'id:repo-1',
     launchOrigin: 'work-item-start'
   })
   expect(requestParams(client, 'agentSession.create')).toMatchObject({
