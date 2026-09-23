@@ -27,12 +27,12 @@ export function markStructuredWorktreeLaunchUnconfirmed(
     structuredLaunchRecoveryWorktreeId: worktreeId,
     // The retry must reconcile THIS session and THIS prompt operation, not mint new ones.
     ...(recovery ? { structuredLaunchRecoveryIntent: recovery } : {}),
-    // Explícito: um retry anterior pode tê-lo desligado, e reconciliar é permitido.
+    // Explicit: an earlier outcome may have disabled retry, and reconciling is allowed.
     structuredLaunchRetryDisabled: false
   })
 }
 
-/** Entrega sem confirmação: a MESMA mensagem é reconciliada, nunca reenviada. */
+/** Unconfirmed delivery: the SAME message is reconciled, never resent. */
 export function markStructuredWorktreePromptDeliveryUnconfirmed(
   creationId: string,
   worktreeId: string,
@@ -50,8 +50,8 @@ export function markStructuredWorktreePromptDeliveryUnconfirmed(
   })
 }
 
-/** Recusa definitiva do create estrito: a workspace existe sem writer, nada abriu no lugar.
- *  O host provou que não criou nada, então o retry pode tentar uma sessão nova. */
+/** Definitive strict create refusal: the workspace exists with no writer and nothing opened in its
+ *  place. The host proved it created nothing, so the retry may try the session again. */
 export function markStructuredWorktreeLaunchRefused(creationId: string, worktreeId: string): void {
   useAppStore.getState().updatePendingWorktreeCreation(creationId, {
     status: 'error',
@@ -65,23 +65,35 @@ export function markStructuredWorktreeLaunchRefused(creationId: string, worktree
   })
 }
 
-/** Recusa definitiva: a workspace e a sessão ficam; reenviar abriria um segundo writer. */
+/** Definitive delivery refusal: the workspace and session stay. Retry is offered only when the
+ *  host proved non-delivery and the recovery names the single id a retry delivers under. */
 export function markStructuredWorktreePromptDeliveryFailed(
   creationId: string,
-  worktreeId: string
+  worktreeId: string,
+  {
+    recovery,
+    promptRetryable
+  }: Pick<WorktreeCreationStructuredSessionResult, 'recovery' | 'promptRetryable'> = {}
 ): void {
+  const retryable = promptRetryable === true && recovery !== undefined
   useAppStore.getState().updatePendingWorktreeCreation(creationId, {
     status: 'error',
-    error: translate(
-      'auto.lib.worktree.creation.flow.structured.prompt.failed',
-      'The structured agent session did not accept the work item prompt. Orca did not retry or start another writer.'
-    ),
+    error: retryable
+      ? translate(
+          'auto.lib.worktree.creation.flow.structured.prompt.refused.retryable',
+          'The structured agent session did not accept the work item prompt. Retry to deliver the same prompt once to the same session.'
+        )
+      : translate(
+          'auto.lib.worktree.creation.flow.structured.prompt.failed',
+          'The structured agent session did not accept the work item prompt. Orca did not retry or start another writer.'
+        ),
     structuredLaunchRecoveryWorktreeId: worktreeId,
-    structuredLaunchRetryDisabled: true
+    ...(retryable ? { structuredLaunchRecoveryIntent: recovery } : {}),
+    structuredLaunchRetryDisabled: !retryable
   })
 }
 
-/** O launch estrito não chegou a uma sessão: sem writer, sem terminal; o retry tenta de novo. */
+/** The strict launch never reached a session: no writer, no terminal; the retry tries again. */
 export function markStructuredWorktreeLaunchFailed(creationId: string, worktreeId: string): void {
   useAppStore.getState().updatePendingWorktreeCreation(creationId, {
     status: 'error',
@@ -110,7 +122,7 @@ export function markStructuredWorktreeLaunchOutcome(
   } else if (result.promptDeliveryUnknown) {
     markStructuredWorktreePromptDeliveryUnconfirmed(creationId, worktreeId, result)
   } else if (result.failure === 'prompt-delivery') {
-    markStructuredWorktreePromptDeliveryFailed(creationId, worktreeId)
+    markStructuredWorktreePromptDeliveryFailed(creationId, worktreeId, result)
   } else if (result.failure === 'structured-refused') {
     markStructuredWorktreeLaunchRefused(creationId, worktreeId)
   } else if (result.failure === 'structured-launch') {

@@ -25,7 +25,7 @@ type QuickWorkItemStartRouteInput = Omit<AgentLaunchRoutingInput, 'agent' | 'pro
   hasLinkedWorkItem: boolean
   settings: GlobalSettings | null | undefined
   hasDraftPrompt: boolean
-  /** Decidida pelo planner — o único módulo autorizado a resolver rota. */
+  /** Decided by the planner, the only module allowed to resolve a route. */
   ordinaryRoute: AgentLaunchRoute
 }
 
@@ -93,13 +93,13 @@ export async function prepareQuickWorkItemStartRoute(args: {
     args.executionHostId === 'local' &&
     readLocalRuntimeCapabilitiesOrUnknown() === null
   ) {
-    // Um runtime que não responde não pode admitir um create escopado. Falhar aqui é
-    // recusa fechada — as capabilities seguem desconhecidas e o suporte recusa —, nunca
-    // uma exceção que sobe por um caminho que o chamador trata como decisão.
+    // A runtime that does not answer cannot admit a scoped create. Failing here is a closed
+    // refusal (capabilities stay unknown and support refuses), never an exception that climbs a
+    // path the caller treats as a decision.
     try {
       await refreshLocalRuntimeCapabilities()
     } catch {
-      // deixa as capabilities desconhecidas; o resolvedor abaixo recusa
+      // Leaves capabilities unknown; the resolver below refuses.
     }
   }
   return resolveQuickWorkItemStartRoute({
@@ -114,10 +114,10 @@ export async function prepareQuickWorkItemStartRoute(args: {
 }
 
 /**
- * A rota de um quick create, com a recusa estrita resolvida ANTES de existir workspace.
+ * A quick create's route, with the strict refusal resolved BEFORE any workspace exists.
  *
- * Lança quando um Start estrito não tem suporte: depois do create, um bloqueio deixaria a
- * workspace viva sem writer nenhum — a assinatura exata que este Start remove.
+ * Throws when a strict Start is unsupported: after the create, a block would leave the workspace
+ * alive with no writer, the exact signature this Start removes.
  */
 export async function resolveQuickCreationAgentLaunchRoute(args: {
   agent: TuiAgent | null
@@ -133,7 +133,7 @@ export async function resolveQuickCreationAgentLaunchRoute(args: {
   workspaceExecutionHostId: string | undefined
   initialSessionOptions?: Readonly<Record<string, unknown>>
 }): Promise<AgentLaunchRoute> {
-  // O verdito viaja no pedido como dado e é re-entrado quando a worktree existir.
+  // The verdict travels in the request as data and is re-entered once the worktree exists.
   const plannedRoute = args.agent
     ? planAgentSessionLaunch(useAppStore.getState(), {
         agent: args.agent,
@@ -154,7 +154,9 @@ export async function resolveQuickCreationAgentLaunchRoute(args: {
     agent: args.agent,
     hasLinkedWorkItem: true,
     settings: args.settings,
-    executionHostId: args.executionHostId,
+    // The host the workspace will run on (ephemeral VM, run target), not the source repo's: a local
+    // repo creating on another host must be refused before any worktree exists.
+    executionHostId: args.workspaceExecutionHostId ?? args.executionHostId,
     repoId: args.repoId,
     workspaceKind: args.workspaceKind,
     hasDraftPrompt: false,
@@ -166,4 +168,14 @@ export async function resolveQuickCreationAgentLaunchRoute(args: {
     throw new Error(structuredWorkItemComposerPreflightUnavailableMessage())
   }
   return resolution.route
+}
+
+/** An ephemeral VM is never a local execution host, so a strict Start on one is refused before
+ *  anything is provisioned; the route check re-proves the host for every other target. */
+export function refuseStrictStartOnEphemeralVm(
+  workItemPromptDelivery: WorkItemStartPromptDelivery | undefined
+): void {
+  if (workItemPromptDelivery === 'submit-after-ready') {
+    throw new Error(structuredWorkItemComposerPreflightUnavailableMessage())
+  }
 }

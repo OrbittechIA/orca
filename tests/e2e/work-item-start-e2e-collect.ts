@@ -27,6 +27,9 @@ export type ClientProcessReader = () => Promise<{
   osRelease?: string
   execPath: string
   buildProvenance: BuildProvenance | null
+  /** From the client's own `runtime.buildAttestation`; absent on a build that predates it. */
+  appContentSha256?: string | null
+  attestationId?: string | null
 }>
 
 /** `status.get`: `appVersion`, `runtimeId`, capabilities e a proveniência aditiva. */
@@ -53,6 +56,8 @@ export type ServerAttestationReader = () => Promise<{
   platform?: string
   arch?: string
   buildProvenance?: BuildProvenance | null
+  appContent?: { kind: string; sha256?: string } | null
+  attestationId?: string
 } | null>
 
 export type WorkItemStartE2eCollection = {
@@ -64,6 +69,8 @@ export type WorkItemStartE2eCollection = {
   /** Os nomes EXATOS dos dois artefatos do candidato que produziram estes processos. */
   artifacts: { client: string; server: string }
   outcome: WorkItemStartE2eEvidence['outcome']
+  /** `ORCA_CANDIDATE_EXPECTED_COMMIT`, when the owner pinned one. */
+  expectedCommit?: string
   hashFile?: (path: string | null | undefined) => string | null
 }
 
@@ -146,8 +153,18 @@ export async function collectWorkItemStartE2eEvidence(
   const clientExecSha = hash(client.execPath)
   const serverExecSha = attestation?.sha256 ?? null
 
+  const serverAppContent =
+    attestation?.appContent?.kind === 'app-asar' ? (attestation.appContent.sha256 ?? null) : null
+
   return buildWorkItemStartE2eEvidence({
     now: args.now(),
+    candidate: {
+      version: args.manifest.version,
+      commit: args.manifest.commit,
+      tree: args.manifest.tree,
+      buildId: args.manifest.buildId,
+      ...(args.expectedCommit !== undefined ? { expectedCommit: args.expectedCommit } : {})
+    },
     client: {
       appVersion: client.appVersion,
       buildId: client.buildProvenance?.buildId ?? buildIdFor(clientExecSha),
@@ -155,6 +172,8 @@ export async function collectWorkItemStartE2eEvidence(
       tree: client.buildProvenance?.tree ?? null,
       artifactPath: client.execPath,
       artifactSha256: clientExecSha,
+      appContentSha256: client.appContentSha256 ?? null,
+      attestationId: client.attestationId ?? null,
       candidateArtifact: clientArtifact,
       manifestArtifact: clientArtifact?.artifact ?? null,
       platform: client.platform,
@@ -174,6 +193,8 @@ export async function collectWorkItemStartE2eEvidence(
       // Sem caminho: o host atesta o binário, não revela onde ele mora.
       artifactPath: null,
       artifactSha256: serverExecSha,
+      appContentSha256: serverAppContent,
+      attestationId: attestation?.attestationId ?? null,
       candidateArtifact: serverArtifact,
       manifestArtifact: serverArtifact?.artifact ?? null,
       ...(server.runtimeId !== undefined ? { runtimeId: server.runtimeId } : {}),

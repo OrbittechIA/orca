@@ -175,6 +175,25 @@ describe('structured agent session launch', () => {
 
   /** A worktree is not resolvable for a beat after createWorktree resolves, so the probe fails with
    *  selector_not_found instead of answering. That is "not ready", not "no". */
+  it('reads a local support probe that never answers as an unknown outcome, not a refusal', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.mocked(callStructuredAgentSession).mockImplementation(() => new Promise(() => undefined))
+      const launch = launchStructuredAgentSession(
+        createStructuredAgentSessionLaunchIntent('workspace-1', 'codex')
+      )
+      const settled = expect(launch).rejects.toBeInstanceOf(
+        StructuredAgentSessionCreateUnknownOutcomeError
+      )
+      await vi.advanceTimersByTimeAsync(10_000)
+      await settled
+      // No create was sent for a probe that never answered.
+      expect(callStructuredAgentSession).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('retries a probe the host cannot answer yet, then creates', async () => {
     const notResolvableYet = Object.assign(new Error('selector_not_found'), {
       code: 'selector_not_found'

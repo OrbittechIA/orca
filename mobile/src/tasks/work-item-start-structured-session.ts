@@ -1,22 +1,24 @@
 import { isAgentSessionHandleProvider } from '../../../src/shared/agent-session-provider-handle'
-import type { AgentSessionSendResult } from '../../../src/shared/agent-session-wire'
 import { WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY } from '../../../src/shared/protocol-version'
 import { structuredAgentSessionSendBody } from '../../../src/shared/structured-agent-session-outbox'
 import type { TuiAgent } from '../../../src/shared/tui-agent'
 import { resolveWorkItemStartPromptDelivery } from '../../../src/shared/agent-session-options'
-import { agentSessionRefusalOperationState } from '../../../src/shared/agent-session-refusal-retry'
-import { structuredAgentSessionPayloadFingerprint } from '../../../src/shared/structured-agent-session-mutation'
+import { workItemStartExecutionHostRefusal } from '../../../src/shared/work-item-start-execution-host'
 import { createMobileStructuredAgentSession } from '../session/mobile-structured-agent-session-launch'
-import { requestStructuredAgentSessionMutation } from '../session/mobile-structured-agent-session-rpc'
-import { structuredSessionOperationId } from '../session/structured-session-operation-id'
+import { createStructuredAgentSessionId } from '../../../src/shared/structured-agent-session-create'
 import {
-  clearMobileStructuredSendOperation,
-  getOrCreateMobileStructuredSendOperation,
-  mobileStructuredSendOperationKey
-} from '../session/mobile-structured-send-operation-journal'
+  clearWorkItemStartAttempt,
+  readWorkItemStartAttempt,
+  recordWorkItemStartAttempt
+} from './work-item-start-attempt-journal'
+import {
+  structuredSessionOperationId,
+  structuredSessionRandomUuid
+} from '../session/structured-session-operation-id'
 import type { RpcClient } from '../transport/rpc-client'
 import type { RuntimeTaskSettings } from './mobile-tasks-view-state-types'
 import { workItemStartAdmissionRead } from './mobile-workspace-create-operations'
+import { deliverWorkItemStartPrompt } from './work-item-start-prompt-delivery'
 
 /**
  * Whether this host's Work Item Start must produce a structured agent session.
@@ -117,8 +119,18 @@ export const WORK_ITEM_START_ROUTE_MESSAGES = {
   refused:
     'Work Item Start is set to submit after ready, but this host does not admit the structured session for this pairing (an older host, or a pairing without runtime scope). Nothing was created; no terminal was started in its place. Update the host or set Work Item Start back to draft.',
   unknown:
-    'Work Item Start is set to submit after ready, but this host did not answer whether it admits the structured session. Nothing was created. Check the connection and try again.'
+    'Work Item Start is set to submit after ready, but this host did not answer whether it admits the structured session. Nothing was created. Check the connection and try again.',
+  remote:
+    'Work Item Start is set to submit after ready, but this repository runs on a remote execution host, where the structured session is not supported. Nothing was created; no terminal was started in its place.',
+  wsl: 'Work Item Start is set to submit after ready, but this repository runs inside WSL, where the structured session is not supported. Nothing was created; no terminal was started in its place.'
 } as const
+
+/** The repo row the workspace would be created from; its execution host is checked pre-create. */
+export type WorkItemStartRepo = {
+  path: string
+  connectionId?: string | null
+  executionHostId?: string | null
+}
 
 /**
  * The one decision both Work Item Start entry points share: this host asked for
@@ -130,12 +142,18 @@ export async function resolveWorkItemStartRoute(args: {
   client: RpcClient
   settings: Pick<RuntimeTaskSettings, 'workItemStartPromptDelivery'> | null | undefined
   agent: TuiAgent | 'blank' | undefined
+  repo: WorkItemStartRepo
 }): Promise<WorkItemStartRoute> {
   if (args.agent === undefined || args.agent === 'blank') {
     return { kind: 'terminal' }
   }
   if (!workItemStartRequiresStructuredSession(args.settings)) {
     return { kind: 'terminal' }
+  }
+  // Same verdict desktop reaches pre-create; the host would only refuse after the workspace exists.
+  const hostRefusal = workItemStartExecutionHostRefusal(args.repo)
+  if (hostRefusal) {
+    return { kind: 'refused', message: WORK_ITEM_START_ROUTE_MESSAGES[hostRefusal] }
   }
   const admission = await readWorkItemStartHostAdmission(args.client)
   if (admission === null) {
@@ -171,13 +189,6 @@ export type WorkItemStartStructuredSessionResult =
       pendingSend?: { clientOperationId: string; fence: number }
     }
 
-/** Same-envelope replays after an unknown outcome, before the Start reports unconfirmed. */
-const SEND_UNKNOWN_REPLAY_DELAYS_MS: readonly number[] = [250, 1_000]
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
 const REFUSAL_REASONS: Record<string, string> = {
   agent: 'this agent has no structured session',
   remote: 'the workspace runs on a remote execution host',
@@ -204,15 +215,81 @@ function refusalMessage(reason: string): string {
 export async function startWorkItemStructuredSession(args: {
   client: RpcClient
   worktreeId: string
+  worktreeName?: string
   agent: TuiAgent
   prompt: string
 }): Promise<WorkItemStartStructuredSessionResult> {
-  const { client, worktreeId, agent, prompt } = args
+  const { client, worktreeId, agent } = args
   if (!isAgentSessionHandleProvider(agent)) {
     return { kind: 'refused', message: refusalMessage(`${agent} has no structured session`) }
   }
+  let attempt
+  try {
+    // An attempt already recorded for this workspace wins: its identity, agent and prompt are the
+    // ones the host may already hold, so a retry can never mint a second session.
+    attempt = await recordWorkItemStartAttempt({
+      worktreeId,
+      worktreeName: args.worktreeName ?? '',
+      agent,
+      prompt: args.prompt,
+      sessionId: createStructuredAgentSessionId(agent, structuredSessionRandomUuid),
+      createClientOperationId: structuredSessionOperationId()
+    })
+  } catch (error) {
+    // Without a durable identity a lost reply could not be reconciled, so nothing is requested.
+    return {
+      kind: 'unconfirmed',
+      message: `Work Item Start could not record its session before opening it: ${error instanceof Error ? error.message : 'storage unavailable'}. Nothing was started.`
+    }
+  }
+  const result = await openWorkItemStartSession(
+    client,
+    attempt.agent,
+    attempt.worktreeId,
+    {
+      sessionId: attempt.sessionId,
+      createClientOperationId: attempt.createClientOperationId
+    },
+    attempt.prompt
+  )
+  // Settled outcomes release the identity; an unconfirmed one keeps it for the retry.
+  if (result.kind !== 'unconfirmed') {
+    await clearWorkItemStartAttempt(attempt.worktreeId, attempt.sessionId).catch(() => undefined)
+  }
+  return result
+}
+
+/**
+ * Re-enters a strict Start whose workspace exists but whose session was never confirmed. Returns
+ * `null` when nothing is pending for this workspace; it never calls `worktree.create`.
+ */
+export async function retryWorkItemStartStructuredSession(args: {
+  client: RpcClient
+  worktreeId: string
+}): Promise<WorkItemStartStructuredSessionResult | null> {
+  const attempt = await readWorkItemStartAttempt(args.worktreeId)
+  if (!attempt) {
+    return null
+  }
+  return startWorkItemStructuredSession({
+    client: args.client,
+    worktreeId: attempt.worktreeId,
+    worktreeName: attempt.worktreeName,
+    agent: attempt.agent,
+    prompt: attempt.prompt
+  })
+}
+
+async function openWorkItemStartSession(
+  client: RpcClient,
+  agent: 'claude' | 'codex',
+  worktreeId: string,
+  identity: { sessionId: string; createClientOperationId: string },
+  prompt: string
+): Promise<WorkItemStartStructuredSessionResult> {
   const launch = await createMobileStructuredAgentSession(client, worktreeId, agent, {
-    launchOrigin: 'work-item-start'
+    launchOrigin: 'work-item-start',
+    identity
   })
   if (launch.kind === 'unsupported') {
     if (launch.probeFailed === true) {
@@ -220,8 +297,9 @@ export async function startWorkItemStructuredSession(args: {
       // policy decision for what is a lost round trip.
       return {
         kind: 'unconfirmed',
+        sessionId: identity.sessionId,
         message:
-          'Work Item Start could not reach this host to open the agent session. Open the workspace to check before starting it again.'
+          'Work Item Start could not reach this host to open the agent session. Retry Start on the workspace to reconcile the same session.'
       }
     }
     return {
@@ -233,7 +311,7 @@ export async function startWorkItemStructuredSession(args: {
     return { kind: 'refused', message: refusalMessage(launch.message) }
   }
   if (launch.kind === 'unknown') {
-    return { kind: 'unconfirmed', message: launch.message }
+    return { kind: 'unconfirmed', sessionId: identity.sessionId, message: launch.message }
   }
   const body = structuredAgentSessionSendBody(prompt, [])
   if (body.blocks.length === 0) {
@@ -255,141 +333,5 @@ export async function startWorkItemStructuredSession(args: {
     sessionId: launch.sessionId,
     fence: launch.fence,
     body
-  })
-}
-
-/**
- * Delivers the single Work Item Start prompt under one durable operation id.
- *
- * The envelope is persisted BEFORE the first dispatch: the host may commit the send and lose
- * only the reply, and a client that then mints a second id would put the prompt in provider
- * context twice. An unknown outcome (lost reply, `agent_session_operation_unknown`) replays the
- * exact same envelope — idempotent on the host — a bounded number of times, and what is still
- * unknown after that stays persisted for a later reconcile. Only a settled outcome clears it.
- */
-export async function deliverWorkItemStartPrompt(args: {
-  client: RpcClient
-  worktreeId: string
-  sessionId: string
-  fence: number
-  body: ReturnType<typeof structuredAgentSessionSendBody>
-}): Promise<WorkItemStartStructuredSessionResult> {
-  const { client, worktreeId, sessionId, fence, body } = args
-  const payloadFingerprint = structuredAgentSessionPayloadFingerprint({
-    method: 'agentSession.send',
-    sessionId,
-    fields: { body }
-  })
-  const operationKey = mobileStructuredSendOperationKey({
-    sessionKey: sessionId,
-    intentFingerprint: payloadFingerprint
-  })
-  let persisted: Awaited<ReturnType<typeof getOrCreateMobileStructuredSendOperation>>
-  try {
-    persisted = await getOrCreateMobileStructuredSendOperation({
-      operationKey,
-      callerIdentity: `work-item-start:${worktreeId}`,
-      payloadFingerprint,
-      attachmentPaths: [],
-      createOperationId: structuredSessionOperationId
-    })
-  } catch (error) {
-    // No durable record means no safe way to replay: the prompt is reported, not sent.
-    return {
-      kind: 'prompt-undelivered',
-      sessionId,
-      message: `The Work Item Start prompt was not sent: ${error instanceof Error ? error.message : 'its send operation could not be recorded'}.`
-    }
-  }
-  const clientOperationId = persisted.operationId
-  const pendingSend = { clientOperationId, fence }
-  const settle = async (
-    result: WorkItemStartStructuredSessionResult
-  ): Promise<WorkItemStartStructuredSessionResult> => {
-    await clearMobileStructuredSendOperation({
-      operationKey,
-      operationId: clientOperationId
-    }).catch(() => undefined)
-    return result
-  }
-  for (let attempt = 0; ; attempt += 1) {
-    const delivery = await requestStructuredAgentSessionMutation<AgentSessionSendResult>({
-      client,
-      method: 'agentSession.send',
-      fingerprintMethod: 'agentSession.send',
-      sessionId,
-      expectedRuntimeFence: fence,
-      fields: { body },
-      clientOperationId
-    })
-    // A refusal is settled only when the ledger says so. `pending-admission` (capacity, a host
-    // still reconciling) and `unknown` prove nothing about M1, which the host may already hold:
-    // the same envelope is replayed, and if still undecided it stays persisted. Only
-    // `settled-rejected` clears it.
-    if (
-      delivery.status === 'unknown' ||
-      (delivery.status === 'refused' &&
-        agentSessionRefusalOperationState('agentSession.send', delivery.code) !==
-          'settled-rejected')
-    ) {
-      const replayDelayMs = SEND_UNKNOWN_REPLAY_DELAYS_MS[attempt]
-      if (replayDelayMs === undefined) {
-        return {
-          kind: 'unconfirmed',
-          sessionId,
-          pendingSend,
-          message:
-            'The Work Item Start prompt could not be confirmed. Open the session before sending it again.'
-        }
-      }
-      await delay(replayDelayMs)
-      continue
-    }
-    return settleWorkItemStartDelivery(delivery, sessionId, pendingSend, settle)
-  }
-}
-
-async function settleWorkItemStartDelivery(
-  delivery: Exclude<
-    Awaited<ReturnType<typeof requestStructuredAgentSessionMutation<AgentSessionSendResult>>>,
-    { status: 'unknown' }
-  >,
-  sessionId: string,
-  pendingSend: { clientOperationId: string; fence: number },
-  settle: (
-    result: WorkItemStartStructuredSessionResult
-  ) => Promise<WorkItemStartStructuredSessionResult>
-): Promise<WorkItemStartStructuredSessionResult> {
-  const launch = { sessionId }
-  if (delivery.status === 'accepted') {
-    // `ok` is the mutation verdict, not the dispatch verdict: the host accepts the envelope and
-    // then reports separately whether the provider actually took the turn.
-    const dispatch = delivery.value?.submission?.dispatchState
-    if (dispatch === 'accepted') {
-      return settle({ kind: 'started', sessionId: launch.sessionId })
-    }
-    if (dispatch === 'rejected') {
-      return settle({
-        kind: 'prompt-undelivered',
-        sessionId: launch.sessionId,
-        message:
-          delivery.value?.submission?.reason ??
-          'The agent session rejected the Work Item Start prompt.'
-      })
-    }
-    // `pending`/`unknown` dispatch: the host holds the envelope; the record stays until the
-    // journal settles it.
-    return {
-      kind: 'unconfirmed',
-      sessionId: launch.sessionId,
-      pendingSend,
-      message:
-        'The Work Item Start prompt was submitted but not confirmed. Open the session before sending it again.'
-    }
-  }
-  return settle({
-    kind: 'prompt-undelivered',
-    sessionId: launch.sessionId,
-    message: delivery.message
   })
 }

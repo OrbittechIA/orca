@@ -24,7 +24,7 @@
       "ordinal": 2,
       "json": "{\"id\":\"frame-1\",\"deviceToken\":\"recording-device\",\"method\":\"agentSession.createSupport\",\"params\":{\"worktree\":\"id:workspace-1\",\"agent\":\"claude\"}}"
     },
-    "57e0653db3e3": {
+    "c09a09843b19": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -42,7 +42,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -76,7 +77,7 @@
       {
         "id": "unsupported",
         "observation": {
-          "sender": ["57e0653db3e3"],
+          "sender": ["c09a09843b19"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
             "claude": "dd51c5566f19"

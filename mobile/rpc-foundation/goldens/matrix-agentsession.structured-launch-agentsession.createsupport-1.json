@@ -21,7 +21,7 @@
         }
       }
     },
-    "0dd78669f08d": {
+    "2e66eab74342": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -39,7 +39,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -57,7 +58,7 @@
         }
       }
     },
-    "1554c780f755": {
+    "6c47d103d515": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -75,7 +76,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -93,7 +95,7 @@
         }
       }
     },
-    "25ff00540c46": {
+    "876715aac081": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -111,7 +113,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -128,7 +131,7 @@
         }
       }
     },
-    "27cc7a2b58c9": {
+    "29cb5b4fae94": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -146,7 +149,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -189,7 +193,7 @@
         "reason": "remote"
       }
     },
-    "553200ba8c0f": {
+    "2c36cc4fa7f9": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -207,7 +211,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -230,7 +235,7 @@
       "ordinal": 2,
       "json": "{\"id\":\"frame-1\",\"deviceToken\":\"recording-device\",\"method\":\"agentSession.createSupport\",\"params\":{\"worktree\":\"id:workspace-1\",\"agent\":\"claude\"}}"
     },
-    "57e0653db3e3": {
+    "c09a09843b19": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -248,7 +253,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -272,7 +278,7 @@
         "probeFailed": true
       }
     },
-    "8201501565d9": {
+    "f7bfc9ab61e6": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -290,7 +296,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -307,7 +314,7 @@
         }
       }
     },
-    "a4da7b5347e4": {
+    "5b67727ad5db": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -325,7 +332,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -340,7 +348,7 @@
         }
       }
     },
-    "be9e3b9ce2e7": {
+    "6d08ad2ae66e": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -358,7 +366,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -372,7 +381,7 @@
         }
       }
     },
-    "da841ebfb6b9": {
+    "db2ad6592bd7": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -390,7 +399,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -414,7 +424,7 @@
         "reason": "remote"
       }
     },
-    "efee3e1e1620": {
+    "11ad1e92357c": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -432,7 +442,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -473,7 +484,7 @@
       {
         "id": "structured-launch-unsupported.normal:unsupported",
         "observation": {
-          "sender": ["57e0653db3e3"],
+          "sender": ["c09a09843b19"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
             "claude": "dd51c5566f19"
@@ -485,7 +496,7 @@
       {
         "id": "structured-launch-unsupported.result-absent:unsupported",
         "observation": {
-          "sender": ["be9e3b9ce2e7"],
+          "sender": ["6d08ad2ae66e"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
             "claude": "f0bb9de9827c"
@@ -497,7 +508,7 @@
       {
         "id": "structured-launch-unsupported.result-null:unsupported",
         "observation": {
-          "sender": ["8201501565d9"],
+          "sender": ["f7bfc9ab61e6"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
             "claude": "f0bb9de9827c"
@@ -509,7 +520,7 @@
       {
         "id": "structured-launch-unsupported.inner-ok-missing:unsupported",
         "observation": {
-          "sender": ["25ff00540c46"],
+          "sender": ["876715aac081"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
             "claude": "f0bb9de9827c"
@@ -521,7 +532,7 @@
       {
         "id": "structured-launch-unsupported.inner-false-string-error:unsupported",
         "observation": {
-          "sender": ["1554c780f755"],
+          "sender": ["6c47d103d515"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
             "claude": "f0bb9de9827c"
@@ -533,7 +544,7 @@
       {
         "id": "structured-launch-unsupported.inner-false-object-error:unsupported",
         "observation": {
-          "sender": ["27cc7a2b58c9"],
+          "sender": ["29cb5b4fae94"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
             "claude": "f0bb9de9827c"
@@ -545,7 +556,7 @@
       {
         "id": "structured-launch-unsupported.outer-refused:unsupported",
         "observation": {
-          "sender": ["553200ba8c0f"],
+          "sender": ["2c36cc4fa7f9"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
             "claude": "5342fdf67056"
@@ -557,7 +568,7 @@
       {
         "id": "structured-launch-unsupported.outer-refused-no-message:unsupported",
         "observation": {
-          "sender": ["0dd78669f08d"],
+          "sender": ["2e66eab74342"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
             "claude": "5342fdf67056"
@@ -569,7 +580,7 @@
       {
         "id": "structured-launch-unsupported.method-not-found:unsupported",
         "observation": {
-          "sender": ["efee3e1e1620"],
+          "sender": ["11ad1e92357c"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
             "claude": "2c227fd1941f"
@@ -581,7 +592,7 @@
       {
         "id": "structured-launch-unsupported.transport-rejection:unsupported",
         "observation": {
-          "sender": ["da841ebfb6b9"],
+          "sender": ["db2ad6592bd7"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
             "claude": "5342fdf67056"
@@ -593,7 +604,7 @@
       {
         "id": "structured-launch-unsupported.transport-rejection-no-message:unsupported",
         "observation": {
-          "sender": ["a4da7b5347e4"],
+          "sender": ["5b67727ad5db"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
             "claude": "5342fdf67056"

@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   abandonIntent: vi.fn(),
   callStructuredAgentSession: vi.fn(),
   createIntent: vi.fn(),
+  retryIntent: vi.fn(),
   launch: vi.fn(),
   seedDraft: vi.fn(),
   clearDraft: vi.fn(),
@@ -32,6 +33,7 @@ vi.mock('@/lib/launch-structured-agent-session', () => {
   class StructuredAgentSessionCreateRefusalError extends Error {}
   return {
     createStructuredAgentSessionLaunchIntent: mocks.createIntent,
+    retryStructuredAgentSessionLaunchIntent: mocks.retryIntent,
     abandonStructuredAgentSessionLaunchIntent: mocks.abandonIntent,
     launchStructuredAgentSession: mocks.launch,
     StructuredAgentSessionCreateRefusalError
@@ -92,7 +94,10 @@ vi.mock('@/lib/agent-catalog', () => ({
   ]
 }))
 
-import type { StructuredAgentSessionLaunchIntent } from '@/lib/launch-structured-agent-session'
+import {
+  StructuredAgentSessionCreateRefusalError,
+  type StructuredAgentSessionLaunchIntent
+} from '@/lib/launch-structured-agent-session'
 import { startStructuredAgentLaunch } from './structured-agent-session-launch'
 import { readOutbox } from '@/components/native-chat/structured-agent-session-outbox-storage'
 
@@ -118,6 +123,55 @@ function launchIntent(
   }
 }
 
+type SessionRoute = { send: (operationId: string) => unknown }
+
+/** Answers each structured RPC by method: the session is published, sends go to `route.send`. */
+function routeSessionCalls(route: SessionRoute): void {
+  mocks.callStructuredAgentSession.mockImplementation(
+    async (_target: unknown, method: string, params: unknown) => {
+      if (method !== 'agentSession.send') {
+        return { ok: true, page: { fence: 1 } }
+      }
+      const envelope = isUnknownRecord(params) ? params.envelope : undefined
+      const operationId =
+        isUnknownRecord(envelope) && typeof envelope.clientOperationId === 'string'
+          ? envelope.clientOperationId
+          : ''
+      return route.send(operationId)
+    }
+  )
+}
+
+function acceptedSend(clientMessageId: string, replayed: boolean) {
+  return {
+    ok: true,
+    replayed,
+    fence: 1,
+    cursor: { epoch: 'epoch-a', sequence: 1 },
+    value: { clientMessageId, submission: { clientMessageId, dispatchState: 'accepted' } }
+  }
+}
+
+function sendCalls(): Record<string, unknown>[] {
+  return mocks.callStructuredAgentSession.mock.calls
+    .filter((call) => call[1] === 'agentSession.send')
+    .map((call) => (isUnknownRecord(call[2]) ? call[2] : {}))
+}
+
+function sendOperationIds(): unknown[] {
+  return sendCalls().map((params) =>
+    isUnknownRecord(params.envelope) ? params.envelope.clientOperationId : undefined
+  )
+}
+
+function sentTexts(): unknown[] {
+  return sendCalls().map((params) => {
+    const body = isUnknownRecord(params.body) ? params.body : {}
+    const [block] = Array.isArray(body.blocks) ? body.blocks : []
+    return isUnknownRecord(block) ? block.text : undefined
+  })
+}
+
 async function flushLaunchSettlement(): Promise<void> {
   for (let i = 0; i < 20; i += 1) {
     await Promise.resolve()
@@ -134,6 +188,14 @@ describe('startStructuredAgentLaunch recovery re-entry', () => {
       const intent = launchIntent(worktreeId, `${agent}-session-${worktreeId}`)
       return { ...intent, agent, params: { ...intent.params, agent } }
     })
+    // A retried create keeps its session id and mints only a new create operation.
+    mocks.retryIntent.mockImplementation((intent: StructuredAgentSessionLaunchIntent) => ({
+      ...intent,
+      params: {
+        ...intent.params,
+        envelope: { ...intent.params.envelope, clientOperationId: 'operation-retried' }
+      }
+    }))
   })
 
   it('replays the same session and the same prompt operation after an unknown delivery', async () => {
@@ -215,35 +277,145 @@ describe('startStructuredAgentLaunch recovery re-entry', () => {
     expect(readOutbox(intent.sessionId)).toEqual([])
   })
 
-  it('never reports a lost staged operation as delivered', async () => {
-    // The retry finds no outbox entry for the operation it persisted (storage lost): that is
-    // unknown, not success and not a reason to stage a second copy.
+  it('restages a lost staged operation under its SAME id and delivers it once', async () => {
+    // The retry finds no outbox entry for the operation it persisted (storage lost, or the mounted
+    // outbox drained it). Restaging under the same id lets the host ledger replay an accepted send
+    // instead of delivering a second copy, and a never-admitted one is delivered once.
     const worktreeId = 'wt-recover-lost'
     const intent = launchIntent(worktreeId, 'codex-session-lost')
     mocks.rendererTabs = {
       [worktreeId]: [{ contentType: 'agent-session', entityId: intent.sessionId, worktreeId }]
     }
-    mocks.callStructuredAgentSession.mockResolvedValue({ ok: true, page: { fence: 1 } })
+    routeSessionCalls({ send: () => acceptedSend('message-that-was-lost', true) })
 
     const retry = startStructuredAgentLaunch(worktreeId, 'codex', {
       prompt: 'the prompt',
       promptDelivery: 'submit-after-ready',
+      launchOrigin: 'work-item-start',
       recover: { intent, clientMessageId: 'message-that-was-lost' }
     })
     await expect(retry.launchResult).resolves.toEqual({ sessionId: intent.sessionId, fence: 1 })
+    await expect(retry.promptDeliveryResult).resolves.toEqual({
+      delivered: true,
+      failureNotified: false
+    })
+    expect(mocks.createIntent).not.toHaveBeenCalled()
+    expect(mocks.launch).not.toHaveBeenCalled()
+    expect(sendOperationIds()).toEqual(['message-that-was-lost'])
+    expect(sentTexts()).toEqual(['the prompt'])
+    expect(readOutbox(intent.sessionId)).toEqual([])
+  })
+
+  it('still reports unknown when a legacy recovery kept no operation id', async () => {
+    const worktreeId = 'wt-recover-legacy'
+    const intent = launchIntent(worktreeId, 'codex-session-legacy')
+    mocks.rendererTabs = {
+      [worktreeId]: [{ contentType: 'agent-session', entityId: intent.sessionId, worktreeId }]
+    }
+    routeSessionCalls({ send: () => acceptedSend('unused', false) })
+
+    const retry = startStructuredAgentLaunch(worktreeId, 'codex', {
+      prompt: 'the prompt',
+      promptDelivery: 'submit-after-ready',
+      recover: { intent, clientMessageId: null }
+    })
     await expect(retry.promptDeliveryResult).resolves.toEqual({
       delivered: false,
       failureNotified: false,
       deliveryUnknown: true
     })
+    expect(sendOperationIds()).toEqual([])
+  })
+
+  it('retries a strict refusal once under one fresh id, and repeats idempotently', async () => {
+    const worktreeId = 'wt-recover-refused'
+    const intent = launchIntent(worktreeId, 'codex-session-refused')
+    mocks.rendererTabs = {
+      [worktreeId]: [{ contentType: 'agent-session', entityId: intent.sessionId, worktreeId }]
+    }
+    const accepted = new Set<string>()
+    routeSessionCalls({
+      send: (operationId) => {
+        if (operationId === 'message-refused') {
+          return { ok: false, refusal: { code: 'agent_session_operation_conflict', message: 'no' } }
+        }
+        const replayed = accepted.has(operationId)
+        accepted.add(operationId)
+        return acceptedSend(operationId, replayed)
+      }
+    })
+    localStorage.clear()
+    const strict = {
+      prompt: 'the prompt',
+      promptDelivery: 'submit-after-ready' as const,
+      launchOrigin: 'work-item-start' as const
+    }
+
+    const first = startStructuredAgentLaunch(worktreeId, 'codex', {
+      ...strict,
+      recover: { intent, clientMessageId: 'message-refused' }
+    })
+    const refused = await first.promptDeliveryResult
+    expect(refused).toMatchObject({ delivered: false })
+    const retryId = refused?.retryClientMessageId
+    expect(retryId).toEqual(expect.any(String))
+    await flushLaunchSettlement()
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const retry = startStructuredAgentLaunch(worktreeId, 'codex', {
+        ...strict,
+        recover: { intent, clientMessageId: retryId ?? null }
+      })
+      await expect(retry.promptDeliveryResult).resolves.toMatchObject({ delivered: true })
+      await flushLaunchSettlement()
+    }
+
+    // One refused attempt, then every retry under the same fresh id: the host ledger accepted
+    // exactly one submission and replayed the rest.
+    expect(sendOperationIds()).toEqual(['message-refused', retryId, retryId])
+    expect(accepted).toEqual(new Set([retryId]))
     expect(mocks.createIntent).not.toHaveBeenCalled()
     expect(mocks.launch).not.toHaveBeenCalled()
-    expect(mocks.callStructuredAgentSession).not.toHaveBeenCalledWith(
-      expect.anything(),
-      'agentSession.send',
-      expect.anything()
-    )
-    expect(readOutbox(intent.sessionId)).toEqual([])
+  })
+
+  it('delivers a strict prompt once when the refused create is retried', async () => {
+    const worktreeId = 'wt-create-refused'
+    const strict = {
+      prompt: 'the prompt',
+      promptDelivery: 'submit-after-ready' as const,
+      launchOrigin: 'work-item-start' as const
+    }
+    mocks.createIntent.mockImplementation((id: string, agent: 'claude' | 'codex') => {
+      const intent = launchIntent(id, `${agent}-session-${id}`)
+      return {
+        ...intent,
+        agent,
+        params: { ...intent.params, agent, launchOrigin: 'work-item-start' }
+      }
+    })
+    mocks.launch
+      .mockRejectedValueOnce(new StructuredAgentSessionCreateRefusalError('refused'))
+      .mockImplementationOnce(async (given: StructuredAgentSessionLaunchIntent) => {
+        mocks.rendererTabs = {
+          [worktreeId]: [{ contentType: 'agent-session', entityId: given.sessionId, worktreeId }]
+        }
+        return { sessionId: given.sessionId, fence: 1 }
+      })
+    routeSessionCalls({ send: (operationId) => acceptedSend(operationId, false) })
+
+    const first = startStructuredAgentLaunch(worktreeId, 'codex', strict)
+    await expect(first.launchResult).rejects.toThrow('refused')
+    await flushLaunchSettlement()
+
+    const retry = startStructuredAgentLaunch(worktreeId, 'codex', strict)
+    expect(retry.sessionId).toBe(first.sessionId)
+    await expect(retry.promptDeliveryResult).resolves.toMatchObject({ delivered: true })
+
+    // The staged prompt never went out on the refused attempt; the retry sends that same entry once.
+    expect(sendOperationIds()).toEqual([first.recovery.clientMessageId])
+    expect(sentTexts()).toEqual(['the prompt'])
+    expect(mocks.launch).toHaveBeenCalledTimes(2)
+    expect(mocks.createIntent).toHaveBeenCalledTimes(1)
   })
 
   it('replays the persisted create when the session is not published yet', async () => {

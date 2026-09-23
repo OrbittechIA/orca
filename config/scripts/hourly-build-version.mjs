@@ -87,7 +87,9 @@ export function getHourlyBuildIdentity(
     packageVersion = JSON.parse(readFileSync(resolve('package.json'), 'utf8')).version
   } = {}
 ) {
-  const commit = execFileSync('git', ['rev-parse', '--short=12', 'HEAD'], {
+  // Full sha: the packager asserts ORCA_BUILD_COMMIT against `git rev-parse HEAD` byte for byte.
+  // Display names slice their own short form.
+  const commit = execFileSync('git', ['rev-parse', 'HEAD'], {
     encoding: 'utf8'
   }).trim()
   const base = resolveDevChannelBaseVersion(packageVersion, publishedVersions ?? [])

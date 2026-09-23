@@ -21,6 +21,9 @@ export type CandidateManifestArtifact = {
   kind: CandidateArtifactKind
   sha256: string
   bytes: number
+  /** `app.asar` hash recorded at packaging; absent in manifests written before it existed. */
+  appContentSha256?: string
+  appContentBytes?: number
 }
 
 export type CandidateManifest = {
@@ -62,6 +65,22 @@ export function readCandidateManifest(filePath: string): CandidateManifest {
  * binário que estivesse rodando. Lança, em vez de devolver `null`, para que a ausência seja
  * uma falha do teste e nunca um caminho que passa.
  */
+/** Optional immutable pin: the owner names the exact commit to certify without editing code. */
+export function candidateExpectedCommit(
+  env: Record<string, string | undefined>
+): string | undefined {
+  const pinned = env.ORCA_CANDIDATE_EXPECTED_COMMIT?.trim()
+  if (!pinned) {
+    return undefined
+  }
+  if (!/^[0-9a-f]{40}$/.test(pinned)) {
+    throw new Error(
+      `ORCA_CANDIDATE_EXPECTED_COMMIT must be a full 40-character lowercase sha, got ${pinned}`
+    )
+  }
+  return pinned
+}
+
 export function requireCandidateManifestPath(env: Record<string, string | undefined>): string {
   const manifestPath = env.ORCA_CANDIDATE_MANIFEST?.trim()
   if (!manifestPath) {

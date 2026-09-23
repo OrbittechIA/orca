@@ -3,6 +3,9 @@ import type { RpcClient } from '../transport/rpc-client'
 import { markRpcDeliveryUnknown } from '../transport/rpc-delivery-ambiguity'
 import { createMobileStructuredAgentSession } from './mobile-structured-agent-session-launch'
 
+// Bounded so a host that never answers reads as an unanswered probe, not a hang.
+const PROBE_OPTIONS = { timeoutMs: 10_000, budgetSpansConnect: true }
+
 function clientReturning(
   ...responses: unknown[]
 ): RpcClient & { sendRequest: ReturnType<typeof vi.fn> } {
@@ -46,10 +49,15 @@ describe('mobile structured agent-session launch', () => {
       kind: 'created',
       sessionId: expect.stringMatching(/^codex_[A-Za-z0-9_]{8,128}$/)
     })
-    expect(client.sendRequest).toHaveBeenNthCalledWith(1, 'agentSession.createSupport', {
-      worktree: 'id:workspace-1',
-      agent: 'codex'
-    })
+    expect(client.sendRequest).toHaveBeenNthCalledWith(
+      1,
+      'agentSession.createSupport',
+      {
+        worktree: 'id:workspace-1',
+        agent: 'codex'
+      },
+      PROBE_OPTIONS
+    )
     expect(client.sendRequest).toHaveBeenNthCalledWith(
       2,
       'agentSession.create',
@@ -84,10 +92,15 @@ describe('mobile structured agent-session launch', () => {
     await expect(
       createMobileStructuredAgentSession(client, 'workspace-1', 'claude')
     ).resolves.toMatchObject({ kind: 'created', sessionId: 'claude_session_1' })
-    expect(client.sendRequest).toHaveBeenNthCalledWith(1, 'agentSession.createSupport', {
-      worktree: 'id:workspace-1',
-      agent: 'claude'
-    })
+    expect(client.sendRequest).toHaveBeenNthCalledWith(
+      1,
+      'agentSession.createSupport',
+      {
+        worktree: 'id:workspace-1',
+        agent: 'claude'
+      },
+      PROBE_OPTIONS
+    )
     const params = client.sendRequest.mock.calls[1]?.[1] as {
       envelope: { sessionId: string; payloadFingerprint: string }
       agent: string

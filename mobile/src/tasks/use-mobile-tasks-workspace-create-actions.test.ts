@@ -53,7 +53,10 @@ afterEach(async () => {
   actions = null
 })
 
-async function submit(settings: unknown) {
+async function submit(
+  settings: unknown,
+  options: { repo?: Record<string, unknown>; taps?: number } = {}
+) {
   const client = new FakeSession('connected')
   client.sendRequest.mockImplementation(async (method: string) => {
     if (method === 'settings.get') {
@@ -70,7 +73,12 @@ async function submit(settings: unknown) {
   const model = {
     client,
     ensureWorkspaceSshReady: vi.fn(async () => undefined),
-    getWorkspaceTargetRepo: () => ({ id: 'repo-1', displayName: 'Orca', path: '/repo' }),
+    getWorkspaceTargetRepo: () => ({
+      id: 'repo-1',
+      displayName: 'Orca',
+      path: '/repo',
+      ...options.repo
+    }),
     hostId: 'host-1',
     resolveCreateSetupDecision: vi.fn(async () => ({ kind: 'resolved', decision: 'skip' })),
     router: { push: vi.fn() },
@@ -102,7 +110,14 @@ async function submit(settings: unknown) {
     throw new Error('Hook not mounted')
   }
   const current = actions
-  await act(async () => current.createWorkspace(item, undefined, undefined, 'codex'))
+  await act(async () => {
+    // Taps land in one tick, before any re-render could disable the button.
+    await Promise.all(
+      Array.from({ length: options.taps ?? 1 }, () =>
+        current.createWorkspace(item, undefined, undefined, 'codex')
+      )
+    )
+  })
   return { client, model }
 }
 
@@ -137,5 +152,26 @@ describe('Tasks Start settings refresh', () => {
     )
     expect(model.setError).toHaveBeenCalledExactlyOnceWith('')
     expect(model.router.push).toHaveBeenCalledOnce()
+  })
+})
+
+describe('Tasks strict Start before worktree.create', () => {
+  it('refuses an SSH repo with zero workspace or session side effects', async () => {
+    const { client, model } = await submit(
+      { workItemStartPromptDelivery: 'submit-after-ready' },
+      { repo: { connectionId: 'ssh-1' } }
+    )
+    expect(client.sendRequest.mock.calls.map((call) => call[0])).toEqual(['settings.get'])
+    expect(model.setError).toHaveBeenLastCalledWith(
+      expect.stringContaining('remote execution host')
+    )
+    expect(model.router.push).not.toHaveBeenCalled()
+  })
+
+  it('creates one workspace for a double tap', async () => {
+    const { client } = await submit({ workItemStartPromptDelivery: 'draft' }, { taps: 2 })
+    expect(
+      client.sendRequest.mock.calls.filter((call) => call[0] === 'worktree.create')
+    ).toHaveLength(1)
   })
 })

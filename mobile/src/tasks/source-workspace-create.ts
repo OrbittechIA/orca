@@ -22,6 +22,7 @@ import {
   resolveComposerWorkItemStart
 } from './composer-work-item-start'
 import type { WorktreeCreateIdempotencyProbe } from './worktree-create-idempotency-policy'
+import type { WorkItemStartRepo } from './work-item-start-structured-session'
 
 // The agent bundle the modal resolved: `choice` drives launch resolution — the
 // host applies the agent's launch args (permission flags) and shell quoting.
@@ -43,6 +44,8 @@ export type CreateWorkspaceFromComposerArgs = {
   agentLaunchSupported: WorktreeCreateAgentLaunch['supported']
   /** Only the work-item selection reads it; a branch Start has no work item to submit. */
   runtimeSettings?: Pick<RuntimeTaskSettings, 'workItemStartPromptDelivery'> | null
+  /** The repo row the workspace is created from: a strict Start checks its execution host. */
+  targetRepo: WorkItemStartRepo
 }
 
 export async function createWorkspaceFromComposerSource(
@@ -114,6 +117,7 @@ async function createWorkItemWorkspace(args: {
   note: string | undefined
   worktreeCreateIdempotency: WorktreeCreateIdempotencyProbe
   runtimeSettings?: Pick<RuntimeTaskSettings, 'workItemStartPromptDelivery'> | null
+  targetRepo: WorkItemStartRepo
 }): Promise<WorktreeCreateResult> {
   const { client, selection, targetRepoId, setupDecision, agent, workspaceName, note } = args
   const item = selection.item
@@ -121,7 +125,8 @@ async function createWorkItemWorkspace(args: {
   const start = await resolveComposerWorkItemStart({
     client,
     settings: args.runtimeSettings,
-    agent: agent.choice
+    agent: agent.choice,
+    repo: args.targetRepo
   })
   if ('error' in start) {
     return start

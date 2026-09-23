@@ -1,6 +1,7 @@
 import {
   enqueueStructuredAgentSessionLaunchPrompt,
-  findStructuredAgentSessionLaunchPromptEntry
+  findStructuredAgentSessionLaunchPromptEntry,
+  restageStructuredAgentSessionLaunchPrompt
 } from '@/components/native-chat/structured-agent-session-outbox-storage'
 import type { StructuredAgentSessionOutboxEntry } from '../../../shared/structured-agent-session-outbox'
 import type { StructuredAgentLaunchOptions } from '@/lib/structured-agent-session-launch-callers'
@@ -22,9 +23,10 @@ export function joinLaunchDelivery(
 }
 
 /**
- * The durable prompt operation for a launch. A re-entering launch (`recover`) FINDS the
- * operation it staged before; only a genuinely new launch stages one. `null` for a recovery
- * means the delivery state was lost, which the prompt settle reports as unknown, never as sent.
+ * The durable prompt operation for a launch. A re-entering launch (`recover`) reuses the operation
+ * it staged before, restaging it under that SAME id when the entry is gone: the host ledger replays
+ * an id it already accepted, so the prompt is delivered at most once. `null` for a recovery means
+ * no id survived, which the prompt settle reports as unknown, never as sent.
  */
 export function stageLaunchPrompt(
   sessionId: string,
@@ -34,7 +36,27 @@ export function stageLaunchPrompt(
   if (!text) {
     return null
   }
-  return options.recover
-    ? findStructuredAgentSessionLaunchPromptEntry(sessionId, options.recover.clientMessageId, text)
-    : enqueueStructuredAgentSessionLaunchPrompt(sessionId, text)
+  if (!options.recover) {
+    return enqueueStructuredAgentSessionLaunchPrompt(sessionId, text)
+  }
+  const { clientMessageId } = options.recover
+  return clientMessageId
+    ? restageStructuredAgentSessionLaunchPrompt(sessionId, clientMessageId, text)
+    : findStructuredAgentSessionLaunchPromptEntry(sessionId, null, text)
+}
+
+/** A strict launch retried after its create failed never dispatched its staged prompt, so the retry
+ *  delivers that same entry; staging only when none survived keeps it at one copy. */
+export function stageStrictRetryPrompt(
+  sessionId: string,
+  options: StructuredAgentLaunchOptions
+): StructuredAgentSessionOutboxEntry | null {
+  const text = outboxPromptText(options)
+  if (!text) {
+    return null
+  }
+  return (
+    findStructuredAgentSessionLaunchPromptEntry(sessionId, null, text) ??
+    enqueueStructuredAgentSessionLaunchPrompt(sessionId, text)
+  )
 }

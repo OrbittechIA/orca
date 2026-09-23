@@ -236,19 +236,36 @@ function runtimeErrorCode(error: unknown): string {
  * The unknown branch remains on the chat surface for reconciliation instead of becoming a
  * terminal fallback.
  */
+/** A local runtime call ignores `timeoutMs`, so the probe is bounded here. Expiry rejects with a code
+ *  that is not a definitive refusal, which the catch below reports as an unknown outcome. */
+export const CREATE_SUPPORT_PROBE_TIMEOUT_MS = 10_000
+
+function boundedSupportProbe<T>(probe: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const expiry = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(Object.assign(new Error('runtime_timeout'), { code: 'runtime_timeout' })),
+      CREATE_SUPPORT_PROBE_TIMEOUT_MS
+    )
+  })
+  return Promise.race([probe, expiry]).finally(() => clearTimeout(timer))
+}
+
 async function hostSupportsCreate(intent: StructuredAgentSessionLaunchIntent): Promise<boolean> {
   for (let attempt = 0; ; attempt += 1) {
     try {
-      const support = await callStructuredAgentSession<{ supported: boolean; reason?: string }>(
-        intent.target,
-        'agentSession.createSupport',
-        {
-          worktree: intent.params.worktree,
-          agent: intent.agent,
-          ...(intent.params.launchOrigin
-            ? { sessionId: intent.sessionId, launchOrigin: intent.params.launchOrigin }
-            : {})
-        }
+      const support = await boundedSupportProbe(
+        callStructuredAgentSession<{ supported: boolean; reason?: string }>(
+          intent.target,
+          'agentSession.createSupport',
+          {
+            worktree: intent.params.worktree,
+            agent: intent.agent,
+            ...(intent.params.launchOrigin
+              ? { sessionId: intent.sessionId, launchOrigin: intent.params.launchOrigin }
+              : {})
+          }
+        )
       )
       return support.supported === true
     } catch (error) {

@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import { hostNewWorktreeSessionRoute } from '../host-route-action-state'
 import { resolveWorkItemStartSettingsRefresh } from './work-item-start-settings-refresh'
 import { settingsRead } from '../transport/settings-read-operations'
@@ -55,6 +56,9 @@ export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateMod
     workspaceDetectedAgentIds,
     workspaceLastAutoName
   } = model
+  // Synchronous: `creatingKey` state lands a render late, so a double tap could reach
+  // `worktree.create` twice before the disabled button re-rendered.
+  const createInFlightRef = useRef(false)
   const createWorkspace = useCallback(
     async (
       item: ActionableTaskItem,
@@ -68,9 +72,10 @@ export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateMod
       sparseCheckoutOverride?: { directories: string[]; presetId?: string },
       approvedSetupContentHash?: string
     ): Promise<void> => {
-      if (!client || !tasksSupported || !taskStateHydrated) {
+      if (!client || !tasksSupported || !taskStateHydrated || createInFlightRef.current) {
         return
       }
+      createInFlightRef.current = true
       setCreatingKey(item.key)
       setError('')
       try {
@@ -124,7 +129,8 @@ export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateMod
         const route = await resolveWorkItemStartRoute({
           client,
           settings: latestRuntimeTaskSettings,
-          agent: selectedAgent
+          agent: selectedAgent,
+          repo: targetRepo
         })
         // Refused or unanswered admission stops before `worktree.create`; the terminal Start is
         // never substituted for a strict one.
@@ -308,6 +314,7 @@ export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateMod
           ? await startWorkItemStructuredSession({
               client,
               worktreeId: result.worktree.id,
+              worktreeName: result.worktree.displayName ?? item.title,
               agent: selectedAgent,
               prompt: item.source.url
             })
@@ -335,6 +342,7 @@ export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateMod
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to create workspace')
       } finally {
+        createInFlightRef.current = false
         setCreatingKey(null)
       }
     },

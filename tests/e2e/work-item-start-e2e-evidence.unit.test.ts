@@ -1,30 +1,31 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  candidateExpectedCommit,
   requireCandidateManifestPath,
   type CandidateManifest
 } from './work-item-start-candidate-manifest'
 import { collectWorkItemStartE2eEvidence } from './work-item-start-e2e-collect'
-import {
-  WORK_ITEM_START_CAPABILITY,
-  WORK_ITEM_START_E2E_BASELINE_VERSION,
-  workItemStartE2eDefects
-} from './work-item-start-e2e-evidence'
+import { WORK_ITEM_START_CAPABILITY, workItemStartE2eDefects } from './work-item-start-e2e-evidence'
 
-// A base oficial v1.4.203; o `buildId` é o que `build-provenance.mjs` deriva de commit:árvore.
-const COMMIT = '776e424e76405a06851dd9ec9ff3b58ffbdb3eea'
+// A synthetic candidate: the evidence binds to whatever the manifest names, never a pinned version.
+const CANDIDATE_VERSION = '1.4.209'
+const COMMIT = '8046116ad55d2b03461c87efd7f20c353dd9b032'
 const TREE = 'df262ab6a9de98ef6b271b94c5aafd2da7f153f8'
 const BUILD_ID = '7bbdd813f784'
 
-// O checkpoint 1.4.201 anterior: um par casado e coerente que a baseline 1.4.203 recusa.
-const PREVIOUS_BASELINE = {
-  version: '1.4.201',
+// Another build: a coherent pair on its own, but not the candidate under certification.
+const OTHER_BUILD = {
+  version: '1.4.208',
   commit: '2b19f21adab5907697ef76ce429bafcd2cfea9ec',
   tree: '798d7351c73012b7319dc4d83b8a2905ac1877c9',
   buildId: '17a4aae22bfc'
 }
 
+const CLIENT_ASAR = '1'.repeat(64)
+const SERVER_ASAR = '2'.repeat(64)
+
 const MANIFEST: CandidateManifest = {
-  version: WORK_ITEM_START_E2E_BASELINE_VERSION,
+  version: CANDIDATE_VERSION,
   commit: COMMIT,
   tree: TREE,
   buildId: BUILD_ID,
@@ -35,7 +36,8 @@ const MANIFEST: CandidateManifest = {
       arch: 'x64',
       kind: 'nsis',
       sha256: 'a'.repeat(64),
-      bytes: 120_000_000
+      bytes: 120_000_000,
+      appContentSha256: CLIENT_ASAR
     },
     {
       artifact: 'Orca-Setup-arm64.exe',
@@ -43,7 +45,8 @@ const MANIFEST: CandidateManifest = {
       arch: 'arm64',
       kind: 'nsis',
       sha256: 'e'.repeat(64),
-      bytes: 118_000_000
+      bytes: 118_000_000,
+      appContentSha256: CLIENT_ASAR
     },
     {
       artifact: 'orca-linux.AppImage',
@@ -51,7 +54,8 @@ const MANIFEST: CandidateManifest = {
       arch: 'x64',
       kind: 'appimage',
       sha256: 'b'.repeat(64),
-      bytes: 196_990_796
+      bytes: 196_990_796,
+      appContentSha256: SERVER_ASAR
     }
   ]
 }
@@ -59,7 +63,7 @@ const MANIFEST: CandidateManifest = {
 const ARTIFACTS = { client: 'Orca-Setup-x64.exe', server: 'orca-linux.AppImage' }
 
 const EMBEDDED = {
-  version: WORK_ITEM_START_E2E_BASELINE_VERSION,
+  version: CANDIDATE_VERSION,
   commit: COMMIT,
   tree: TREE,
   buildId: BUILD_ID
@@ -73,18 +77,21 @@ function collect(overrides?: {
   attestation?: object
   manifest?: CandidateManifest
   artifacts?: { client: string; server: string }
+  expectedCommit?: string
 }) {
   const readClientProcess = vi.fn(async () => ({
-    appVersion: WORK_ITEM_START_E2E_BASELINE_VERSION,
+    appVersion: CANDIDATE_VERSION,
     platform: 'win32',
     arch: 'x64',
     osRelease: '10.0.22631',
     execPath: 'C:\\Users\\alice\\AppData\\Local\\Programs\\Orca\\Orca.exe',
     buildProvenance: EMBEDDED,
+    appContentSha256: CLIENT_ASAR,
+    attestationId: '3'.repeat(64),
     ...overrides?.client
   }))
   const readServerStatus = vi.fn(async () => ({
-    appVersion: WORK_ITEM_START_E2E_BASELINE_VERSION,
+    appVersion: CANDIDATE_VERSION,
     runtimeId: 'runtime-1',
     capabilities: [WORK_ITEM_START_CAPABILITY],
     buildProvenance: EMBEDDED,
@@ -97,6 +104,8 @@ function collect(overrides?: {
     platform: 'linux',
     arch: 'x64',
     buildProvenance: EMBEDDED,
+    appContent: { kind: 'app-asar', sha256: SERVER_ASAR },
+    attestationId: '4'.repeat(64),
     ...overrides?.attestation
   }))
   return {
@@ -111,7 +120,10 @@ function collect(overrides?: {
       manifest: overrides?.manifest ?? MANIFEST,
       artifacts: overrides?.artifacts ?? ARTIFACTS,
       outcome,
-      // O executável do cliente é hasheado onde ele roda; aqui o fixture o injeta.
+      ...(overrides?.expectedCommit !== undefined
+        ? { expectedCommit: overrides.expectedCommit }
+        : {}),
+      // The client executable is hashed where it runs; the fixture injects it here.
       hashFile: (path) => (path ? 'c'.repeat(64) : null)
     })
   }
@@ -137,25 +149,29 @@ describe('a paired run without a candidate manifest cannot count as a pass', () 
 })
 
 describe('Work Item Start E2E evidence binds running processes to the candidate', () => {
-  it('binds the certification to the 1.4.203 candidate baseline', () => {
-    expect(WORK_ITEM_START_E2E_BASELINE_VERSION).toBe('1.4.203')
-  })
-
-  it('reads both sides and accepts a matched 1.4.203 pair', async () => {
+  it('reads both sides and accepts a pair running the named candidate', async () => {
     const { readClientProcess, readServerStatus, promise } = collect()
     const evidence = await promise
 
     expect(readClientProcess).toHaveBeenCalledOnce()
     expect(readServerStatus).toHaveBeenCalledOnce()
     expect(evidence.client.commit).toBe(COMMIT)
+    expect(evidence.candidate).toEqual({
+      version: CANDIDATE_VERSION,
+      commit: COMMIT,
+      tree: TREE,
+      buildId: BUILD_ID
+    })
+    expect(evidence.client.appContentSha256).toBe(CLIENT_ASAR)
+    expect(evidence.server.appContentSha256).toBe(SERVER_ASAR)
     expect(evidence.client.manifestArtifact).toBe('Orca-Setup-x64.exe')
     expect(evidence.server.manifestArtifact).toBe('orca-linux.AppImage')
-    // O hash do executável em execução e o do artefato publicado são fatos distintos.
+    // The running executable hash and the published artifact hash are distinct facts.
     expect(evidence.client.artifactSha256).toBe('c'.repeat(64))
     expect(evidence.client.candidateArtifactSha256).toBe('a'.repeat(64))
     expect(evidence.server.artifactSha256).toBe('d'.repeat(64))
     expect(evidence.server.candidateArtifactSha256).toBe('b'.repeat(64))
-    // `buildId` igual nos dois lados é o esperado: sai de commit+árvore.
+    // An equal `buildId` on both sides is expected: it comes from commit+tree.
     expect(evidence.client.buildId).toBe(evidence.server.buildId)
     expect(workItemStartE2eDefects(evidence)).toEqual([])
   })
@@ -188,44 +204,80 @@ describe('Work Item Start E2E evidence binds running processes to the candidate'
     )
   })
 
-  it.each([
-    ['1.4.199', { ...EMBEDDED, version: '1.4.199' }, { ...MANIFEST, version: '1.4.199' }],
-    ['1.4.201', PREVIOUS_BASELINE, { ...MANIFEST, ...PREVIOUS_BASELINE }]
-  ])(
-    'refuses a matched %s pair that is not the 1.4.203 baseline',
-    async (version, embedded, manifest) => {
-      const { promise } = collect({
-        client: { appVersion: version, buildProvenance: embedded },
-        server: { appVersion: version, buildProvenance: embedded },
-        attestation: { buildProvenance: embedded },
-        manifest
-      })
-      const evidence = await promise
-      // O par é coerente consigo mesmo — identidade embutida casa com o próprio manifest —
-      // e mesmo assim não é a baseline: só a versão o recusa, e recusa os dois lados.
-      expect(evidence.client.manifestArtifact).toBe('Orca-Setup-x64.exe')
-      expect(evidence.server.manifestArtifact).toBe('orca-linux.AppImage')
-      const defects = workItemStartE2eDefects(evidence)
-      expect(defects).toContain(`server is ${version}, not the 1.4.203 baseline`)
-      expect(defects).toContain(`client is ${version}, not the 1.4.203 baseline`)
-    }
-  )
+  it('binds to any candidate version the manifest names, with no pinned baseline', async () => {
+    const other = { ...MANIFEST, ...OTHER_BUILD }
+    const { promise } = collect({
+      client: { appVersion: OTHER_BUILD.version, buildProvenance: OTHER_BUILD },
+      server: { appVersion: OTHER_BUILD.version, buildProvenance: OTHER_BUILD },
+      attestation: { buildProvenance: OTHER_BUILD },
+      manifest: other
+    })
+    const evidence = await promise
+    expect(evidence.candidate.version).toBe(OTHER_BUILD.version)
+    expect(workItemStartE2eDefects(evidence)).toEqual([])
+  })
 
-  it('refuses a 1.4.201 server behind a 1.4.203 client, and the reverse', async () => {
+  it('refuses a side running another build than the candidate, on either side', async () => {
     for (const side of ['server', 'client'] as const) {
       const { promise } = collect({
-        [side]: { appVersion: PREVIOUS_BASELINE.version, buildProvenance: PREVIOUS_BASELINE },
-        ...(side === 'server' ? { attestation: { buildProvenance: PREVIOUS_BASELINE } } : {})
+        [side]: { appVersion: OTHER_BUILD.version, buildProvenance: OTHER_BUILD },
+        ...(side === 'server' ? { attestation: { buildProvenance: OTHER_BUILD } } : {})
       })
       const defects = workItemStartE2eDefects(await promise)
-      expect(defects).toContain(`${side} is 1.4.201, not the 1.4.203 baseline`)
-      // A identidade 1.4.201 não casa com o manifest 1.4.203: o vínculo por commit/árvore
-      // continua a segunda barreira, independente da versão.
+      expect(defects).toContain(`${side} is 1.4.208, not the candidate ${CANDIDATE_VERSION}`)
+      expect(defects).toContain(`${side} is not bound to the candidate commit and tree`)
       expect(defects).toContain(
         `${side} embedded build identity does not match the candidate manifest`
       )
       expect(defects.some((defect) => defect.endsWith('differ'))).toBe(true)
     }
+  })
+
+  it("honours the owner's immutable expected-commit pin", async () => {
+    expect(workItemStartE2eDefects(await collect({ expectedCommit: COMMIT }).promise)).toEqual([])
+    expect(
+      workItemStartE2eDefects(await collect({ expectedCommit: OTHER_BUILD.commit }).promise)
+    ).toContain(`candidate manifest is ${COMMIT}, not the expected ${OTHER_BUILD.commit}`)
+    expect(
+      workItemStartE2eDefects(await collect({ expectedCommit: COMMIT.slice(0, 12) }).promise)
+    ).toContain('the expected candidate commit is not a full 40-character sha')
+  })
+
+  it('reads the pin from the environment only as a full sha', () => {
+    expect(candidateExpectedCommit({})).toBeUndefined()
+    expect(candidateExpectedCommit({ ORCA_CANDIDATE_EXPECTED_COMMIT: COMMIT })).toBe(COMMIT)
+    expect(() => candidateExpectedCommit({ ORCA_CANDIDATE_EXPECTED_COMMIT: 'main' })).toThrow(
+      /full 40-character/
+    )
+  })
+
+  it('refuses two builds that share an Electron binary but run different app.asar', async () => {
+    // Same executable sha on the client as the candidate would have; only app content differs.
+    const { promise } = collect({ client: { appContentSha256: '9'.repeat(64) } })
+    expect(workItemStartE2eDefects(await promise)).toContain(
+      'client app content does not match the candidate artifact'
+    )
+  })
+
+  it('refuses an unpackaged or unattested side', async () => {
+    const unpackaged = await collect({ attestation: { appContent: { kind: 'unpackaged' } } })
+      .promise
+    expect(workItemStartE2eDefects(unpackaged)).toContain(
+      'server did not attest the packaged app content it is running'
+    )
+    const legacy = await collect({
+      client: { appContentSha256: undefined, attestationId: undefined }
+    }).promise
+    const defects = workItemStartE2eDefects(legacy)
+    expect(defects).toContain('client did not attest the packaged app content it is running')
+    expect(defects).toContain('client reported no attestation identity')
+  })
+
+  it('refuses one attestation identity standing in for both hosts', async () => {
+    const { promise } = collect({ attestation: { attestationId: '3'.repeat(64) } })
+    expect(workItemStartE2eDefects(await promise)).toContain(
+      'one attestation identity for a Windows client and its server; these are two hosts'
+    )
   })
 
   it('refuses a client that is not the Windows Desktop', async () => {
@@ -245,7 +297,7 @@ describe('Work Item Start E2E evidence binds running processes to the candidate'
   })
 
   it('refuses an artifact whose arch the running process could not have executed', async () => {
-    // Cliente x64 apontado para o NSIS arm64: mesma plataforma, binário impossível.
+    // An x64 client pointed at the arm64 NSIS: same platform, impossible binary.
     const { promise } = collect({
       artifacts: { client: 'Orca-Setup-arm64.exe', server: 'orca-linux.AppImage' }
     })

@@ -25,28 +25,27 @@ import type { CandidateManifest } from './work-item-start-candidate-manifest'
 // terminal, which carries no session identity, so `worktree ps` reports `agents: []` and every
 // reconciler fails closed on it. Proving the fix on a local client would prove the wrong path.
 //
-// This spec is POSITIVE. It used to assert the refusal, on the premise that an Electron client's
-// declared capability set omitted the structured entries — that premise is gone: the desktop
-// renderer IS the structured chat client and now declares them, so the admission it was refused
-// for is the admission it must now receive.
+// This spec is POSITIVE. A paired Electron client declares the Start-scoped client capability
+// (never the generic structured one), and that is the admission this Start must now receive.
 //
-// O QUE ESTE SPEC PROVA, E O QUE NÃO PROVA. Ele exercita o CONTRATO pelas RPCs: negociação,
-// admissão escopada, criação, uma entrega e a projeção oficial. Ele não substitui o gate final,
-// que é clicar Start no Desktop Windows e deixar o cliente escolher a rota sozinho — chamar
-// `create`/`send` à mão pula exatamente o roteador que já esteve errado. Um verde aqui é
-// condição necessária do candidato, nunca a certificação dele.
+// WHAT THIS SPEC PROVES, AND WHAT IT DOES NOT. Steps 1-5 exercise the CONTRACT over RPC:
+// negotiation, scoped admission, creation, one delivery and the official projection; they run in
+// PR CI against the inert Codex fixture. Step 6, the candidate evidence, runs only in the
+// certification lane (`ORCA_WORK_ITEM_START_CERTIFICATION=1`) against a packaged candidate, where a
+// missing fixture or manifest is a hard failure. Neither replaces the final gate: clicking Start on
+// the Windows Desktop and letting the client pick the route itself.
 
 // Deliberately synthetic: a real work item number here would make lab evidence indistinguishable
 // from the production run this work exists to unblock.
 const SYNTHETIC_WORK_ITEM = 424242
 
 /**
- * `agentSession.create` e `agentSession.send` fazem o host levantar o provider de verdade.
+ * `agentSession.create` and `agentSession.send` make the host start the real provider.
  *
- * Sem um app-server inerte no lugar do Codex do PATH, este spec passaria a spawnar um agente
- * real a cada execução — o que não é um teste, é um lançamento. Por isso ele só roda quando
- * `ORCA_E2E_INERT_AGENT_SERVER` aponta para o DIRETÓRIO desse fixture (prefixado ao PATH do
- * host) e `ORCA_E2E_INERT_AGENT_LEDGER` para o arquivo onde ele registra o que recebeu.
+ * Without an inert app-server in place of the PATH's Codex, this spec would spawn a real agent on
+ * every run. So it runs only when `ORCA_E2E_INERT_AGENT_SERVER` names the DIRECTORY of that
+ * fixture (`tests/e2e/fixtures/inert-codex-app-server`, prefixed to the host PATH) and
+ * `ORCA_E2E_INERT_AGENT_LEDGER` the file where it records what it received.
  */
 const INERT_AGENT_SERVER_DIR = process.env.ORCA_E2E_INERT_AGENT_SERVER
 const INERT_AGENT_LEDGER = process.env.ORCA_E2E_INERT_AGENT_LEDGER
@@ -59,7 +58,12 @@ const INERT_AGENT_LEDGER = process.env.ORCA_E2E_INERT_AGENT_LEDGER
  * execução anterior faria as contagens começarem acima de zero — dois writers e um deles
  * invisível é exatamente o que este spec existe para detectar.
  */
-function inertFixtureRefusal(): string | null {
+/** A retry gets its own ledger: the first attempt's lines would otherwise read as extra writers. */
+function ledgerForAttempt(retry: number): string {
+  return retry === 0 ? (INERT_AGENT_LEDGER ?? '') : `${INERT_AGENT_LEDGER ?? ''}.retry-${retry}`
+}
+
+function inertFixtureRefusal(ledger: string): string | null {
   if (!INERT_AGENT_SERVER_DIR || !isAbsolute(INERT_AGENT_SERVER_DIR)) {
     return 'ORCA_E2E_INERT_AGENT_SERVER must be an absolute directory'
   }
@@ -72,13 +76,14 @@ function inertFixtureRefusal(): string | null {
   if (!executable) {
     return `no codex fixture in ${INERT_AGENT_SERVER_DIR}: the host would resolve the real provider from PATH`
   }
-  if (existsSync(INERT_AGENT_LEDGER) && statSync(INERT_AGENT_LEDGER).size > 0) {
-    return `${INERT_AGENT_LEDGER} is not empty: a stale ledger makes every count start above zero`
+  if (existsSync(ledger) && statSync(ledger).size > 0) {
+    return `${ledger} is not empty: a stale ledger makes every count start above zero`
   }
   return null
 }
 
-const INERT_FIXTURE_REFUSAL = inertFixtureRefusal()
+/** The dedicated lane that certifies a packaged candidate. Nothing may skip there. */
+const CERTIFICATION = process.env.ORCA_WORK_ITEM_START_CERTIFICATION === '1'
 
 /**
  * O ledger do fixture é a fonte do desfecho.
@@ -87,15 +92,17 @@ const INERT_FIXTURE_REFUSAL = inertFixtureRefusal()
  * de fato despachado. Um segundo writer que o journal não registre apareceria aqui e em
  * lugar nenhum mais — que é exatamente o dano sob prova.
  */
-function readInertLedger(): { turnStarts: number; spawns: number } {
-  const raw = readFileSync(INERT_AGENT_LEDGER ?? '', 'utf8')
-  const entries: { event?: string }[] = raw
+function readInertLedger(ledger: string): { turnStarts: number; spawns: number } {
+  const raw = readFileSync(ledger, 'utf8')
+  const entries: { event?: string; spawnToken?: string | null }[] = raw
     .split('\n')
     .filter((line) => line.trim().length > 0)
     .map((line) => JSON.parse(line))
   return {
     turnStarts: entries.filter((entry) => entry.event === 'turn-start').length,
-    spawns: entries.filter((entry) => entry.event === 'spawn').length
+    // Only structured-session spawns carry a spawn token; another host feature probing `codex`
+    // is not a second executor of this Start.
+    spawns: entries.filter((entry) => entry.event === 'spawn' && Boolean(entry.spawnToken)).length
   }
 }
 
@@ -124,19 +131,26 @@ type AttestationResult = {
   platform?: string
   arch?: string
   buildProvenance?: unknown
+  appContent?: { kind: string; sha256?: string } | null
+  attestationId?: string
 } | null
 type HistoryResult = { page?: { items?: { role?: string; kind?: string }[] } }
 
 test('a paired Work Item Start opens one structured session and delivers its prompt once', async ({
   testRepoPath
 }, testInfo) => {
-  test.skip(INERT_FIXTURE_REFUSAL !== null, INERT_FIXTURE_REFUSAL ?? '')
+  const ledger = ledgerForAttempt(testInfo.retry)
+  const fixtureRefusal = inertFixtureRefusal(ledger)
+  if (CERTIFICATION && fixtureRefusal !== null) {
+    throw new Error(`certification requires the inert agent fixture: ${fixtureRefusal}`)
+  }
+  test.skip(fixtureRefusal !== null, fixtureRefusal ?? '')
   test.setTimeout(300_000)
   const host = await launchHeadlessPairedRuntimeHost({
-    // O fixture precisa vencer o Codex do runner; prefixo, não substituição — o host ainda
-    // depende do git e do shell por onde lança agentes.
+    // The fixture must win over the runner's Codex; a prefix, not a replacement, because the host
+    // still needs git and the shell it launches agents through.
     pathPrefixDir: INERT_AGENT_SERVER_DIR ?? '',
-    extraEnv: { ORCA_E2E_INERT_AGENT_LEDGER: INERT_AGENT_LEDGER ?? '' }
+    extraEnv: { ORCA_E2E_INERT_AGENT_LEDGER: ledger }
   })
   let client: Awaited<ReturnType<typeof launchPairedElectronClient>> | undefined
   try {
@@ -246,13 +260,19 @@ test('a paired Work Item Start opens one structured session and delivers its pro
     const journalled = (history.page?.items ?? []).filter(
       (item) => item.role === 'user' || item.kind === 'user-message'
     ).length
-    const ledger = readInertLedger()
+    const ledgerCounts = readInertLedger(ledger)
     // As duas pontas precisam concordar: o journal diz o que foi aceito, o provider diz o que
     // foi despachado. Divergência aqui é um writer que uma das duas não viu.
     expect(journalled).toBe(1)
-    expect(ledger.turnStarts).toBe(1)
-    expect(ledger.spawns).toBe(1)
-    const promptDeliveries = ledger.turnStarts
+    expect(ledgerCounts.turnStarts).toBe(1)
+    expect(ledgerCounts.spawns).toBe(1)
+    const promptDeliveries = ledgerCounts.turnStarts
+
+    if (!CERTIFICATION) {
+      // PR CI stops at the contract: both sides here are the same unpackaged Electron, which no
+      // candidate manifest can bind.
+      return
+    }
 
     // 6. Live provenance, captured from the two processes that just did the above. Nothing is
     //    typed: the client reads itself through `app.evaluate`, the host attests its own binary,
@@ -282,12 +302,13 @@ test('a paired Work Item Start opens one structured session and delivers its pro
       execPath: process.execPath
     }))
     expect(clientAttestation?.sha256).toMatch(/^[0-9a-f]{64}$/)
-    // Obrigatório, não opcional: sem manifest a evidência não amarra os processos a nenhum
-    // artefato, e o spec falha aqui em vez de passar sem prova.
+    // Required in this lane: without a manifest the evidence binds the processes to no artifact,
+    // so the spec fails here instead of passing without proof.
     const manifestModule = await import('./work-item-start-candidate-manifest')
     const manifest: CandidateManifest = manifestModule.readCandidateManifest(
       manifestModule.requireCandidateManifestPath(process.env)
     )
+    const expectedCommit = manifestModule.candidateExpectedCommit(process.env)
 
     {
       const evidence = await collectWorkItemStartE2eEvidence({
@@ -298,7 +319,12 @@ test('a paired Work Item Start opens one structured session and delivers its pro
           arch: clientProcess.arch,
           osRelease: clientProcess.osRelease,
           execPath: clientProcess.execPath,
-          buildProvenance: parseBuildProvenance(clientAttestation?.buildProvenance)
+          buildProvenance: parseBuildProvenance(clientAttestation?.buildProvenance),
+          appContentSha256:
+            clientAttestation?.appContent?.kind === 'app-asar'
+              ? (clientAttestation.appContent.sha256 ?? null)
+              : null,
+          attestationId: clientAttestation?.attestationId ?? null
         }),
         readServerStatus: async () => ({
           appVersion: status.appVersion,
@@ -317,6 +343,7 @@ test('a paired Work Item Start opens one structured session and delivers its pro
               }
             : null,
         manifest,
+        ...(expectedCommit !== undefined ? { expectedCommit } : {}),
         artifacts: {
           client: process.env.ORCA_CANDIDATE_CLIENT_ARTIFACT ?? '',
           server: process.env.ORCA_CANDIDATE_SERVER_ARTIFACT ?? ''
@@ -325,7 +352,7 @@ test('a paired Work Item Start opens one structured session and delivers its pro
           sessionId,
           promptDeliveries,
           terminalLocator: finalTerminals.terminals[0]?.handle ?? null,
-          executors: ledger.spawns
+          executors: ledgerCounts.spawns
         }
       })
       const written = persistWorkItemStartE2eEvidence('paired-work-item-start', evidence)
@@ -338,8 +365,8 @@ test('a paired Work Item Start opens one structured session and delivers its pro
       expect(clientProcess.appVersion).toMatch(/^\d+\.\d+\.\d+/)
       expect(clientProcess.execPath.length).toBeGreaterThan(0)
       expect(serverAttestation?.sha256).toMatch(/^[0-9a-f]{64}$/)
-      // Dois hosts, dois binários: um único hash para ambos denunciaria coleta de um lado só.
-      expect(serverAttestation?.sha256).not.toBe(clientAttestation?.sha256)
+      // Two hosts, two builds: one attestation identity for both would betray one-sided collection.
+      expect(serverAttestation?.attestationId).not.toBe(clientAttestation?.attestationId)
       // The candidate gate itself: the run proves WHICH binaries proved the behaviour above, and
       // without that binding it is not a pass (see `requireCandidateManifestPath`).
       expect(workItemStartE2eDefects(evidence)).toEqual([])

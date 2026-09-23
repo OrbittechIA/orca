@@ -3,55 +3,64 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 /**
- * Evidência do E2E Work Item Start, capturada AUTOMATICAMENTE dos dois lados.
+ * Work Item Start E2E evidence, captured AUTOMATICALLY from both sides.
  *
- * Nada aqui é digitado: cada lado declara a própria versão, o próprio build e o hash do
- * próprio artefato, e cada valor viaja com a proveniência de onde foi lido. Um único hash
- * "genérico" não serve — cliente Windows e servidor são binários distintos, e uma prova
- * que os confunde não amarra o candidato a coisa nenhuma.
+ * Nothing here is typed in: each side declares its own version, build and binary hashes, and each
+ * value travels with the provenance of where it was read. Both sides are bound to ONE candidate,
+ * read from the candidate manifest, never to a version pinned in code.
  */
 export const WORK_ITEM_START_CAPABILITY = 'agent-session.work-item-start.v1'
 
-/**
- * A baseline vinculante do owner: Desktop e servidor sobem juntos, ambos em 1.4.203.
- *
- * Fixa aqui, e não derivada do manifest: o manifest diz o que foi EMPACOTADO, esta constante
- * diz o que o owner CERTIFICA. Um manifest 1.4.201 casado com processos 1.4.201 é um par
- * coerente e ainda assim fora da baseline — e é o validador que precisa recusá-lo.
- */
-export const WORK_ITEM_START_E2E_BASELINE_VERSION = '1.4.203'
+const FULL_SHA = /^[0-9a-f]{40}$/
 
-/** O que cada lado declara de si mesmo. `provenance` nomeia a superfície que o declarou. */
+/** The exact build being certified, taken from the candidate manifest. */
+export type WorkItemStartE2eCandidate = {
+  version: string
+  commit: string
+  tree: string
+  buildId: string
+  /** The owner's immutable pin, when given: the manifest must name exactly this commit. */
+  expectedCommit?: string
+}
+
+/** What each side declares about itself. `provenance` names the surface that declared it. */
 export type WorkItemStartE2eSide = {
   appVersion: string
-  /** Build efetivo do lado, derivado do binário observado. */
+  /** Effective build of this side, from its embedded identity. */
   buildId: string | null
-  /** Commit e árvore vêm do manifest do candidato — nenhuma das duas superfícies os expõe. */
   commit: string | null
   tree: string | null
-  /** O caminho do binário EM EXECUÇÃO observado deste lado. */
+  /** Path of the RUNNING executable observed on this side. */
   artifactPath: string | null
+  /** sha256 of the running Electron executable; shared by every build on one Electron version. */
   artifactSha256: string | null
-  /** Artefato do candidato correspondente a este lado; `null` quando a identidade não casa. */
+  /** sha256 of the `app.asar` this side is running: what distinguishes two builds. */
+  appContentSha256: string | null
+  /** The host's own identity over executable, app content and build id. */
+  attestationId: string | null
+  /** Candidate artifact matching this side; `null` when the identity does not match. */
   manifestArtifact: string | null
-  /** Hash e tamanho do artefato publicado — fato distinto do hash do executável observado. */
+  /** Hash and size of the published artifact, a fact distinct from the running executable hash. */
   candidateArtifactSha256: string | null
   candidateArtifactBytes: number | null
-  /** De onde vieram os campos acima; obrigatório, inclusive quando algum for nulo. */
+  /** `app.asar` hash the candidate recorded for that artifact at packaging time. */
+  candidateAppContentSha256: string | null
+  /** Where the fields above came from; required, even when some are null. */
   provenance: string
 }
 
 export type WorkItemStartE2eEvidence = {
   capturedAt: string
+  candidate: WorkItemStartE2eCandidate
   server: WorkItemStartE2eSide & {
     runtimeId?: string
     capabilities: readonly string[]
     hasWorkItemStartCapability: boolean
   }
   client: WorkItemStartE2eSide & {
-    /** Cru, como o cliente reportou. */
+    /** Raw, as the client reported it. */
     platform: string
-    /** Normalizado para a família de SO; o E2E do owner é no Desktop Windows. */
+    /** Normalized to the OS family; the owner's E2E runs on the Windows Desktop. */
     platformNormalized: 'windows' | 'macos' | 'linux' | 'unknown'
     osRelease?: string
     arch?: string
@@ -74,7 +83,7 @@ export function sha256OfFile(filePath: string | null): string | null {
   return createHash('sha256').update(readFileSync(filePath)).digest('hex')
 }
 
-/** Windows chega como `win32` (Node/Electron) ou `Windows_NT` (os.type). */
+/** Windows arrives as `win32` (Node/Electron) or `Windows_NT` (os.type). */
 export function normalizeE2ePlatform(platform: string | undefined): {
   platformNormalized: WorkItemStartE2eEvidence['client']['platformNormalized']
 } {
@@ -95,8 +104,15 @@ type CapturedSideInput = {
   tree?: string | null
   artifactPath: string | null
   artifactSha256?: string | null
+  appContentSha256?: string | null
+  attestationId?: string | null
   manifestArtifact?: string | null
-  candidateArtifact?: { artifact: string; sha256: string; bytes: number } | null
+  candidateArtifact?: {
+    artifact: string
+    sha256: string
+    bytes: number
+    appContentSha256?: string
+  } | null
   provenance: string
 }
 
@@ -108,15 +124,19 @@ function captureSide(input: CapturedSideInput): WorkItemStartE2eSide {
     tree: input.tree ?? null,
     artifactPath: input.artifactPath,
     artifactSha256: input.artifactSha256 ?? sha256OfFile(input.artifactPath),
+    appContentSha256: input.appContentSha256 ?? null,
+    attestationId: input.attestationId ?? null,
     manifestArtifact: input.manifestArtifact ?? null,
     candidateArtifactSha256: input.candidateArtifact?.sha256 ?? null,
     candidateArtifactBytes: input.candidateArtifact?.bytes ?? null,
+    candidateAppContentSha256: input.candidateArtifact?.appContentSha256 ?? null,
     provenance: input.provenance
   }
 }
 
 export function buildWorkItemStartE2eEvidence(args: {
   now: string
+  candidate: WorkItemStartE2eCandidate
   server: CapturedSideInput & { runtimeId?: string; capabilities?: readonly string[] }
   client: CapturedSideInput & {
     platform?: string
@@ -129,6 +149,7 @@ export function buildWorkItemStartE2eEvidence(args: {
   const capabilities = args.server.capabilities ?? []
   return {
     capturedAt: args.now,
+    candidate: args.candidate,
     server: {
       ...captureSide(args.server),
       ...(args.server.runtimeId ? { runtimeId: args.server.runtimeId } : {}),
@@ -147,15 +168,42 @@ export function buildWorkItemStartE2eEvidence(args: {
   }
 }
 
-function sideDefects(label: string, side: WorkItemStartE2eSide): string[] {
+function candidateDefects(candidate: WorkItemStartE2eCandidate): string[] {
   const defects: string[] = []
-  if (side.appVersion !== WORK_ITEM_START_E2E_BASELINE_VERSION) {
-    defects.push(
-      `${label} is ${side.appVersion}, not the ${WORK_ITEM_START_E2E_BASELINE_VERSION} baseline`
-    )
+  if (!FULL_SHA.test(candidate.commit) || !FULL_SHA.test(candidate.tree)) {
+    defects.push('candidate manifest does not name a full commit and tree')
+  }
+  if (!candidate.version.trim() || !candidate.buildId.trim()) {
+    defects.push('candidate manifest names no version or build id')
+  }
+  if (candidate.expectedCommit !== undefined) {
+    if (!FULL_SHA.test(candidate.expectedCommit)) {
+      defects.push('the expected candidate commit is not a full 40-character sha')
+    } else if (candidate.expectedCommit !== candidate.commit) {
+      defects.push(
+        `candidate manifest is ${candidate.commit}, not the expected ${candidate.expectedCommit}`
+      )
+    }
+  }
+  return defects
+}
+
+function sideDefects(
+  label: string,
+  side: WorkItemStartE2eSide,
+  candidate: WorkItemStartE2eCandidate
+): string[] {
+  const defects: string[] = []
+  if (side.appVersion !== candidate.version) {
+    defects.push(`${label} is ${side.appVersion}, not the candidate ${candidate.version}`)
   }
   if (!side.buildId) {
     defects.push(`${label} reported no effective build id`)
+  } else if (side.buildId !== candidate.buildId) {
+    defects.push(`${label} build ${side.buildId} is not the candidate build ${candidate.buildId}`)
+  }
+  if (side.commit !== candidate.commit || side.tree !== candidate.tree) {
+    defects.push(`${label} is not bound to the candidate commit and tree`)
   }
   if (!side.candidateArtifactSha256) {
     defects.push(`${label} names no published candidate artifact`)
@@ -164,27 +212,34 @@ function sideDefects(label: string, side: WorkItemStartE2eSide): string[] {
     defects.push(`${label} did not name where its version and build came from`)
   }
   if (!side.manifestArtifact) {
-    // O vínculo é por identidade embutida, não por bytes: o sha256 do instalador nunca é o
-    // do executável instalado, então exigir igualdade seria um portão impossível.
+    // Bound by embedded identity, not installer bytes: an installer never hashes like the
+    // executable it installs, so demanding equality would be an impossible gate.
     defects.push(`${label} embedded build identity does not match the candidate manifest`)
   }
   if (!side.artifactSha256) {
     defects.push(`${label} did not report the sha256 of the executable it is running`)
   }
-  if (!side.commit || !side.tree) {
-    defects.push(`${label} is not bound to a candidate commit and tree`)
+  if (!side.appContentSha256) {
+    defects.push(`${label} did not attest the packaged app content it is running`)
+  } else if (side.appContentSha256 !== side.candidateAppContentSha256) {
+    defects.push(`${label} app content does not match the candidate artifact`)
+  }
+  if (!side.attestationId) {
+    defects.push(`${label} reported no attestation identity`)
   }
   return defects
 }
 
 /**
- * Um E2E só conta como positivo quando os DOIS lados são 1.4.203, o cliente é o Desktop
- * Windows, cada lado amarra o próprio binário, e um único writer entregou o prompt uma vez.
+ * An E2E counts as positive only when both sides run the one candidate, the client is the Windows
+ * Desktop, each side binds its own executable AND app content, and a single writer delivered the
+ * prompt once.
  */
 export function workItemStartE2eDefects(evidence: WorkItemStartE2eEvidence): string[] {
   const defects = [
-    ...sideDefects('server', evidence.server),
-    ...sideDefects('client', evidence.client)
+    ...candidateDefects(evidence.candidate),
+    ...sideDefects('server', evidence.server, evidence.candidate),
+    ...sideDefects('client', evidence.client, evidence.candidate)
   ]
   if (evidence.server.appVersion !== evidence.client.appVersion) {
     defects.push(
@@ -194,14 +249,15 @@ export function workItemStartE2eDefects(evidence: WorkItemStartE2eEvidence): str
   if (evidence.client.platformNormalized !== 'windows') {
     defects.push(`client platform is ${evidence.client.platform}, not the Windows Desktop`)
   }
-  // `buildId` sai de commit+árvore, logo é IGUAL nos dois lados do mesmo candidato — isso é
-  // o esperado, não um defeito. O que precisa diferir são os binários: o executável que cada
-  // lado roda e o artefato publicado de cada plataforma.
+  // `buildId` comes from commit+tree, so it is EQUAL on both sides of one candidate. What must
+  // differ is what each host runs: the attestation identity binds executable and app content.
   if (
-    evidence.server.artifactSha256 !== null &&
-    evidence.server.artifactSha256 === evidence.client.artifactSha256
+    evidence.server.attestationId !== null &&
+    evidence.server.attestationId === evidence.client.attestationId
   ) {
-    defects.push('one executable sha256 for a Windows client and its server; these are two hosts')
+    defects.push(
+      'one attestation identity for a Windows client and its server; these are two hosts'
+    )
   }
   if (
     evidence.server.candidateArtifactSha256 !== null &&

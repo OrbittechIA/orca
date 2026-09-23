@@ -49,6 +49,23 @@ async function verifyPackagedBuildProvenance(asarPath) {
   )
 }
 
+/** The candidate manifest binds each artifact to the `app.asar` it ships, which only the unpacked
+ *  app directory still exposes; installers wrap it. */
+async function writePackagedAppContentSidecar(context, asarPath) {
+  if (uncertifiedBuild()) {
+    return
+  }
+  const { writeAppContentSidecar } = await import('./scripts/write-candidate-manifest.mjs')
+  const arch = { 0: 'ia32', 1: 'x64', 2: 'armv7l', 3: 'arm64', 4: 'universal' }[context.arch]
+  const target = writeAppContentSidecar({
+    distDir: context.outDir,
+    electronPlatform: context.electronPlatformName,
+    arch,
+    asarPath
+  })
+  console.log(`[build-provenance] wrote ${target}`)
+}
+
 async function writeCandidateManifestForPackaging(distDir) {
   if (uncertifiedBuild()) {
     return
@@ -372,6 +389,7 @@ module.exports = {
     // Certification reads the PACKAGED bundle, so this is where the identity is proved: the
     // literal electron-vite substituted must be this repo's clean HEAD, or packaging stops.
     await verifyPackagedBuildProvenance(join(resourcesDir, 'app.asar'))
+    await writePackagedAppContentSidecar(context, join(resourcesDir, 'app.asar'))
     // FpmTarget replaces this with deb/rpm while building those artifacts from the shared app tree.
     if (context.electronPlatformName === 'linux') {
       writeFileSync(join(resourcesDir, 'package-type'), 'AppImage')

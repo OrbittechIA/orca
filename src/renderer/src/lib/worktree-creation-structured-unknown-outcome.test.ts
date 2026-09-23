@@ -331,6 +331,48 @@ describe('structured worktree creation unknown outcome', () => {
     expect(mocks.ensureWorktreeHasInitialTerminal).not.toHaveBeenCalled()
   })
 
+  it('retries a proven-undelivered strict prompt on the same worktree and session', async () => {
+    const retryRecovery = { ...RECOVERY, clientMessageId: 'message-retry' }
+    mocks.launchStructuredWorktreeSession
+      .mockResolvedValueOnce({
+        accepted: true,
+        cancelled: false,
+        visibilityUnknown: false,
+        failure: 'prompt-delivery',
+        promptRetryable: true,
+        recovery: retryRecovery,
+        activation: false,
+        primaryTabId: null
+      })
+      .mockResolvedValueOnce({
+        accepted: true,
+        cancelled: false,
+        visibilityUnknown: false,
+        activation: false,
+        primaryTabId: null
+      })
+
+    await executeWorktreeCreation('creation-1', request)
+
+    expect(store.updatePendingWorktreeCreation).toHaveBeenCalledWith(
+      'creation-1',
+      expect.objectContaining({
+        status: 'error',
+        structuredLaunchRecoveryWorktreeId: 'worktree-1',
+        structuredLaunchRecoveryIntent: retryRecovery,
+        structuredLaunchRetryDisabled: false
+      })
+    )
+    retryBackgroundWorktreeCreation('creation-1')
+    await vi.waitFor(() => expect(mocks.launchStructuredWorktreeSession).toHaveBeenCalledTimes(2))
+
+    expect(store.createWorktree).toHaveBeenCalledOnce()
+    expect(mocks.launchStructuredWorktreeSession).toHaveBeenLastCalledWith(
+      expect.objectContaining({ worktreeId: 'worktree-1', recover: retryRecovery })
+    )
+    expect(mocks.ensureWorktreeHasInitialTerminal).not.toHaveBeenCalled()
+  })
+
   it('reconciles an unconfirmed prompt on the existing worktree and session route', async () => {
     mocks.launchStructuredWorktreeSession
       .mockResolvedValueOnce({

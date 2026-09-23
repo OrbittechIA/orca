@@ -21,7 +21,7 @@
         }
       }
     },
-    "0dd78669f08d": {
+    "2e66eab74342": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -39,7 +39,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -57,7 +58,7 @@
         }
       }
     },
-    "1554c780f755": {
+    "6c47d103d515": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -75,7 +76,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -93,7 +95,7 @@
         }
       }
     },
-    "25ff00540c46": {
+    "876715aac081": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -111,7 +113,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -128,7 +131,7 @@
         }
       }
     },
-    "27cc7a2b58c9": {
+    "29cb5b4fae94": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -146,7 +149,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -183,7 +187,7 @@
         "probeFailed": true
       }
     },
-    "553200ba8c0f": {
+    "2c36cc4fa7f9": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -201,7 +205,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -239,7 +244,7 @@
         "sessionId": "claude_00000000_0000_4000_8000_000000000001"
       }
     },
-    "8201501565d9": {
+    "f7bfc9ab61e6": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -257,7 +262,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -279,7 +285,7 @@
       "ordinal": 4,
       "json": "{\"id\":\"frame-2\",\"deviceToken\":\"recording-device\",\"method\":\"agentSession.create\",\"params\":{\"envelope\":{\"sessionId\":\"claude_00000000_0000_4000_8000_000000000001\",\"clientOperationId\":\"1767225600000-00000000000040008000000000000002\",\"expectedRuntimeFence\":null,\"payloadFingerprint\":\"ce04a6ad4f07079b36cb0b4e9b1bcfd95481b5cb2428fbe93b3c0cf995ef8605\"},\"worktree\":\"id:workspace-1\",\"agent\":\"claude\"}}"
     },
-    "a4da7b5347e4": {
+    "5b67727ad5db": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -297,7 +303,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -312,7 +319,7 @@
         }
       }
     },
-    "a75955abbbbc": {
+    "ab280baa5b58": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -330,7 +337,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -394,7 +402,7 @@
         }
       }
     },
-    "be9e3b9ce2e7": {
+    "6d08ad2ae66e": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -412,7 +420,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -432,7 +441,7 @@
         "sessionId": "claude_00000000_0000_4000_8000_000000000001"
       }
     },
-    "da841ebfb6b9": {
+    "db2ad6592bd7": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -450,7 +459,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -465,7 +475,7 @@
         }
       }
     },
-    "efee3e1e1620": {
+    "11ad1e92357c": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -483,7 +493,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -524,7 +535,7 @@
       {
         "id": "structured-agent-session-created.normal:created",
         "observation": {
-          "sender": ["a75955abbbbc", "b5f7cf9d778d"],
+          "sender": ["ab280baa5b58", "b5f7cf9d778d"],
           "payloads": ["568aa5cfc6b5", "91f56e5d551d"],
           "settlements": {
             "claude": "6d6669cd1a85"
@@ -536,7 +547,7 @@
       {
         "id": "structured-agent-session-created.result-absent:created",
         "observation": {
-          "sender": ["be9e3b9ce2e7"],
+          "sender": ["6d08ad2ae66e"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
             "claude": "f0bb9de9827c"
@@ -548,7 +559,7 @@
       {
         "id": "structured-agent-session-created.result-null:created",
         "observation": {
-          "sender": ["8201501565d9"],
+          "sender": ["f7bfc9ab61e6"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
             "claude": "f0bb9de9827c"
@@ -560,7 +571,7 @@
       {
         "id": "structured-agent-session-created.inner-ok-missing:created",
         "observation": {
-          "sender": ["25ff00540c46"],
+          "sender": ["876715aac081"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
             "claude": "f0bb9de9827c"
@@ -572,7 +583,7 @@
       {
         "id": "structured-agent-session-created.inner-false-string-error:created",
         "observation": {
-          "sender": ["1554c780f755"],
+          "sender": ["6c47d103d515"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
             "claude": "f0bb9de9827c"
@@ -584,7 +595,7 @@
       {
         "id": "structured-agent-session-created.inner-false-object-error:created",
         "observation": {
-          "sender": ["27cc7a2b58c9"],
+          "sender": ["29cb5b4fae94"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
             "claude": "f0bb9de9827c"
@@ -596,7 +607,7 @@
       {
         "id": "structured-agent-session-created.outer-refused:created",
         "observation": {
-          "sender": ["553200ba8c0f"],
+          "sender": ["2c36cc4fa7f9"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
             "claude": "5342fdf67056"
@@ -608,7 +619,7 @@
       {
         "id": "structured-agent-session-created.outer-refused-no-message:created",
         "observation": {
-          "sender": ["0dd78669f08d"],
+          "sender": ["2e66eab74342"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
             "claude": "5342fdf67056"
@@ -620,7 +631,7 @@
       {
         "id": "structured-agent-session-created.method-not-found:created",
         "observation": {
-          "sender": ["efee3e1e1620"],
+          "sender": ["11ad1e92357c"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
             "claude": "2c227fd1941f"
@@ -632,7 +643,7 @@
       {
         "id": "structured-agent-session-created.transport-rejection:created",
         "observation": {
-          "sender": ["da841ebfb6b9"],
+          "sender": ["db2ad6592bd7"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
             "claude": "5342fdf67056"
@@ -644,7 +655,7 @@
       {
         "id": "structured-agent-session-created.transport-rejection-no-message:created",
         "observation": {
-          "sender": ["a4da7b5347e4"],
+          "sender": ["5b67727ad5db"],
           "payloads": ["568aa5cfc6b5"],
           "settlements": {
             "claude": "5342fdf67056"

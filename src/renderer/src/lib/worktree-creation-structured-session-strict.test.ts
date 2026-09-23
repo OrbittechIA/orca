@@ -301,6 +301,37 @@ describe('strict Work Item Start (submit-after-ready)', () => {
     expectNoTerminalWriter()
   })
 
+  it('hands a strict prompt refusal the one retry id the host proved unused', async () => {
+    mocks.startStructuredAgentLaunch.mockReturnValue({
+      sessionId: 'session-1',
+      recovery: RECOVERY,
+      launchResult: Promise.resolve({ sessionId: 'session-1', fence: 1 }),
+      promptDeliveryResult: Promise.resolve({
+        delivered: false,
+        failureNotified: false,
+        retryClientMessageId: 'message-retry'
+      }),
+      isVisibilityUnknown: () => false,
+      releaseCallerAfterUnknownOutcome: vi.fn()
+    })
+    const result = await launchStructuredWorktreeSession({
+      creationId: 'creation-1',
+      request: strictRequest,
+      agentLaunchRoute: 'structured-native-chat',
+      worktreeId: 'worktree-1',
+      shouldActivateOnCompletion: false,
+      activation: false,
+      primaryTabId: null
+    })
+    expect(result).toMatchObject({
+      failure: 'prompt-delivery',
+      promptRetryable: true,
+      recovery: { ...RECOVERY, clientMessageId: 'message-retry' }
+    })
+    expect(result.promptDeliveryUnknown).toBeUndefined()
+    expectNoTerminalWriter()
+  })
+
   it('reports an unconfirmed delivery with the intent and operation a retry must reuse', async () => {
     mocks.startStructuredAgentLaunch.mockReturnValue({
       sessionId: 'session-1',

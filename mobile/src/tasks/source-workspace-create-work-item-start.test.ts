@@ -18,6 +18,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({ default: asyncStor
 import { WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY } from '../../../src/shared/protocol-version'
 import type { RpcClient } from '../transport/rpc-client'
 import { createWorkspaceFromComposerSource } from './source-workspace-create'
+import { retryWorkItemStartStructuredSession } from './work-item-start-structured-session'
 
 // The composer's "new workspace from a work item" is the same Work Item Start as the Tasks tab's.
 // Before it took the structured route it seeded a terminal with the issue URL, and that pane
@@ -83,6 +84,7 @@ function composerArgs(client: RpcClient, delivery: 'draft' | 'submit-after-ready
       }
     },
     targetRepoId: 'repo-1',
+    targetRepo: { path: '/repos/orca', connectionId: null },
     setupDecision: 'run' as const,
     agent: { choice: 'codex' as const },
     workspaceName: undefined,
@@ -168,7 +170,7 @@ describe('composer work item Start', () => {
     expect(client.sendRequest.mock.calls.some((entry) => entry[0] === 'status.get')).toBe(false)
   })
 
-  it('names the created workspace when the session start does not land', async () => {
+  it('returns the created workspace with a warning, so the drawer cannot create another', async () => {
     const client = routedClient({
       'status.get': [ADMITTED_STATUS],
       'worktree.create': [CREATED],
@@ -179,9 +181,80 @@ describe('composer work item Start', () => {
       composerArgs(client, 'submit-after-ready')
     )
 
-    expect('error' in result).toBe(true)
-    expect('error' in result && result.error).toContain('"Caderno" was created')
+    // A created result closes the drawer; an error would leave Create armed for a second workspace.
+    expect(result).toMatchObject({ worktreeId: 'wt-1', name: 'Caderno' })
+    expect('warning' in result && result.warning).toContain('inside WSL')
     // No terminal was opened in the session's place.
     expect(createParams(client).startupDraft).toBeUndefined()
   })
+
+  it.each([
+    ['an SSH repo', { path: '/srv/orca', connectionId: 'ssh-1' }],
+    ['a WSL checkout', { path: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\orca' }]
+  ])('refuses %s before worktree.create with zero side effects', async (_label, targetRepo) => {
+    const client = routedClient({ 'status.get': [ADMITTED_STATUS], 'worktree.create': [CREATED] })
+
+    const result = await createWorkspaceFromComposerSource({
+      ...composerArgs(client, 'submit-after-ready'),
+      targetRepo
+    })
+
+    expect(result).toMatchObject({ error: expect.stringContaining('Nothing was created') })
+    expect(client.sendRequest).not.toHaveBeenCalled()
+  })
+
+  it('leaves a retry on the same workspace and session after an unconfirmed Start', async () => {
+    const lost = new Error('socket closed')
+    const client = routedClient({
+      'status.get': [ADMITTED_STATUS],
+      'worktree.create': [CREATED],
+      'agentSession.createSupport': [lost]
+    })
+
+    const result = await createWorkspaceFromComposerSource(
+      composerArgs(client, 'submit-after-ready')
+    )
+    expect(result).toMatchObject({ worktreeId: 'wt-1' })
+    const firstSessionId = paramsOf('agentSession.createSupport', client).sessionId
+
+    client.sendRequest.mockImplementation(async (method: string, params: unknown) => {
+      if (method === 'agentSession.createSupport') {
+        return { ok: true, result: { supported: true } }
+      }
+      if (method === 'agentSession.create') {
+        const envelope =
+          isUnknownRecord(params) && isUnknownRecord(params.envelope) ? params.envelope : {}
+        return createdSessionReply(String(envelope.sessionId))
+      }
+      return {
+        ok: true,
+        result: { ok: true, value: { submission: { dispatchState: 'accepted' } } }
+      }
+    })
+    await expect(
+      retryWorkItemStartStructuredSession({ client, worktreeId: 'wt-1' })
+    ).resolves.toMatchObject({ kind: 'started', sessionId: firstSessionId })
+
+    const methods = client.sendRequest.mock.calls.map((entry) => entry[0])
+    expect(methods.filter((method) => method === 'worktree.create')).toHaveLength(1)
+    const sessionIds = new Set(
+      client.sendRequest.mock.calls
+        .filter((entry) => String(entry[0]).startsWith('agentSession.create'))
+        .map((entry) => {
+          const params: unknown = entry[1]
+          if (!isUnknownRecord(params)) {
+            return undefined
+          }
+          return isUnknownRecord(params.envelope) ? params.envelope.sessionId : params.sessionId
+        })
+    )
+    expect(sessionIds).toEqual(new Set([firstSessionId]))
+  })
 })
+
+function createdSessionReply(sessionId: string): unknown {
+  return {
+    ok: true,
+    result: { ok: true, replayed: false, fence: 2, value: { sessionId, fence: 2 } }
+  }
+}

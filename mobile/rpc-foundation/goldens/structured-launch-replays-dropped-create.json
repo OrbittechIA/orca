@@ -121,7 +121,7 @@
       "ordinal": 4,
       "json": "{\"id\":\"frame-2\",\"deviceToken\":\"recording-device\",\"method\":\"agentSession.create\",\"params\":{\"envelope\":{\"sessionId\":\"claude_00000000_0000_4000_8000_000000000001\",\"clientOperationId\":\"1767225600000-00000000000040008000000000000002\",\"expectedRuntimeFence\":null,\"payloadFingerprint\":\"ce04a6ad4f07079b36cb0b4e9b1bcfd95481b5cb2428fbe93b3c0cf995ef8605\"},\"worktree\":\"id:workspace-1\",\"agent\":\"claude\"}}"
     },
-    "a75955abbbbc": {
+    "ab280baa5b58": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -139,7 +139,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -174,7 +175,7 @@
       {
         "id": "replayed",
         "observation": {
-          "sender": ["a75955abbbbc", "32c13d52ae1c", "91f1f642f890"],
+          "sender": ["ab280baa5b58", "32c13d52ae1c", "91f1f642f890"],
           "payloads": ["568aa5cfc6b5", "91f56e5d551d", "fdff1e265b45"],
           "settlements": {
             "claude": "6d6669cd1a85"

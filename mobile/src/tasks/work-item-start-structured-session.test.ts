@@ -23,6 +23,7 @@ import { WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY } from '../../../
 import {
   readWorkItemStartHostAdmission,
   resolveWorkItemStartRoute,
+  retryWorkItemStartStructuredSession,
   startWorkItemStructuredSession,
   WORK_ITEM_START_ADMISSION_TIMEOUT_MS,
   workItemStartAgentSupportsStructuredSession,
@@ -109,6 +110,8 @@ function taskCreateParams(structuredStart: boolean): Record<string, unknown> {
 }
 
 const SEND_JOURNAL_KEY = 'orca:mobileStructuredSendOperations:v1'
+const ATTEMPT_JOURNAL_KEY = 'orca:mobileWorkItemStartAttempts:v1'
+const LOCAL_REPO = { path: '/repos/orca', connectionId: null }
 
 /** The params of one RPC call as a record; an unexpected shape reads as empty, never as a cast. */
 function paramsOf(params: unknown): Record<string, unknown> {
@@ -151,7 +154,7 @@ describe('work item start prompt delivery is durable and replays one envelope', 
   it('persists the send envelope before the first dispatch', async () => {
     const order: string[] = []
     asyncStorage.setItem.mockImplementation(async (key: string, value: string) => {
-      order.push('journal')
+      order.push(key === SEND_JOURNAL_KEY ? 'journal' : 'attempt')
       asyncStorage.store.set(key, value)
     })
     const client = clientReturning(SUPPORTED, createdSession())
@@ -163,7 +166,10 @@ describe('work item start prompt delivery is durable and replays one envelope', 
       return method === 'agentSession.createSupport' ? SUPPORTED : createdSession()
     })
     await start(client)
-    expect(order.slice(0, 2)).toEqual(['journal', 'send'])
+    // The Start's identity is recorded before anything is requested, the send before it goes out.
+    expect(order[0]).toBe('attempt')
+    const sendIndex = order.indexOf('send')
+    expect(order.slice(0, sendIndex)).toContain('journal')
     // Settled: the durable record is gone, so nothing will replay it later.
     expect(asyncStorage.store.has(SEND_JOURNAL_KEY)).toBe(false)
   })
@@ -374,11 +380,12 @@ describe('work item start route is decided before anything is created', () => {
       resolveWorkItemStartRoute({
         client,
         settings: { workItemStartPromptDelivery: 'draft' },
-        agent: 'codex'
+        agent: 'codex',
+        repo: LOCAL_REPO
       })
     ).resolves.toEqual({ kind: 'terminal' })
     await expect(
-      resolveWorkItemStartRoute({ client, settings: strict, agent: 'blank' })
+      resolveWorkItemStartRoute({ client, settings: strict, agent: 'blank', repo: LOCAL_REPO })
     ).resolves.toEqual({ kind: 'terminal' })
     expect(client.sendRequest).not.toHaveBeenCalled()
   })
@@ -392,7 +399,7 @@ describe('work item start route is decided before anything is created', () => {
       }
     })
     await expect(
-      resolveWorkItemStartRoute({ client, settings: strict, agent: 'codex' })
+      resolveWorkItemStartRoute({ client, settings: strict, agent: 'codex', repo: LOCAL_REPO })
     ).resolves.toEqual({
       kind: 'structured'
     })
@@ -407,7 +414,7 @@ describe('work item start route is decided before anything is created', () => {
       result: { capabilities: [], deviceScope: 'runtime' }
     })
     await expect(
-      resolveWorkItemStartRoute({ client, settings: strict, agent: 'codex' })
+      resolveWorkItemStartRoute({ client, settings: strict, agent: 'codex', repo: LOCAL_REPO })
     ).resolves.toMatchObject({
       kind: 'refused',
       message: expect.stringContaining('no terminal was started in its place')
@@ -423,7 +430,7 @@ describe('work item start route is decided before anything is created', () => {
       }
     })
     await expect(
-      resolveWorkItemStartRoute({ client, settings: strict, agent: 'codex' })
+      resolveWorkItemStartRoute({ client, settings: strict, agent: 'codex', repo: LOCAL_REPO })
     ).resolves.toMatchObject({
       kind: 'refused'
     })
@@ -436,7 +443,7 @@ describe('work item start route is decided before anything is created', () => {
     ]) {
       const client = clientReturning(failure)
       await expect(
-        resolveWorkItemStartRoute({ client, settings: strict, agent: 'codex' })
+        resolveWorkItemStartRoute({ client, settings: strict, agent: 'codex', repo: LOCAL_REPO })
       ).resolves.toMatchObject({
         kind: 'unknown',
         message: expect.stringContaining('Nothing was created')
@@ -682,5 +689,186 @@ describe('startWorkItemStructuredSession', () => {
           .map((call) => envelopeOf(call[1]).clientOperationId)
       ).size
     ).toBe(1)
+  })
+})
+
+describe('strict Start refuses an unsupported execution host before anything is created', () => {
+  const strict = { workItemStartPromptDelivery: 'submit-after-ready' as const }
+
+  it.each([
+    ['an SSH repo', { path: '/srv/orca', connectionId: 'ssh-1' }, 'remote execution host'],
+    [
+      'a runtime-hosted repo',
+      { path: '/srv/orca', executionHostId: 'runtime:environment-1' },
+      'remote execution host'
+    ],
+    ['a WSL checkout', { path: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\orca' }, 'inside WSL']
+  ])('refuses %s without asking the host anything', async (_label, repo, reason) => {
+    const client = clientReturning()
+    await expect(
+      resolveWorkItemStartRoute({ client, settings: strict, agent: 'codex', repo })
+    ).resolves.toMatchObject({
+      kind: 'refused',
+      message: expect.stringContaining(reason)
+    })
+    // Zero side effects: not even the admission probe runs, let alone worktree.create.
+    expect(client.sendRequest).not.toHaveBeenCalled()
+  })
+
+  it('matches the desktop verdict for the same repo rows', async () => {
+    const { resolveStructuredNativeChatSupport } =
+      await import('../../../src/shared/structured-native-chat-launch-route')
+    const { getRepoExecutionHostId } = await import('../../../src/shared/execution-host')
+    for (const repo of [
+      { path: '/srv/orca', connectionId: 'ssh-1' },
+      { path: '/srv/orca', executionHostId: 'runtime:environment-1' }
+    ]) {
+      const desktop = resolveStructuredNativeChatSupport({
+        agent: 'codex',
+        executionHostId: getRepoExecutionHostId(repo),
+        hostCapabilities: [],
+        workspaceKind: 'git-worktree',
+        launchOrigin: 'work-item-start'
+      })
+      const mobile = await resolveWorkItemStartRoute({
+        client: clientReturning(),
+        settings: strict,
+        agent: 'codex',
+        repo
+      })
+      expect(desktop).toMatchObject({ supported: false, blocker: 'remote-execution-host' })
+      expect(mobile.kind).toBe('refused')
+    }
+  })
+})
+
+describe('a strict Start retry re-enters the same workspace, session and operations', () => {
+  beforeEach(() => {
+    asyncStorage.store.clear()
+    resetMobileStructuredSendOperationJournalForTests()
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  async function settle<T>(promise: Promise<T>): Promise<T> {
+    await vi.advanceTimersByTimeAsync(30_000)
+    return promise
+  }
+
+  function calls(client: { sendRequest: ReturnType<typeof vi.fn> }, method: string) {
+    return client.sendRequest.mock.calls.filter((call) => call[0] === method)
+  }
+
+  function sessionIdsOf(client: { sendRequest: ReturnType<typeof vi.fn> }): Set<unknown> {
+    return new Set([
+      ...calls(client, 'agentSession.createSupport').map((call) => paramsOf(call[1]).sessionId),
+      ...calls(client, 'agentSession.create').map((call) => envelopeOf(call[1]).sessionId)
+    ])
+  }
+
+  function startFirst(client: RpcClient) {
+    return settle(
+      startWorkItemStructuredSession({
+        client,
+        worktreeId: 'workspace-1',
+        worktreeName: 'issue-387',
+        agent: 'codex',
+        prompt: GITHUB_ITEM.source.url
+      })
+    )
+  }
+
+  it('reconciles an unknown create with the recorded session instead of minting one', async () => {
+    const lost = markRpcDeliveryUnknown(new Error('create reply lost'))
+    const client = clientReturning(SUPPORTED, lost, lost)
+    const first = await startFirst(client)
+    expect(first).toMatchObject({ kind: 'unconfirmed' })
+    expect(asyncStorage.store.has(ATTEMPT_JOURNAL_KEY)).toBe(true)
+
+    const recordedSessionId = 'sessionId' in first ? first.sessionId : undefined
+    client.sendRequest.mockImplementation(async (method: string) =>
+      method === 'agentSession.createSupport'
+        ? SUPPORTED
+        : method === 'agentSession.create'
+          ? createdSession(recordedSessionId)
+          : ACCEPTED_SEND
+    )
+    const retried = await settle(
+      retryWorkItemStartStructuredSession({ client, worktreeId: 'workspace-1' })
+    )
+
+    expect(retried).toEqual({ kind: 'started', sessionId: recordedSessionId })
+    // One session identity and one create operation across the first attempt and the retry.
+    expect(sessionIdsOf(client)).toEqual(new Set([recordedSessionId]))
+    const createOperations = new Set(
+      calls(client, 'agentSession.create').map((call) => envelopeOf(call[1]).clientOperationId)
+    )
+    expect(createOperations.size).toBe(1)
+    expect(calls(client, 'worktree.create')).toHaveLength(0)
+    expect(calls(client, 'agentSession.send')).toHaveLength(1)
+    // Settled: nothing is left for another retry to re-enter.
+    await expect(
+      retryWorkItemStartStructuredSession({ client, worktreeId: 'workspace-1' })
+    ).resolves.toBeNull()
+  })
+
+  it('replays the same send operation after an unconfirmed delivery', async () => {
+    const unknownSend = markRpcDeliveryUnknown(new Error('send reply lost'))
+    const client = clientReturning(
+      SUPPORTED,
+      createdSession(),
+      unknownSend,
+      unknownSend,
+      unknownSend
+    )
+    const first = await startFirst(client)
+    expect(first).toMatchObject({ kind: 'unconfirmed', sessionId: 'codex_session_1' })
+
+    client.sendRequest.mockImplementation(async (method: string) =>
+      method === 'agentSession.createSupport'
+        ? SUPPORTED
+        : method === 'agentSession.create'
+          ? createdSession()
+          : ACCEPTED_SEND
+    )
+    const retried = await settle(
+      retryWorkItemStartStructuredSession({ client, worktreeId: 'workspace-1' })
+    )
+
+    expect(retried).toEqual({ kind: 'started', sessionId: 'codex_session_1' })
+    const sendOperations = new Set(
+      sendEnvelopes(client).map((envelope) => envelope.clientOperationId)
+    )
+    expect(sendOperations.size).toBe(1)
+    expect(sessionIdsOf(client).size).toBe(1)
+  })
+
+  it('keeps the session identity when the support probe went unanswered', async () => {
+    const client = clientReturning(new Error('socket closed'))
+    const first = await startFirst(client)
+    expect(first).toMatchObject({ kind: 'unconfirmed' })
+    const firstSessionId = paramsOf(calls(client, 'agentSession.createSupport')[0]?.[1]).sessionId
+
+    client.sendRequest.mockImplementation(async (method: string) =>
+      method === 'agentSession.createSupport'
+        ? SUPPORTED
+        : method === 'agentSession.create'
+          ? createdSession(String(firstSessionId))
+          : ACCEPTED_SEND
+    )
+    await expect(
+      settle(retryWorkItemStartStructuredSession({ client, worktreeId: 'workspace-1' }))
+    ).resolves.toMatchObject({ kind: 'started' })
+    expect(sessionIdsOf(client)).toEqual(new Set([firstSessionId]))
+  })
+
+  it('releases the identity after a definitive refusal, so no retry re-enters it', async () => {
+    const client = clientReturning({ ok: true, result: { supported: false, reason: 'remote' } })
+    await expect(startFirst(client)).resolves.toMatchObject({ kind: 'refused' })
+    await expect(
+      retryWorkItemStartStructuredSession({ client, worktreeId: 'workspace-1' })
+    ).resolves.toBeNull()
   })
 })

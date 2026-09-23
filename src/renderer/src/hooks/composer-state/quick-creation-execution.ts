@@ -1,5 +1,5 @@
 import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
-import { resolveQuickCreationAgentLaunchRoute } from '@/hooks/composer-state/quick-work-item-start-route'
+import * as quickWorkItemStartRoute from '@/hooks/composer-state/quick-work-item-start-route'
 import type { ComposerModel } from './composer-model'
 
 type QuickCreationExecutionInput = Pick<
@@ -123,7 +123,7 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
       } = prepared
 
       const promptLinkedWorkItem = agent === null ? null : submitLinkedWorkItem
-      // A preparação é a dona desta decisão: aqui ela só é lida, nunca re-derivada.
+      // Preparation owns this decision: it is only read here, never re-derived.
       const { workItemStartPromptDelivery } = prepared
 
       const { prompt: quickPrompt, draftPrompt: quickDraftPrompt } =
@@ -172,6 +172,8 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
       const activeEphemeralVmRecipeId = ephemeralVmsEnabled ? selectedEphemeralVmRecipeId : null
 
       if (activeEphemeralVmRecipeId && selectedWorkspaceTarget.status === 'ready') {
+        // Before the VM trust prompt or any provisioning: a VM is never a local execution host.
+        quickWorkItemStartRoute.refuseStrictStartOnEphemeralVm(workItemStartPromptDelivery)
         const vmRecipeTrustSettlement = await settleComposerSubmit(
           ensureHooksConfirmed(
             useAppStore.getState(),
@@ -202,7 +204,7 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
       }
 
       const promptDelivery = quickDraftPrompt ? 'draft' : 'auto-submit'
-      const agentLaunchRoute = await resolveQuickCreationAgentLaunchRoute({
+      const agentLaunchRoute = await quickWorkItemStartRoute.resolveQuickCreationAgentLaunchRoute({
         agent,
         workItemPromptDelivery: workItemStartPromptDelivery,
         settings,

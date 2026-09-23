@@ -260,6 +260,78 @@ describe('TaskPage composer work-item start delivery', () => {
     expect(mocks.runBackgroundWorktreeCreation).not.toHaveBeenCalled()
   })
 
+  it('refuses a local repo creating on an ephemeral VM before any trust prompt or worktree', async () => {
+    const input: QuickCreationExecutionInput = {
+      ...executionInput(settingsWithDelivery('submit-after-ready'), preparedQuickSubmit()),
+      ephemeralVmsEnabled: true,
+      selectedEphemeralVmRecipeId: 'recipe-1',
+      selectedWorkspaceTarget: {
+        status: 'ready',
+        target: {
+          projectId: 'project-1',
+          hostId: 'local',
+          projectHostSetupId: 'setup-1',
+          repoId: repo.id,
+          repo,
+          setup: {
+            id: 'setup-1',
+            projectId: 'project-1',
+            hostId: 'local',
+            repoId: repo.id,
+            path: repo.path,
+            displayName: repo.displayName,
+            setupState: 'ready',
+            setupMethod: 'legacy-repo',
+            createdAt: 1,
+            updatedAt: 1
+          }
+        }
+      }
+    }
+
+    await expect(execute(input)).rejects.toThrow('No workspace, terminal, or prompt was started.')
+    expect(mocks.runBackgroundWorktreeCreation).not.toHaveBeenCalled()
+  })
+
+  it.each(['ssh:connection-1', 'runtime:environment-1'] as const)(
+    'refuses a local repo whose run target executes on %s before any worktree',
+    async (hostId) => {
+      const hook = renderHook(() =>
+        useQuickCreationExecution(
+          executionInput(settingsWithDelivery('submit-after-ready'), preparedQuickSubmit())
+        )
+      )
+      await expect(
+        act(() =>
+          hook.result.current.executeQuickCreation(
+            { kind: 'none' },
+            'codex',
+            'issue-58',
+            {
+              kind: 'workspace-run',
+              projectId: 'project-1',
+              hostId,
+              projectHostSetupId: 'setup-1',
+              repoId: repo.id,
+              path: '/remote/repo'
+            },
+            repo.id,
+            repo
+          )
+        )
+      ).rejects.toThrow('No workspace, terminal, or prompt was started.')
+      expect(mocks.runBackgroundWorktreeCreation).not.toHaveBeenCalled()
+    }
+  )
+
+  it('still admits a local repo with a local run target', async () => {
+    await execute(executionInput(settingsWithDelivery('submit-after-ready'), preparedQuickSubmit()))
+    expect(mocks.runBackgroundWorktreeCreation).toHaveBeenCalledOnce()
+    expect(mocks.runBackgroundWorktreeCreation).toHaveBeenCalledWith(
+      expect.objectContaining({ agentLaunchRoute: 'structured-native-chat' })
+    )
+  })
+
   it('fails before creation when a Windows renderer owns a WSL checkout', async () => {
     mocks.appState.repos = [{ ...repo, path: '\\\\wsl.localhost\\Ubuntu\\home\\alice\\repo' }]
     Object.assign(window, {

@@ -509,7 +509,7 @@
     "a4273b38df83": {
       "launched": "unlaunched"
     },
-    "a75955abbbbc": {
+    "ab280baa5b58": {
       "name": "agentSession.createSupport#1",
       "ordinal": 1,
       "args": [
@@ -527,7 +527,8 @@
         {
           "name": "options",
           "value": {
-            "$rpc": "absent"
+            "budgetSpansConnect": true,
+            "timeoutMs": 10000
           }
         }
       ],
@@ -660,7 +661,7 @@
       {
         "id": "structured-agent-session-created.normal:created",
         "observation": {
-          "sender": ["a75955abbbbc", "b5f7cf9d778d"],
+          "sender": ["ab280baa5b58", "b5f7cf9d778d"],
           "payloads": ["568aa5cfc6b5", "91f56e5d551d"],
           "settlements": {
             "claude": "6d6669cd1a85"
@@ -672,7 +673,7 @@
       {
         "id": "structured-agent-session-created.result-absent:created",
         "observation": {
-          "sender": ["a75955abbbbc", "00c4403a6cae"],
+          "sender": ["ab280baa5b58", "00c4403a6cae"],
           "payloads": ["568aa5cfc6b5", "91f56e5d551d"],
           "settlements": {
             "claude": "05c8ed108777"
@@ -684,7 +685,7 @@
       {
         "id": "structured-agent-session-created.result-null:created",
         "observation": {
-          "sender": ["a75955abbbbc", "9e17c54fa815"],
+          "sender": ["ab280baa5b58", "9e17c54fa815"],
           "payloads": ["568aa5cfc6b5", "91f56e5d551d"],
           "settlements": {
             "claude": "05c8ed108777"
@@ -696,7 +697,7 @@
       {
         "id": "structured-agent-session-created.inner-ok-missing:created",
         "observation": {
-          "sender": ["a75955abbbbc", "907c2954b0e2"],
+          "sender": ["ab280baa5b58", "907c2954b0e2"],
           "payloads": ["568aa5cfc6b5", "91f56e5d551d"],
           "settlements": {
             "claude": "05c8ed108777"
@@ -708,7 +709,7 @@
       {
         "id": "structured-agent-session-created.inner-false-string-error:created",
         "observation": {
-          "sender": ["a75955abbbbc", "c4b8d1feb09b"],
+          "sender": ["ab280baa5b58", "c4b8d1feb09b"],
           "payloads": ["568aa5cfc6b5", "91f56e5d551d"],
           "settlements": {
             "claude": "05c8ed108777"
@@ -720,7 +721,7 @@
       {
         "id": "structured-agent-session-created.inner-false-object-error:created",
         "observation": {
-          "sender": ["a75955abbbbc", "052339a099eb"],
+          "sender": ["ab280baa5b58", "052339a099eb"],
           "payloads": ["568aa5cfc6b5", "91f56e5d551d"],
           "settlements": {
             "claude": "05c8ed108777"
@@ -732,7 +733,7 @@
       {
         "id": "structured-agent-session-created.outer-refused:created",
         "observation": {
-          "sender": ["a75955abbbbc", "7903f6b6f8fd"],
+          "sender": ["ab280baa5b58", "7903f6b6f8fd"],
           "payloads": ["568aa5cfc6b5", "91f56e5d551d"],
           "settlements": {
             "claude": "18bdbb57da23"
@@ -744,7 +745,7 @@
       {
         "id": "structured-agent-session-created.outer-refused-no-message:created",
         "observation": {
-          "sender": ["a75955abbbbc", "5d0f7c315752"],
+          "sender": ["ab280baa5b58", "5d0f7c315752"],
           "payloads": ["568aa5cfc6b5", "91f56e5d551d"],
           "settlements": {
             "claude": "05c8ed108777"
@@ -756,7 +757,7 @@
       {
         "id": "structured-agent-session-created.method-not-found:created",
         "observation": {
-          "sender": ["a75955abbbbc", "3e8a38dc3ecb"],
+          "sender": ["ab280baa5b58", "3e8a38dc3ecb"],
           "payloads": ["568aa5cfc6b5", "91f56e5d551d"],
           "settlements": {
             "claude": "73bdf299262b"
@@ -768,7 +769,7 @@
       {
         "id": "structured-agent-session-created.transport-rejection:created",
         "observation": {
-          "sender": ["a75955abbbbc", "95e3678a4ba5", "001cba249e32"],
+          "sender": ["ab280baa5b58", "95e3678a4ba5", "001cba249e32"],
           "payloads": ["568aa5cfc6b5", "91f56e5d551d", "fdff1e265b45"],
           "settlements": {
             "claude": "9270aeb7d9c6"
@@ -780,7 +781,7 @@
       {
         "id": "structured-agent-session-created.transport-rejection-no-message:created",
         "observation": {
-          "sender": ["a75955abbbbc", "3ce787e7eb26", "001cba249e32"],
+          "sender": ["ab280baa5b58", "3ce787e7eb26", "001cba249e32"],
           "payloads": ["568aa5cfc6b5", "91f56e5d551d", "fdff1e265b45"],
           "settlements": {
             "claude": "9270aeb7d9c6"

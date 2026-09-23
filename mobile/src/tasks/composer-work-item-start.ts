@@ -5,7 +5,8 @@ import type { WorktreeCreateResult } from './worktree-create-retry'
 import {
   resolveWorkItemStartRoute,
   startWorkItemStructuredSession,
-  workItemStartAgentSupportsStructuredSession
+  workItemStartAgentSupportsStructuredSession,
+  type WorkItemStartRepo
 } from './work-item-start-structured-session'
 
 // The composer's work-item Start is the same Start as the Tasks tab's, so it takes the same route:
@@ -19,6 +20,7 @@ export async function resolveComposerWorkItemStart(args: {
   client: RpcClient
   settings: Pick<RuntimeTaskSettings, 'workItemStartPromptDelivery'> | null | undefined
   agent: TuiAgent | 'blank'
+  repo: WorkItemStartRepo
 }): Promise<{ error: string } | { structuredAgent: TuiAgent | null }> {
   const route = await resolveWorkItemStartRoute(args)
   if (route.kind === 'refused' || route.kind === 'unknown') {
@@ -49,13 +51,18 @@ export async function finishComposerWorkItemStart(args: {
   const outcome = await startWorkItemStructuredSession({
     client: args.client,
     worktreeId: created.worktreeId,
+    worktreeName: created.name,
     agent: structuredAgent,
     prompt: args.prompt
   })
   if (outcome.kind === 'started') {
     return created
   }
-  // The workspace exists and is listed; saying so in the same breath as the failure is what
-  // keeps this from reading as "nothing happened".
-  return { error: `${outcome.message} The workspace "${created.name}" was created.` }
+  // The workspace exists, so this is a created result with a warning, never an error: an error
+  // keeps the drawer's Create armed, and tapping it again would create a second workspace. Any
+  // retry happens on the workspace, under the attempt recorded for it.
+  const warning = [outcome.message, 'warning' in created ? created.warning : undefined]
+    .filter(Boolean)
+    .join(' ')
+  return { ...created, warning }
 }

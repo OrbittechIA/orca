@@ -31,6 +31,7 @@ const IDEMPOTENT_CREATE_SUPPORT = {
 
 const baseArgs = {
   targetRepoId: 'repo-1',
+  targetRepo: { path: '/repos/orca', connectionId: null },
   setupDecision: 'inherit' as const,
   agent,
   workspaceName: undefined,

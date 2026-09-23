@@ -166,6 +166,7 @@ export function useNewWorkspaceCreateSubmit(args: {
             selection,
             runtimeSettings: latestRuntimeSettings,
             targetRepoId: selectedRepo.id,
+            targetRepo: selectedRepo,
             setupDecision,
             agent: { choice: normalizeWorkspaceAgent(args.selectedAgent.id) ?? 'blank' },
             workspaceName: trimmedName || undefined,

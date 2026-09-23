@@ -22,6 +22,9 @@ export type WorktreeCreationStructuredSessionResult = {
   failure?: 'prompt-delivery' | 'structured-refused' | 'structured-launch'
   /** The exact intent and staged prompt of the launch, for a retry after an unknown outcome. */
   recovery?: StructuredAgentLaunchRecovery
+  /** `prompt-delivery` only: the host proved non-delivery, and `recovery` names the one operation
+   *  id every retry delivers under. */
+  promptRetryable?: boolean
   activation: ActivateAndRevealResult | false
   primaryTabId: string | null
 }
@@ -166,7 +169,18 @@ export async function launchStructuredWorktreeSession(
   if (!delivery || delivery.deliveryUnknown === true) {
     return { ...settled, promptDeliveryUnknown: true, recovery, activation, primaryTabId }
   }
-  return { ...settled, failure: 'prompt-delivery' as const, recovery, activation, primaryTabId }
+  // Strict refusal proved non-delivery and named the id a retry delivers under; without that id
+  // the refusal stays final, since a resend could be a second writer.
+  const retryClientMessageId = delivery.retryClientMessageId
+  return {
+    ...settled,
+    failure: 'prompt-delivery' as const,
+    ...(retryClientMessageId && recovery
+      ? { promptRetryable: true, recovery: { ...recovery, clientMessageId: retryClientMessageId } }
+      : { recovery }),
+    activation,
+    primaryTabId
+  }
 
   function structuredLaunchFailed(): WorktreeCreationStructuredSessionResult {
     return { ...settled, accepted: false, failure: 'structured-launch', activation, primaryTabId }

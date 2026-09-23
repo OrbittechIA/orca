@@ -62,6 +62,8 @@ export function provenanceEnvironmentForElectronVite({
 
 const IDENTITY_FIELDS = ['version', 'commit', 'tree', 'buildId']
 
+const FULL_OBJECT_ID = /^[0-9a-f]{40}$/
+
 /** The literal the config embeds. With the wrapper's handoff present it is validated against
  *  the repository and used; without it (a direct `electron-vite` invocation) the strict read
  *  runs here, where the transient bundle makes the tree dirty and the answer `null`. */
@@ -148,8 +150,14 @@ export function readBuildProvenanceLiteral({
     ['ORCA_BUILD_COMMIT', env.ORCA_BUILD_COMMIT?.trim(), commit],
     ['ORCA_BUILD_TREE', env.ORCA_BUILD_TREE?.trim(), tree]
   ]) {
-    // O override é uma ASSERÇÃO do que o CI espera empacotar, nunca uma fonte: só passa
-    // quando o repositório concorda.
+    // The override is an ASSERTION of what CI expects to package, never a source: it passes only
+    // when the repository agrees, and only as a full object id. A short sha or a ref name would
+    // need prefix or name resolution, which is exactly the ambiguity provenance must not accept.
+    if (expected && !FULL_OBJECT_ID.test(expected)) {
+      throw new BuildProvenanceError(
+        `${name}=${expected} must be a full 40-character lowercase SHA, not a short sha or ref`
+      )
+    }
     if (expected && expected !== actual) {
       throw new BuildProvenanceError(
         `${name}=${expected} does not match the repository (${actual})`

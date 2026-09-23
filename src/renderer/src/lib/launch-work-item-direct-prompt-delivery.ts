@@ -12,6 +12,8 @@ export function deliverDirectWorkItemPrompt(args: {
   startupPlan: AgentStartupPlan | null
   draftLaunchedNatively: boolean
 }): boolean {
+  // Fence: a strict Start delivers only through its structured session. The terminal paste below
+  // is reachable solely by non-strict launches (Fix Checks' legacy submit), never alongside one.
   if (args.structuredSessionRequired) {
     return false
   }
