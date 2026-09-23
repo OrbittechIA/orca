@@ -22,7 +22,7 @@ import {
   resolveComposerWorkItemStart
 } from './composer-work-item-start'
 import type { WorktreeCreateIdempotencyProbe } from './worktree-create-idempotency-policy'
-import type { WorkItemStartRepo } from './work-item-start-route'
+import type { WorkItemStartRepo } from './work-item-start-structured-session'
 
 // The agent bundle the modal resolved: `choice` drives launch resolution — the
 // host applies the agent's launch args (permission flags) and shell quoting.

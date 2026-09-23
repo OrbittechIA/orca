@@ -4,10 +4,10 @@ import type { RuntimeTaskSettings } from './mobile-tasks-view-state-types'
 import type { WorktreeCreateResult } from './worktree-create-retry'
 import {
   resolveWorkItemStartRoute,
+  startWorkItemStructuredSession,
   workItemStartAgentSupportsStructuredSession,
   type WorkItemStartRepo
-} from './work-item-start-route'
-import { startWorkItemStructuredSession } from './work-item-start-structured-session'
+} from './work-item-start-structured-session'
 
 // The composer's work-item Start is the same Start as the Tasks tab's, so it takes the same route:
 // a structured session carries identity, a seeded terminal does not.

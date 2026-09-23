@@ -27,10 +27,10 @@ import {
   worktreePrBaseResolve
 } from './mobile-workspace-create-operations'
 import {
+  startWorkItemStructuredSession,
   resolveWorkItemStartRoute,
   workItemStartAgentSupportsStructuredSession
-} from './work-item-start-route'
-import { startWorkItemStructuredSession } from './work-item-start-structured-session'
+} from './work-item-start-structured-session'
 
 export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateModel) {
   const {

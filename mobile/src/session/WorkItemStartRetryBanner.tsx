@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
 import { RotateCcw } from 'lucide-react-native'
 import { colors, radii, spacing, typography } from '../theme/mobile-theme'
@@ -21,8 +21,6 @@ export function WorkItemStartRetryBanner({
   const [pending, setPending] = useState(false)
   const [running, setRunning] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
-  // A second tap lands before `running` re-renders; the ref closes that window.
-  const runningRef = useRef(false)
 
   useEffect(() => {
     let cancelled = false
@@ -40,23 +38,20 @@ export function WorkItemStartRetryBanner({
   }, [worktreeId])
 
   const retry = useCallback(async () => {
-    if (!client || runningRef.current) {
+    if (!client || running) {
       return
     }
-    runningRef.current = true
     setRunning(true)
     try {
-      // Re-reads the journal inside the per-workspace flight; `null` means a Start already settled.
       const outcome = await retryWorkItemStartStructuredSession({ client, worktreeId })
       setPending(outcome?.kind === 'unconfirmed')
       setMessage(outcome && outcome.kind !== 'started' ? outcome.message : null)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Retry Start failed.')
     } finally {
-      runningRef.current = false
       setRunning(false)
     }
-  }, [client, worktreeId])
+  }, [client, running, worktreeId])
 
   if (!pending && !message) {
     return null

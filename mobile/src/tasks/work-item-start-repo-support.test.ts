@@ -6,7 +6,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
   default: { getItem: vi.fn(async () => null), setItem: vi.fn(), removeItem: vi.fn() }
 }))
 import { WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY } from '../../../src/shared/protocol-version'
-import { resolveWorkItemStartRoute } from './work-item-start-route'
+import { resolveWorkItemStartRoute } from './work-item-start-structured-session'
 
 // A strict Start asks the host about the SOURCE repo before `worktree.create`: only the host knows
 // the runtime the workspace will run in, so a `C:\\` repo set to WSL looks native from here.

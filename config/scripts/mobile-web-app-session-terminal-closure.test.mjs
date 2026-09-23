@@ -200,8 +200,14 @@ const MERMAID_PACKAGE = 'node_modules/mermaid/'
  * All four are local and none leaves: `src/tasks/work-item-start-attempt-journal.ts`,
  * `src/tasks/work-item-start-prompt-delivery.ts`, `src/session/WorkItemStartRetryBanner.tsx` and
  * the shared `work-item-start-execution-host.ts`.
+ *
+ * Then strict Start's pre-create route decision moved out of the structured session module.
+ *
+ *   modules        4333 -> 4334   (+1)
+ *
+ * The one is local and leaves nothing behind: `src/tasks/work-item-start-route.ts`.
  */
-const SESSION_ROUTE_MODULES = 4333
+const SESSION_ROUTE_MODULES = 4334
 
 const artifactModules = (inputs) => inputs.filter((input) => input.includes(MERMAID_PAGE_ENGINE))
 const packageModules = (inputs) => inputs.filter((input) => input.includes(MERMAID_PACKAGE))
