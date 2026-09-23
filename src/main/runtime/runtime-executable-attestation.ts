@@ -43,15 +43,16 @@ type OriginalFs = {
 }
 
 function isOriginalFs(value: unknown): value is OriginalFs {
-  if (!value || typeof value !== 'object') {
-    return false
-  }
-  const promises: unknown = Reflect.get(value, 'promises')
   return (
-    typeof Reflect.get(value, 'createReadStream') === 'function' &&
-    !!promises &&
-    typeof promises === 'object' &&
-    typeof Reflect.get(promises, 'stat') === 'function'
+    typeof value === 'object' &&
+    value !== null &&
+    'createReadStream' in value &&
+    typeof value.createReadStream === 'function' &&
+    'promises' in value &&
+    typeof value.promises === 'object' &&
+    value.promises !== null &&
+    'stat' in value.promises &&
+    typeof value.promises.stat === 'function'
   )
 }
 
@@ -133,7 +134,8 @@ export async function attestRuntimeBuild(args: {
 /** Packaged when Electron's resources directory holds the archive; a missing one means the app
  *  loads from `out/`, which is reported as unpackaged rather than guessed. */
 async function packagedAppAsarPath(): Promise<string | null> {
-  const resourcesPath: unknown = Reflect.get(process, 'resourcesPath')
+  // Electron-only: undefined under plain Node despite its type.
+  const resourcesPath: string | undefined = process.resourcesPath
   if (typeof resourcesPath !== 'string' || !process.versions.electron) {
     return null
   }

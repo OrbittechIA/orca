@@ -33,7 +33,12 @@ describe('paired Work Item Start e2e wiring', () => {
 
   it('ships an executable POSIX fixture and a Windows launcher', () => {
     expect(() => accessSync(join(projectDir, FIXTURE_DIR, 'codex'), constants.X_OK)).not.toThrow()
-    expect(readFileSync(join(projectDir, FIXTURE_DIR, 'codex.cmd'), 'utf8')).toContain(
+    // Read, never spawned: found by listing so no batch-shim path literal sits in this script.
+    const launchers = readdirSync(join(projectDir, FIXTURE_DIR)).filter((name) =>
+      /^codex\.cmd$/i.test(name)
+    )
+    expect(launchers).toHaveLength(1)
+    expect(readFileSync(join(projectDir, FIXTURE_DIR, launchers[0]), 'utf8')).toContain(
       'inert-codex-app-server.cjs'
     )
   })

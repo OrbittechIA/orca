@@ -26,7 +26,11 @@ function archOf(name) {
   if (lower.includes('arm64') || lower.includes('aarch64')) {
     return 'arm64'
   }
-  if (lower.includes('ia32') || lower.includes('x86')) {
+  // rpm names x64 `x86_64`, which a bare `x86` match would misread as ia32.
+  if (/x86_64|amd64|x64/.test(lower)) {
+    return 'x64'
+  }
+  if (/ia32|i[3-6]86|x86/.test(lower)) {
     return 'ia32'
   }
   return 'x64'

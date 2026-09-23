@@ -61,4 +61,27 @@ describe('candidate manifest app content binding', () => {
       /windows-x64/
     )
   })
+
+  it('binds linux x64 artifacts, including rpm x86_64, to the x64 sidecar', () => {
+    rmSync(join(dist, 'Orca-Setup-1.4.209.exe'))
+    for (const name of [
+      'orca-linux.AppImage',
+      'orca-ide_1.4.209_amd64.deb',
+      'orca-ide-1.4.209.x86_64.rpm'
+    ]) {
+      writeFileSync(join(dist, name), name)
+    }
+    writeAppContentSidecar({
+      distDir: dist,
+      electronPlatform: 'linux',
+      arch: 'x64',
+      asarPath: join(dist, 'app.asar')
+    })
+    const manifest = buildCandidateManifest({ distDir: dist, provenanceLiteral: PROVENANCE })
+    expect(manifest.artifacts.map((a) => [a.artifact, a.arch, a.appContentBytes])).toEqual([
+      ['orca-ide_1.4.209_amd64.deb', 'x64', 'packaged app code'.length],
+      ['orca-ide-1.4.209.x86_64.rpm', 'x64', 'packaged app code'.length],
+      ['orca-linux.AppImage', 'x64', 'packaged app code'.length]
+    ])
+  })
 })

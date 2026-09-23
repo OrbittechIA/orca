@@ -192,8 +192,16 @@ const MERMAID_PACKAGE = 'node_modules/mermaid/'
  * `work-item-start-structured-session.ts` and `work-item-start-settings-refresh.ts`, the
  * `src/session/mobile-native-chat-write-timeout.ts` leaf that keeps the native-chat write path out
  * of the Tasks page, and the shared `agent-session-options.ts` and `unknown-record.ts`.
+ *
+ * Then strict Start gained its retry journal, host preflight and retry banner.
+ *
+ *   modules        4329 -> 4333   (+4)
+ *
+ * All four are local and none leaves: `src/tasks/work-item-start-attempt-journal.ts`,
+ * `src/tasks/work-item-start-prompt-delivery.ts`, `src/session/WorkItemStartRetryBanner.tsx` and
+ * the shared `work-item-start-execution-host.ts`.
  */
-const SESSION_ROUTE_MODULES = 4329
+const SESSION_ROUTE_MODULES = 4333
 
 const artifactModules = (inputs) => inputs.filter((input) => input.includes(MERMAID_PAGE_ENGINE))
 const packageModules = (inputs) => inputs.filter((input) => input.includes(MERMAID_PACKAGE))

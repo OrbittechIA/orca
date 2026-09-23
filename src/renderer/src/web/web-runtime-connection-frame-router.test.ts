@@ -2,7 +2,11 @@ import { isUnknownRecord } from '../../../shared/unknown-record'
 import { describe, expect, it, vi } from 'vitest'
 import {
   CLAUDE_STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
+  STRUCTURED_AGENT_SESSION_HOLD_RUNTIME_CAPABILITY,
+  STRUCTURED_AGENT_SESSION_RESUME_HISTORY_RUNTIME_CAPABILITY,
+  STRUCTURED_AGENT_SESSION_REVEAL_RUNTIME_CAPABILITY,
   STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
+  WORK_ITEM_START_STRUCTURED_SESSION_CLIENT_CAPABILITY,
   WORKTREE_GITHUB_PR_SUPPRESSION_RUNTIME_CAPABILITY
 } from '../../../shared/protocol-version'
 import { routeWebRuntimeConnectionFrame } from './web-runtime-connection-frame-router'
@@ -35,12 +39,9 @@ describe('web runtime connection capability advertisement', () => {
     )
   })
 
-  it('declares the structured agent session it can actually hold', async () => {
-    // This client mounts the full renderer, so it runs structured native chat — but
-    // `requireStructuredCapability` refuses every `agentSession.*` call from a `runtime`-scoped
-    // client that has not said so here. Without these two entries a paired web Work Item Start is
-    // refusable by construction, and the workspace ends up with a pane carrying no session
-    // identity, or with no writer at all once the terminal fallback is gone.
+  it('declares Start-scoped structured reach, never the generic structured capability', async () => {
+    // Paired web Work Item Start needs `agentSession.*` for its own sessions only. The generic
+    // capability would also open every ordinary structured chat on the host, so it stays absent.
     const sendEncrypted = vi.fn((_frame: unknown) => true)
 
     await routeWebRuntimeConnectionFrame(JSON.stringify({ type: 'e2ee_ready' }), undefined, {
@@ -59,7 +60,15 @@ describe('web runtime connection capability advertisement', () => {
 
     const frame: unknown = sendEncrypted.mock.calls[0]?.[0]
     const capabilities = isUnknownRecord(frame) ? frame.clientCapabilities : undefined
-    expect(capabilities).toContain(STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY)
+    expect(capabilities).toContain(WORK_ITEM_START_STRUCTURED_SESSION_CLIENT_CAPABILITY)
     expect(capabilities).toContain(CLAUDE_STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY)
+    for (const generic of [
+      STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
+      STRUCTURED_AGENT_SESSION_HOLD_RUNTIME_CAPABILITY,
+      STRUCTURED_AGENT_SESSION_REVEAL_RUNTIME_CAPABILITY,
+      STRUCTURED_AGENT_SESSION_RESUME_HISTORY_RUNTIME_CAPABILITY
+    ]) {
+      expect(capabilities).not.toContain(generic)
+    }
   })
 })
