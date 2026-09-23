@@ -128,7 +128,7 @@ export const WORK_ITEM_START_ROUTE_MESSAGES = {
     'Work Item Start is set to submit after ready, but this repository runs on a remote execution host, where the structured session is not supported. Nothing was created; no terminal was started in its place.',
   wsl: 'Work Item Start is set to submit after ready, but this repository runs inside WSL, where the structured session is not supported. Nothing was created; no terminal was started in its place.',
   agent:
-    'Work Item Start is set to submit after ready, but this host cannot open a structured session for this agent in this repository. Nothing was created; no terminal was started in its place.',
+    'Work Item Start is set to submit after ready, but the selected agent or its active account is not eligible for a structured session on this host. Nothing was created; no terminal was started in its place.',
   repoRefused:
     'Work Item Start is set to submit after ready, but this host could not confirm this repository can run the structured session (an older host, or a project runtime that needs repair). Nothing was created; no terminal was started in its place.',
   repoUnknown:
@@ -251,7 +251,7 @@ export type WorkItemStartStructuredSessionResult =
     }
 
 const REFUSAL_REASONS: Record<string, string> = {
-  agent: 'this agent has no structured session',
+  agent: 'the selected agent or its active account is not eligible for a structured session',
   remote: 'the workspace runs on a remote execution host',
   wsl: 'the workspace runs inside WSL'
 }

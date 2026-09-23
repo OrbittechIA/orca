@@ -226,6 +226,53 @@ describe('composer work item Start', () => {
     expect(client.sendRequest).not.toHaveBeenCalled()
   })
 
+  it('names the agent/account, never WSL, when the post-create verdict refuses the agent', async () => {
+    const client = routedClient({
+      'status.get': [ADMITTED_STATUS],
+      'worktree.create': [CREATED],
+      'agentSession.createSupport': [
+        SUPPORTED,
+        { ok: true, result: { supported: false, reason: 'agent' } }
+      ]
+    })
+
+    const result = await createWorkspaceFromComposerSource(
+      composerArgs(client, 'submit-after-ready')
+    )
+
+    expect(result).toMatchObject({ worktreeId: 'wt-1' })
+    expect('warning' in result && result.warning).toContain('selected agent or its active account')
+    expect('warning' in result && result.warning).not.toContain('WSL')
+    expect(methodsOf(client)).not.toContain('agentSession.create')
+  })
+
+  it('refuses a native repo whose managed Claude account is ineligible, naming the account, not WSL', async () => {
+    const client = routedClient({
+      'status.get': [ADMITTED_STATUS],
+      'worktree.create': [CREATED],
+      'agentSession.createSupport': [{ ok: true, result: { supported: false, reason: 'agent' } }],
+      'agentSession.create': [sessionCreated()],
+      'agentSession.send': [ACCEPTED_SEND]
+    })
+
+    const result = await createWorkspaceFromComposerSource({
+      ...composerArgs(client, 'submit-after-ready'),
+      agent: { choice: 'claude' as const }
+    })
+
+    expect(result).toMatchObject({
+      error: expect.stringContaining('selected agent or its active account')
+    })
+    expect('error' in result && result.error).not.toContain('WSL')
+    expect('error' in result && result.error).toContain('Nothing was created')
+    // Zero workspace, zero session, zero writer: only admission and the pre-create repo probe ran.
+    expect(methodsOf(client)).toEqual(['status.get', 'agentSession.createSupport'])
+    expect(paramsOf('agentSession.createSupport', client)).toMatchObject({
+      repo: 'id:repo-1',
+      agent: 'claude'
+    })
+  })
+
   it('leaves a retry on the same workspace and session after an unconfirmed Start', async () => {
     const lost = new Error('socket closed')
     const client = routedClient({
@@ -307,7 +354,12 @@ describe('composer strict Start asks the host about the repo before worktree.cre
   it.each([
     ['a C:\\ repo whose project runs in WSL', 'C:\\src\\orca', 'wsl', 'inside WSL'],
     ['a repo the host reports remote', '/repos/orca', 'remote', 'remote execution host'],
-    ['an agent the host cannot open here', '/repos/orca', 'agent', 'for this agent']
+    [
+      'an agent the host cannot open here',
+      '/repos/orca',
+      'agent',
+      'selected agent or its active account'
+    ]
   ])('creates nothing for %s', async (_label, path, reason, text) => {
     const client = routedClient({
       'status.get': [ADMITTED_STATUS],

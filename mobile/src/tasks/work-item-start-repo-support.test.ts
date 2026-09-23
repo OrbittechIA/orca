@@ -62,7 +62,7 @@ describe('strict Start reads the host repo verdict before anything is created', 
   it.each([
     ['wsl', { id: 'repo-1', path: 'C:\\src\\orca' }, 'inside WSL'],
     ['remote', LOCAL_REPO, 'remote execution host'],
-    ['agent', LOCAL_REPO, 'for this agent']
+    ['agent', LOCAL_REPO, 'selected agent or its active account']
   ])('turns a host reason:%s into a truthful refusal', async (reason, repo, text) => {
     const client = clientReturning(ADMITTED, { ok: true, result: { supported: false, reason } })
     const route = await resolveWorkItemStartRoute({
@@ -74,6 +74,9 @@ describe('strict Start reads the host repo verdict before anything is created', 
     expect(route).toMatchObject({ kind: 'refused', message: expect.stringContaining(text) })
     expect('message' in route && route.message).toContain('Nothing was created')
     expect('message' in route && route.message).not.toContain('without an agent')
+    if (reason !== 'wsl') {
+      expect('message' in route && route.message).not.toContain('WSL')
+    }
   })
 
   it.each([

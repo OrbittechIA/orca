@@ -57,8 +57,8 @@ describe('resolveStructuredAgentSessionCreateSupport', () => {
     expect(support()).toEqual({ supported: true })
   })
 
-  it('refuses Claude under a WSL-only managed account', () => {
-    expect(support({ getSettings: () => WSL_ONLY })).toEqual({ supported: false, reason: 'wsl' })
+  it('refuses Claude under a WSL-only managed account as an agent refusal, not a WSL workspace', () => {
+    expect(support({ getSettings: () => WSL_ONLY })).toEqual({ supported: false, reason: 'agent' })
   })
 
   it('fails closed for Claude when the settings throw', () => {
@@ -68,7 +68,7 @@ describe('resolveStructuredAgentSessionCreateSupport', () => {
           throw new Error('no store')
         }
       })
-    ).toEqual({ supported: false, reason: 'wsl' })
+    ).toEqual({ supported: false, reason: 'agent' })
   })
 
   it('leaves Codex to the adapter answer under the same WSL-only account', () => {
@@ -112,6 +112,22 @@ describe('workItemStartPreCreateLocation', () => {
 
   it('supports a native local repo', () => {
     expect(verdict(repo({}), null)).toEqual({ supported: true })
+  })
+
+  it('refuses a native repo under a mismatched managed Claude account as agent, never wsl', () => {
+    const location = workItemStartPreCreateLocation({
+      repo: repo({ path: 'C:\\src\\orca' }),
+      configuredWslDistro: () => null
+    })
+    expect(location).toMatchObject({ executionHostId: 'local', wslDistro: null })
+    expect(
+      resolveStructuredAgentSessionCreateSupport({
+        agent: 'claude',
+        location,
+        adapterSupportsCreate: true,
+        getSettings: () => WSL_ONLY
+      })
+    ).toEqual({ supported: false, reason: 'agent' })
   })
 
   it('refuses a C:\\ repo whose project runtime is WSL', () => {

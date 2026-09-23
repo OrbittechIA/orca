@@ -217,7 +217,7 @@ describe('Tasks strict Start asks the host about the repo before worktree.create
   it.each([
     ['a C:\\ repo the host runs in WSL', { path: 'C:\\src\\orca' }, 'wsl', 'inside WSL'],
     ['a repo the host reports remote', {}, 'remote', 'remote execution host'],
-    ['an agent the host refuses here', {}, 'agent', 'for this agent']
+    ['an agent the host refuses here', {}, 'agent', 'selected agent or its active account']
   ])('creates nothing for %s', async (_label, repo, reason, text) => {
     const { client, model } = await submit(strict, {
       repo,

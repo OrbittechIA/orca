@@ -37,15 +37,15 @@ export function resolveStructuredAgentSessionCreateSupport(input: {
     }
   }
   // Claude only: Codex resolves its account on a different path, so its answer is untouched here.
-  // `wsl` is the closest existing reason — the cause is a WSL-bound account rather than a WSL
-  // workspace — so mobile's pre-create WSL refusal copy can misname this case.
+  // `agent`, never `wsl`: the workspace may be native; it is the selected agent's account that is
+  // ineligible, and every client already maps `agent` without a wire change.
   if (
     input.agent === 'claude' &&
     !structuredClaudeMatchesActiveManagedAccount(
       readClaudeManagedAccountGateSettings(input.getSettings)
     )
   ) {
-    return { supported: false, reason: 'wsl' }
+    return { supported: false, reason: 'agent' }
   }
   return { supported: true }
 }
