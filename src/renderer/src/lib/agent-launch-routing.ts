@@ -38,6 +38,8 @@ export type AgentLaunchRoutingInput = {
   nativeChatTranscriptIsLocalReadable?: boolean
   requiresTuiLaunchCommand?: boolean
   initialSessionOptions?: Readonly<Record<string, unknown>>
+  /** Um Work Item Start é um create ESCOPADO; o host o admite por capability própria. */
+  launchOrigin?: 'work-item-start'
 }
 
 export function resolveAgentLaunchRoute(input: AgentLaunchRoutingInput): AgentLaunchRoute {
@@ -45,8 +47,26 @@ export function resolveAgentLaunchRoute(input: AgentLaunchRoutingInput): AgentLa
   // terminal mirror gate (a TUI cannot clear more than forty lines of prefilled draft), which has
   // no meaning for a session that seeds the composer store directly. Its other gates are already
   // implied here: the structured resolver admits only claude/codex, both native-chat agents, and
-  // only hosts with an Orca runtime, and a structured session reads its journal over RPC rather
-  // than the transcript file, so local transcript readability does not apply either.
+  // admits only hosts with an Orca runtime, and a structured session reads its journal over RPC rather than
+  // the transcript file, so local transcript readability does not apply either.
+  // Um Work Item Start escopado NÃO depende do ajuste experimental global: quem o admite
+  // é a capability própria do host (`agent-session.work-item-start.v1`), já exigida pelo
+  // resolvedor abaixo. Amarrá-lo ao padrão do usuário devolveria a execução ao terminal
+  // justamente no modo que não aceita writer de terminal.
+  if (input.launchOrigin === 'work-item-start') {
+    return resolveStructuredNativeChatSupport({
+      agent: input.agent,
+      executionHostId: input.executionHostId,
+      hostCapabilities: input.hostCapabilities,
+      ...(input.clientCapabilities ? { clientCapabilities: input.clientCapabilities } : {}),
+      workspaceKind: input.workspaceKind,
+      projectRuntime: input.projectRuntime,
+      requiresTuiLaunchCommand: input.requiresTuiLaunchCommand,
+      launchOrigin: input.launchOrigin
+    }).supported
+      ? 'structured-native-chat'
+      : 'terminal-tui'
+  }
   if (
     prefersStructuredNativeChatByDefault(input.settings) &&
     structuredAgentLaunchSupported(input)
@@ -77,7 +97,8 @@ export function structuredAgentLaunchSupported(
       ...(input.clientCapabilities ? { clientCapabilities: input.clientCapabilities } : {}),
       workspaceKind: input.workspaceKind,
       projectRuntime: input.projectRuntime,
-      requiresTuiLaunchCommand: input.requiresTuiLaunchCommand
+      requiresTuiLaunchCommand: input.requiresTuiLaunchCommand,
+      ...(input.launchOrigin ? { launchOrigin: input.launchOrigin } : {})
     }).supported
   )
 }

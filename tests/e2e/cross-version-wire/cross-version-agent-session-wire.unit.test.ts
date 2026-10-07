@@ -85,6 +85,7 @@ function runtimeStub(overrides: Record<string, unknown> = {}): unknown {
   return {
     getRuntimeId: () => 'runtime-1',
     getClientSettings: () => ({ experimentalStructuredNativeChat: true }),
+    holdWorktreeLifecycle: async () => () => undefined,
     ensureStructuredAgentSessionHost: async () => undefined,
     getStructuredAgentSessionCreateSupport: async () => ({ supported: true }),
     structuredAgentSessionLaunchSeedOptions: () => undefined,
@@ -567,7 +568,10 @@ describe('cross-version structured agent sessions', () => {
               observedAt: NOW
             }
           }),
-          dispatch: async () => ({ state: 'accepted' }),
+          dispatch: async () => ({
+            state: 'accepted',
+            providerIdentity: { provider: 'codex', threadId: THREAD, turnId: 'turn-1', ordinal: 1 }
+          }),
           cancelTurn: async () => ({ cancelled: true }),
           answerPrompt: async () => undefined,
           setOption: async () => undefined
@@ -888,6 +892,7 @@ describe('cross-version structured agent sessions', () => {
     // target and ignores that fence. Only the attach keeps comparing one, which `reattach` pins.
     it('delivers a write still fenced to the host generation that died', async () => {
       const created = await answer('agentSession.create', createIntentParams())
+      expect(created.ok).toBe(true)
       await bootHost('b')
       const reattached = await reattach(created.fence)
       expect(reattached.fence).toBeGreaterThan(created.fence)

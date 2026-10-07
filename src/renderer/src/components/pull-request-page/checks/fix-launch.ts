@@ -64,6 +64,7 @@ export async function startFixChecksFromDialog(args: {
     launchSource: 'task_page',
     telemetrySource: 'sidebar',
     promptDelivery: 'submit-after-ready',
+    allowLegacyTerminalPromptSubmission: true,
     agentOverride: args.agent,
     agentArgs: args.agentArgs,
     openModalFallback: () => {

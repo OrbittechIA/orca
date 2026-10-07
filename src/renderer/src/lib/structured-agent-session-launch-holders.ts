@@ -1,5 +1,9 @@
+import type { AgentSessionHandleProvider } from '../../../shared/agent-session-provider-handle'
+import type { StructuredAgentLaunchOptions } from './structured-agent-session-launch-callers'
+import { StructuredAgentSessionCreateRefusalError } from './launch-structured-agent-session'
 import {
   launchStateLifecycle,
+  getStructuredLaunchStateBySessionId,
   structuredLaunchStates,
   type StructuredLaunchState
 } from './structured-agent-session-launch-registry'
@@ -84,4 +88,41 @@ export function getJoinableStructuredLaunchState(
             request.groupId)
     )
   )
+}
+
+/** A recovery joins its durable intent; strict re-delivery may also reclaim its refused create. */
+export function getStructuredLaunchStateForRequest(
+  worktreeId: string,
+  agent: AgentSessionHandleProvider,
+  identity: string,
+  options: StructuredAgentLaunchOptions,
+  request: StructuredLaunchRequest
+): StructuredLaunchState | undefined {
+  const recover = options.recover
+  if (
+    recover &&
+    (recover.intent.worktreeId !== worktreeId ||
+      recover.intent.agent !== agent ||
+      (options.executionHostId && recover.intent.executionHostId !== options.executionHostId))
+  ) {
+    throw new StructuredAgentSessionCreateRefusalError(
+      'Recovery does not match this workspace, agent or host.'
+    )
+  }
+  const candidate = recover
+    ? getStructuredLaunchStateBySessionId(recover.intent.sessionId)
+    : (getJoinableStructuredLaunchState(identity, request) ??
+      (options.launchOrigin === 'work-item-start'
+        ? [...structuredLaunchStates()].findLast(
+            (state) =>
+              state.identity === identity &&
+              state.intent.params.launchOrigin === 'work-item-start' &&
+              state.callers.attempt.kind === 'first' &&
+              state.callers.attempt.requestId === request.id
+          )
+        : undefined))
+  return candidate?.intent.params.launchOrigin ===
+    (recover?.intent.params.launchOrigin ?? options.launchOrigin)
+    ? candidate
+    : undefined
 }

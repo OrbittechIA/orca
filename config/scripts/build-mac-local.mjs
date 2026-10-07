@@ -17,14 +17,25 @@ export function createLocalBuildVersion(baseVersion, timestamp, commit) {
   return baseVersion.includes('-') ? `${baseVersion}.${suffix}` : `${baseVersion}-${suffix}`
 }
 
-export function getLocalBuildIdentity() {
-  const packageJson = JSON.parse(readFileSync(resolve('package.json'), 'utf8'))
-  const commit = execFileSync('git', ['rev-parse', '--short=12', 'HEAD'], {
-    encoding: 'utf8'
-  }).trim()
+/**
+ * `commit` is the FULL sha: it is handed to the packager as `ORCA_BUILD_COMMIT`, which
+ * build-provenance validates against `git rev-parse HEAD` and would refuse abbreviated (the
+ * local mac build rejected itself that way). Only the human version suffix abbreviates it,
+ * inside `createLocalBuildVersion`.
+ */
+export function getLocalBuildIdentity({
+  run = execFileSync,
+  now = Date.now,
+  packageJsonPath = resolve('package.json')
+} = {}) {
+  const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'))
+  const commit = String(run('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' })).trim()
+  if (!/^[0-9a-f]{40}$/.test(commit)) {
+    throw new Error(`git did not name a full commit: ${commit}`)
+  }
   return {
     commit,
-    version: createLocalBuildVersion(packageJson.version, Date.now(), commit)
+    version: createLocalBuildVersion(packageJson.version, now(), commit)
   }
 }
 

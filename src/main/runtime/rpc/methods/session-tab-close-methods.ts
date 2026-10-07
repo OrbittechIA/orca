@@ -1,10 +1,36 @@
+import { projectSessionTabsForContext } from './session-tabs-inventory'
+import { restoreStructuredTabsIfSupported } from './structured-session-tab-restore'
 import { withSpan } from '../../../observability/tracer'
 import { SESSION_TAB_CLOSE_INTENT_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
-import { defineMethod } from '../core'
+import { defineMethod, type RpcContext } from '../core'
+import type { RuntimeMobileSessionTabsResult } from '../../../../shared/runtime-types'
+import { canAccessWorkItemStartStructuredSession } from './structured-agent-session-gate'
 import { CloseLifecycleTab, CloseTab } from './session-tabs-schemas'
 import { assertProjectedSessionTabVisible } from './session-tab-browser-placement-projection'
 import { assertAgentSessionTabDestructiveMutationSupported } from './session-tab-agent-status-projection'
-import { projectSessionTabsForClient } from './session-tabs-inventory'
+
+function assertSessionTabCloseSupported(
+  raw: RuntimeMobileSessionTabsResult,
+  tabId: string,
+  context: RpcContext
+): void {
+  const visible = projectSessionTabsForContext(raw, context)
+  assertProjectedSessionTabVisible(visible, tabId)
+  const tab = visible.tabs.find((candidate) => candidate.id === tabId)
+  // A released Start-only client can close its own renderable chat without generic chat access.
+  if (
+    tab?.type === 'agent-session' &&
+    canAccessWorkItemStartStructuredSession(context, tab.sessionId)
+  ) {
+    return
+  }
+  assertAgentSessionTabDestructiveMutationSupported(
+    raw,
+    tabId,
+    context.clientKind,
+    context.clientCapabilities
+  )
+}
 
 export const SESSION_TAB_CLOSE_METHODS = [
   defineMethod({
@@ -12,22 +38,14 @@ export const SESSION_TAB_CLOSE_METHODS = [
     params: CloseTab,
     handler: async (params, context) => {
       if (context.clientKind) {
+        // Restaura o escopo durável ANTES de autorizar: decidir sobre um mapa não
+        // restaurado recusa uma aba que existe.
+        await restoreStructuredTabsIfSupported(context)
         const raw = await context.runtime.listMobileSessionTabs(
           params.worktree,
           context.pairedDeviceId
         )
-        const visible = projectSessionTabsForClient(
-          raw,
-          context.clientKind,
-          context.clientCapabilities
-        )
-        assertProjectedSessionTabVisible(visible, params.tabId)
-        assertAgentSessionTabDestructiveMutationSupported(
-          raw,
-          params.tabId,
-          context.clientKind,
-          context.clientCapabilities
-        )
+        assertSessionTabCloseSupported(raw, params.tabId, context)
       }
       const requiresIntent =
         context.clientKind === undefined ||
@@ -88,22 +106,14 @@ export const SESSION_TAB_CLOSE_METHODS = [
     params: CloseLifecycleTab,
     handler: async (params, context) => {
       if (context.clientKind) {
+        // Restaura o escopo durável ANTES de autorizar: decidir sobre um mapa não
+        // restaurado recusa uma aba que existe.
+        await restoreStructuredTabsIfSupported(context)
         const raw = await context.runtime.listMobileSessionTabs(
           params.worktree,
           context.pairedDeviceId
         )
-        const visible = projectSessionTabsForClient(
-          raw,
-          context.clientKind,
-          context.clientCapabilities
-        )
-        assertProjectedSessionTabVisible(visible, params.tabId)
-        assertAgentSessionTabDestructiveMutationSupported(
-          raw,
-          params.tabId,
-          context.clientKind,
-          context.clientCapabilities
-        )
+        assertSessionTabCloseSupported(raw, params.tabId, context)
       }
       return withSpan(
         'runtime.session-tabs.close-lifecycle',

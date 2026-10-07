@@ -307,7 +307,9 @@ describe('/clear starts nothing', () => {
             expectedRuntimeFence: null,
             payloadFingerprint: ''
           },
-          launchArgs: ['--flag']
+          launchArgs: ['--flag'],
+          launchOrigin: 'work-item-start',
+          launchAuthority: { kind: 'paired-device', deviceId: 'clear-owner' }
         })
       )
     ).toMatchObject({ ok: true })
@@ -325,6 +327,10 @@ describe('/clear starts nothing', () => {
     notFromAClear.add(pinned)
     const replacement = await clearCommits(clear)
     expect(store.getRecord(replacement)?.launchArgs).toEqual(['--flag'])
+    expect(store.getRecord(replacement)).toMatchObject({
+      launchOrigin: 'work-item-start',
+      launchAuthority: { kind: 'paired-device', deviceId: 'clear-owner' }
+    })
   })
 
   it("does not start an at-rest source's agent", async () => {

@@ -38,6 +38,12 @@ function isRevision(value: unknown): value is number {
 
 function isParentScopeConsistent(parent: AgentStatusParentInput): boolean {
   const { subject, status, run } = parent
+  if (
+    status?.structuredSessionId !== undefined &&
+    (subject.kind !== 'structured-session' || status.structuredSessionId !== subject.sessionId)
+  ) {
+    return false
+  }
   if (run && (subject.kind !== 'pty-run' || run.runId !== subject.runId)) {
     return false
   }

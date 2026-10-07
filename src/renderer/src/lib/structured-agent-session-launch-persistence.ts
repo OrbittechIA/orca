@@ -21,6 +21,7 @@ export type StructuredAgentLaunchPersistedRecord = {
   payloadFingerprint: string
   expectedRuntimeFence: number | null
   resumeFrom?: StructuredAgentSessionResumeSource
+  launchOrigin?: 'work-item-start'
   /** A paired server's reported seed, which this machine cannot re-derive after a reload. */
   seedOptions?: Readonly<Record<string, string>>
 }
@@ -30,7 +31,7 @@ export function structuredAgentLaunchRecordFor(
   intent: StructuredAgentSessionLaunchIntent,
   lifecycle: StructuredAgentLaunchPersistedLifecycle
 ): StructuredAgentLaunchPersistedRecord {
-  const { envelope, resumeFrom } = intent.params
+  const { envelope, resumeFrom, launchOrigin } = intent.params
   // A local launch re-reads this machine's settings on reload; only a paired server's seed is kept.
   const pairedSeed = intent.target.kind === 'local' ? undefined : intent.seedOptions
   return {
@@ -42,6 +43,7 @@ export function structuredAgentLaunchRecordFor(
     payloadFingerprint: envelope.payloadFingerprint,
     expectedRuntimeFence: envelope.expectedRuntimeFence,
     ...(resumeFrom ? { resumeFrom } : {}),
+    ...(launchOrigin ? { launchOrigin } : {}),
     ...(pairedSeed ? { seedOptions: pairedSeed } : {})
   }
 }
@@ -85,7 +87,9 @@ function validRecord(value: unknown): value is Omit<
   } = value
   const resumeFrom = 'resumeFrom' in value ? value.resumeFrom : undefined
   const executionHostId = 'executionHostId' in value ? value.executionHostId : undefined
+  const launchOrigin = 'launchOrigin' in value ? value.launchOrigin : undefined
   return (
+    (launchOrigin === undefined || launchOrigin === 'work-item-start') &&
     (executionHostId === undefined ||
       (typeof executionHostId === 'string' && parseExecutionHostId(executionHostId) !== null)) &&
     typeof sessionId === 'string' &&

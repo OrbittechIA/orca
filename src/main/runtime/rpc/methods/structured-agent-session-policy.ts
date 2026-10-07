@@ -1,9 +1,15 @@
 import {
   STRUCTURED_AGENT_SESSION_CLIENT_LAUNCH_MODE_CAPABILITY,
-  STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY
+  STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
+  WORK_ITEM_START_STRUCTURED_SESSION_CLIENT_CAPABILITY,
+  type RuntimeCapability
 } from '../../../../shared/protocol-version'
 import type { OrcaRuntimeService } from '../../orca-runtime'
 import type { RpcContext } from '../core'
+import type {
+  StructuredAgentSessionLaunchOrigin,
+  StructuredAgentSessionLaunchAuthority
+} from '../../../../shared/structured-agent-session-create'
 
 /**
  * One rule for every caller: can this client read structured sessions? The host's own
@@ -45,4 +51,59 @@ export function isStructuredNativeChatEnabled(
   } catch {
     return false
   }
+}
+
+export function supportsWorkItemStartStructuredSessionCreate(
+  context: Pick<
+    RpcContext,
+    'clientCapabilities' | 'clientKind' | 'localDesktopAuthority' | 'pairedDeviceId'
+  > & {
+    runtime: Pick<OrcaRuntimeService, 'getClientSettings'>
+  },
+  launchOrigin: StructuredAgentSessionLaunchOrigin | undefined
+): boolean {
+  if (launchOrigin !== 'work-item-start' || !structuredWorkItemStartCallerAuthority(context)) {
+    return false
+  }
+  try {
+    return context.runtime.getClientSettings().workItemStartPromptDelivery === 'submit-after-ready'
+  } catch {
+    return false
+  }
+}
+
+export function structuredWorkItemStartCallerAuthority(
+  context: Pick<
+    RpcContext,
+    'clientCapabilities' | 'clientKind' | 'localDesktopAuthority' | 'pairedDeviceId'
+  >
+): StructuredAgentSessionLaunchAuthority | null {
+  if (context.clientKind !== 'runtime' || !supportsWorkItemStartClientCapability(context)) {
+    return null
+  }
+  if (context.localDesktopAuthority === true) {
+    return { kind: 'local-desktop' }
+  }
+  const deviceId = context.pairedDeviceId?.trim()
+  return deviceId ? { kind: 'paired-device', deviceId } : null
+}
+
+export const supportsStructuredAgentSessionCapability = supportsStructuredAgentSessions
+
+export function supportsWorkItemStartClientCapability(
+  context: Pick<RpcContext, 'clientCapabilities' | 'clientKind'>
+): boolean {
+  return (
+    supportsStructuredAgentSessions(context) ||
+    context.clientCapabilities?.includes(WORK_ITEM_START_STRUCTURED_SESSION_CLIENT_CAPABILITY) ===
+      true
+  )
+}
+
+export function structuredNativeChatProjectionEnabled(args: {
+  clientKind: RpcContext['clientKind']
+  clientCapabilities: readonly RuntimeCapability[] | undefined
+  structuredNativeChatEnabled: boolean
+}): boolean {
+  return supportsStructuredAgentSessions(args)
 }

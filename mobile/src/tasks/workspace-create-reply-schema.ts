@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { salvagedOptional } from '../../../src/shared/zod-salvage'
+import { salvagedOptional, salvagingArray } from '../../../src/shared/zod-salvage'
 
 // Creating a workspace from a task. Checked against src/main/runtime/rpc/methods/worktree.ts:76-208
 // (RuntimeWorktreeCreateResult, and the `GitHubPrStartPoint | { error }` pair the two base
@@ -92,3 +92,12 @@ export const worktreeHostedBaseSchema: z.ZodType<WorktreeHostedBaseReply, unknow
     pushTarget: z.unknown().optional()
   })
 ])
+
+/**
+ * The runtime status as a strict Work Item Start reads it: the capability list and the pairing's
+ * device scope, which together say whether the host admits the scoped structured route.
+ */
+export const workItemStartAdmissionSchema = z.looseObject({
+  capabilities: salvagedOptional('capabilities', salvagingArray(z.string())),
+  deviceScope: salvagedOptional('deviceScope', z.string())
+})

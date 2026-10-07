@@ -116,7 +116,12 @@ export function beginStructuredAgentSessionProvisionalLaunch(
     worktreeId && isAgentSessionHandleProvider(agent)
       ? structuredLaunchPairedOwner(args.plan, worktreeId, args.target)
       : null
-  if (!paired || !worktreeId || !isAgentSessionHandleProvider(agent)) {
+  if (
+    args.plan.launchOrigin === 'work-item-start' ||
+    !paired ||
+    !worktreeId ||
+    !isAgentSessionHandleProvider(agent)
+  ) {
     return beginLocalProvisionalLaunch(args)
   }
   if (args.beforeOpen?.() === false) {

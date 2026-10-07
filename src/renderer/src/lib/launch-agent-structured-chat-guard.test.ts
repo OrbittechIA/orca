@@ -273,12 +273,18 @@ describe('structured chat adoption guard on the launch path', () => {
     expect(shouldQueueTerminalFocusAfterMenuClose(result!)).toBe(false)
     await expect(result?.structuredSettlement).resolves.toEqual({
       kind: 'structured',
-      sessionId: 'codex-session-1'
+      sessionId: 'codex-session-1',
+      // What a retry re-enters with: the exact intent, and no prompt operation for a blank launch.
+      recovery: {
+        intent: expect.objectContaining({ sessionId: 'codex-session-1', worktreeId: 'wt-1' }),
+        clientMessageId: null
+      }
     })
     expect(mockCreateStructuredCodexSessionLaunchIntent).toHaveBeenCalledWith(
       'wt-1',
       'codex',
       'local',
+      undefined,
       undefined,
       undefined
     )
@@ -314,6 +320,7 @@ describe('structured chat adoption guard on the launch path', () => {
       'codex',
       'local',
       undefined,
+      undefined,
       undefined
     )
     expect(mockCreateTab).not.toHaveBeenCalled()
@@ -335,6 +342,7 @@ describe('structured chat adoption guard on the launch path', () => {
       'wt-1',
       'claude',
       'local',
+      undefined,
       undefined,
       undefined
     )
@@ -542,7 +550,11 @@ describe('structured chat adoption guard on the launch path', () => {
     })
     await expect(unknown?.structuredSettlement).resolves.toEqual({
       kind: 'visibility-unknown',
-      sessionId: firstIntent.sessionId
+      sessionId: firstIntent.sessionId,
+      recovery: {
+        intent: expect.objectContaining({ sessionId: firstIntent.sessionId }),
+        clientMessageId: null
+      }
     })
     expect(mockCreateTab).not.toHaveBeenCalled()
     // Its open chat tab says the start could not be confirmed; no toast repeats it.

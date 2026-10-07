@@ -1,3 +1,9 @@
+import { isAgentSessionOptions } from '../../shared/agent-session-options'
+import type {
+  StructuredAgentSessionLaunchAuthority,
+  StructuredAgentSessionLaunchOrigin
+} from '../../shared/structured-agent-session-create'
+import { structuredAgentSessionLaunchAuthoritiesEqual } from '../../shared/structured-agent-session-create'
 /**
  * Reservation admission: what a reserve request means against the persisted state.
  *
@@ -27,7 +33,6 @@ import {
 import {
   agentSessionExecutionLocationsEqual,
   isAgentSessionLaunchEnv,
-  isAgentSessionOptions,
   type AgentSessionAccountHome,
   type AgentSessionExecutionLocation,
   type AgentSessionLaunchArgs,
@@ -49,6 +54,10 @@ import type { AgentSessionStoreState } from './agent-session-record-store-file'
 import { agentSessionRecordIdentityFields } from './agent-session-record-founding'
 
 export type AgentSessionReserveRequest = {
+  /** Admissão estreita do Work Item Start, preservada na reserva: sem ela o gate
+   *  escopado não reconhece depois a sessão que ele mesmo admitiu. */
+  launchOrigin?: StructuredAgentSessionLaunchOrigin
+  launchAuthority?: StructuredAgentSessionLaunchAuthority
   sessionId: string
   location: AgentSessionExecutionLocation
   provider: AgentSessionHandleProvider
@@ -185,7 +194,9 @@ export function applyAgentSessionReservation(
     !agentSessionExecutionLocationsEqual(existing.location, request.location) ||
     existing.provider !== request.provider ||
     existing.accountHome.variable !== request.accountHome.variable ||
-    existing.accountHome.path !== request.accountHome.path
+    existing.accountHome.path !== request.accountHome.path ||
+    existing.launchOrigin !== request.launchOrigin ||
+    !structuredAgentSessionLaunchAuthoritiesEqual(existing.launchAuthority, request.launchAuthority)
   ) {
     // Why: location, provider, and account are the session identity; changing one is a fork.
     throw agentSessionRefusalError('agent_session_conflict', { reason: 'identityMismatch' })

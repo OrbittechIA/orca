@@ -85,7 +85,7 @@ export function getHourlyBuildIdentity(
 ) {
   const versionFromPackage =
     packageVersion ?? JSON.parse(readFileSync(resolve('package.json'), 'utf8')).version
-  const commit = execFileSync('git', ['rev-parse', '--short=12', 'HEAD'], {
+  const commit = execFileSync('git', ['rev-parse', 'HEAD'], {
     encoding: 'utf8'
   }).trim()
   const base = resolveDevChannelBaseVersion(versionFromPackage, publishedVersions ?? [])

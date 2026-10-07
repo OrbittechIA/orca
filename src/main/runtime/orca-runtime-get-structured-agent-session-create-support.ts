@@ -24,6 +24,12 @@ import { getProfileUserDataPath } from '../orca-profiles/profile-storage-paths'
 import { parseWslUncPath } from '../../shared/wsl-paths'
 import { parseWorkspaceKey } from '../../shared/workspace-scope'
 import { applyStructuredCodexWorkspaceTrust } from '../agent-workspace-trust-spawn'
+import {
+  structuredAgentSessionCreateWorktreeTarget,
+  structuredAgentSessionCreateWorktreeTargetsEqual,
+  type StructuredAgentSessionCreateIntentInput
+} from './structured-agent-session-create-worktree-target'
+import type { AgentSessionExecutionLocation } from '../../shared/agent-session-record'
 
 export class OrcaRuntimeWithGetStructuredAgentSessionCreateSupport extends OrcaRuntimeWithGetWorktreePs {
   async getStructuredAgentSessionCreateSupport(
@@ -31,6 +37,13 @@ export class OrcaRuntimeWithGetStructuredAgentSessionCreateSupport extends OrcaR
     agent: 'claude' | 'codex'
   ): Promise<{ supported: boolean; reason?: 'agent' | 'remote' | 'wsl' }> {
     const location = await this.resolveStructuredAgentSessionLocation(worktreeSelector)
+    return this.getStructuredAgentSessionCreateSupportForLocation(location, agent)
+  }
+
+  protected getStructuredAgentSessionCreateSupportForLocation(
+    location: AgentSessionExecutionLocation,
+    agent: 'claude' | 'codex'
+  ) {
     return resolveStructuredAgentSessionCreateSupport({
       agent,
       location,
@@ -40,6 +53,16 @@ export class OrcaRuntimeWithGetStructuredAgentSessionCreateSupport extends OrcaR
           : supportsCodexStructuredLocation(location),
       getSettings: () => this.requireStore().getSettings()
     })
+  }
+
+  async getWorkItemStartPreCreateSupport(repoSelector: string, agent: 'claude' | 'codex') {
+    const location = await this.resolveWorkItemStartPreCreateLocation(repoSelector)
+    return this.getStructuredAgentSessionCreateSupportForLocation(location, agent)
+  }
+
+  async resolveStructuredAgentSessionCreateWorktreeTarget(worktreeSelector: string) {
+    const target = await this.resolveRuntimeFileTarget(worktreeSelector)
+    return structuredAgentSessionCreateWorktreeTarget(target.worktree)
   }
 
   /** The saved selection a new chat here starts with. createSupport reports it too, so a client's
@@ -90,13 +113,20 @@ export class OrcaRuntimeWithGetStructuredAgentSessionCreateSupport extends OrcaR
     return (await this.resolveRuntimeFileTarget(worktreeSelector)).worktree.path
   }
 
-  async resolveStructuredAgentSessionCreateIntent(input: {
-    envelope: { sessionId: string; clientOperationId: string }
-    worktree: string
-    agent: 'claude' | 'codex'
-    callerKey?: string
-    resumeFrom?: { providerSessionId: string }
-  }): Promise<AgentSessionAttachParams> {
+  async resolveStructuredAgentSessionCreateIntent(
+    input: StructuredAgentSessionCreateIntentInput
+  ): Promise<AgentSessionAttachParams> {
+    if (
+      input.expectedWorktreeTarget &&
+      !structuredAgentSessionCreateWorktreeTargetsEqual(
+        input.expectedWorktreeTarget,
+        await this.resolveStructuredAgentSessionCreateWorktreeTarget(input.worktree)
+      )
+    ) {
+      throw agentSessionRefusalError('structured_agent_session_unsupported', {
+        reason: 'hostUnsupported'
+      })
+    }
     if (input.agent === 'claude') {
       return this.resolveStructuredAgentSessionIntent(input, async ({ launchEnv, location }) =>
         resolveStructuredClaudeAccountHomePath({
@@ -153,13 +183,7 @@ export class OrcaRuntimeWithGetStructuredAgentSessionCreateSupport extends OrcaR
   }
 
   protected async resolveStructuredAgentSessionIntent(
-    input: {
-      envelope: { sessionId: string; clientOperationId: string }
-      worktree: string
-      agent: 'claude' | 'codex'
-      callerKey?: string
-      resumeFrom?: { providerSessionId: string }
-    },
+    input: StructuredAgentSessionCreateIntentInput,
     resolveAccountHomePath: (context: {
       launchEnv: NodeJS.ProcessEnv
       location: {

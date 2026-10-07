@@ -139,6 +139,7 @@ export class RpcStreamingDispatcher {
             clientId: options?.clientId,
             pairedDeviceId: options?.pairedDeviceId,
             clientKind: options?.clientKind,
+            localDesktopAuthority: options?.localDesktopAuthority,
             clientCapabilities: options?.clientCapabilities,
             updateClientCapabilities: options?.updateClientCapabilities,
             authenticatedCallerFingerprint:
@@ -193,6 +194,7 @@ export class RpcStreamingDispatcher {
           clientId: options?.clientId,
           pairedDeviceId: options?.pairedDeviceId,
           clientKind: options?.clientKind,
+          localDesktopAuthority: options?.localDesktopAuthority,
           clientCapabilities: options?.clientCapabilities,
           updateClientCapabilities: options?.updateClientCapabilities,
           pairing: options?.pairing,

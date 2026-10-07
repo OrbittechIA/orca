@@ -7,6 +7,11 @@ import { STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY } from '../../../../shared/
 import { SESSION_TAB_METHODS } from './session-tabs'
 import { visibleSnapshot } from './session-tabs-snapshot.test-fixture'
 
+const registry = vi.hoisted((): { host: unknown } => ({ host: null }))
+vi.mock('../../../native-chat/agent-session-wire/structured-agent-session-registry', () => ({
+  getStructuredAgentSessionHost: () => registry.host
+}))
+
 function makeRequest(method: string, params?: unknown): RpcRequest {
   return { id: 'req-1', authToken: 'tok', method, params }
 }
@@ -19,6 +24,8 @@ function makeRuntime(): OrcaRuntimeService {
     getRuntimeId: () => 'test-runtime',
     getClientSettings: vi.fn(() => ({ experimentalStructuredNativeChat: false })),
     restoreStructuredAgentSessionTabs: vi.fn(),
+    prepareStructuredAgentSessionStartupRestoration: vi.fn().mockResolvedValue(undefined),
+    publishStructuredAgentSessionTab: vi.fn().mockResolvedValue(undefined),
     listMobileSessionTabs: vi.fn().mockResolvedValue(visibleSnapshot())
   } as unknown as OrcaRuntimeService
 }

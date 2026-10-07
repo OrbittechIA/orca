@@ -1,3 +1,8 @@
+import {
+  STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
+  WORK_ITEM_START_STRUCTURED_SESSION_CLIENT_CAPABILITY,
+  CLAUDE_STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY
+} from '../../shared/protocol-version'
 /**
  * The desktop renderer talks to two hosts — its own main process and a paired remote — and used to
  * advertise a different capability set to each, hand-maintained on both sides. `agent.launch` is
@@ -108,5 +113,23 @@ describe('desktop renderer runtime client capabilities', () => {
     expect(missingFrom(DESKTOP_RENDERER_RUNTIME_CLIENT_CAPABILITIES, PAIRED_HOST_RECEIVES)).toEqual(
       []
     )
+  })
+
+  it('keeps paired structured support and adds Start-scoped reach', () => {
+    expect(DESKTOP_RENDERER_RUNTIME_CLIENT_CAPABILITIES).toContain(
+      STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY
+    )
+    expect(ELECTRON_REMOTE_RUNTIME_CLIENT_CAPABILITIES).toContain(
+      STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY
+    )
+    expect(ELECTRON_REMOTE_RUNTIME_CLIENT_CAPABILITIES).toContain(
+      WORK_ITEM_START_STRUCTURED_SESSION_CLIENT_CAPABILITY
+    )
+    for (const list of [
+      DESKTOP_RENDERER_RUNTIME_CLIENT_CAPABILITIES,
+      ELECTRON_REMOTE_RUNTIME_CLIENT_CAPABILITIES
+    ]) {
+      expect(list).toContain(CLAUDE_STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY)
+    }
   })
 })

@@ -79,6 +79,14 @@ export async function launchHeadlessPairedRuntimeHost(
   options: {
     agentBrowserSocketParent?: string
     executablePath?: string
+    /** Extra env for the host process; merged after the fixed E2E flags. */
+    extraEnv?: Record<string, string>
+    /**
+     * Directory prepended to the host's PATH, so it resolves a fixture provider instead of
+     * whatever the runner happens to have installed. Prepend and not replace: the host still
+     * needs git and the shell it launches agents through.
+     */
+    pathPrefixDir?: string
     /** Bind a stable loopback port so `restartServeProcess` can reclaim it. */
     pinnedServePort?: boolean
     userDataParent?: string
@@ -107,9 +115,15 @@ export async function launchHeadlessPairedRuntimeHost(
         ORCA_E2E_ENFORCE_SINGLE_INSTANCE_LOCK: '1',
         ORCA_E2E_HEADLESS: '1'
       },
-      extraEnv: {},
+      extraEnv: options.extraEnv ?? {},
       userDataDir
     })
+    if (options.pathPrefixDir) {
+      const inheritedPath = isolation.env.PATH ?? cleanEnv.PATH ?? ''
+      isolation.env.PATH = inheritedPath
+        ? `${options.pathPrefixDir}${path.delimiter}${inheritedPath}`
+        : options.pathPrefixDir
+    }
     if (agentBrowserSocketDir) {
       isolation.env.AGENT_BROWSER_SOCKET_DIR = agentBrowserSocketDir
     }
@@ -126,13 +140,19 @@ export async function launchHeadlessPairedRuntimeHost(
           '--serve-pairing-address',
           '127.0.0.1'
         ],
-        env: isolation.env
+        env: Object.fromEntries(
+          Object.entries(isolation.env).filter(
+            (entry): entry is [string, string] => typeof entry[1] === 'string'
+          )
+        )
       })
     app = await launchServeProcess()
+    const initialApp = app
+    const socketDir = agentBrowserSocketDir
     const [offer] = await Promise.all([
       readPairingOffer(app),
       retryTransientMainEvaluate(() =>
-        app.evaluate(({ app: electronApp }) => electronApp.getPath('home'))
+        initialApp.evaluate(({ app: electronApp }) => electronApp.getPath('home'))
       ).then((home) => assertElectronResolvedIsolatedHome(home, isolation))
     ])
     let serveProcess = app
@@ -160,10 +180,10 @@ export async function launchHeadlessPairedRuntimeHost(
           () => closeElectronAppForE2E(serveProcess),
           () => cleanupE2EDaemons(userDataDir),
           () => rmSync(userDataDir, { recursive: true, force: true }),
-          ...(agentBrowserSocketDir
+          ...(socketDir
             ? [
                 () =>
-                  rmSync(agentBrowserSocketDir, {
+                  rmSync(socketDir, {
                     recursive: true,
                     force: true
                   })
@@ -173,14 +193,14 @@ export async function launchHeadlessPairedRuntimeHost(
       }
     }
   } catch (error) {
+    const failedApp = app
+    const socketDir = agentBrowserSocketDir
     try {
       await cleanupHeadlessHostResources([
-        ...(app ? [() => closeElectronAppForE2E(app)] : []),
+        ...(failedApp ? [() => closeElectronAppForE2E(failedApp)] : []),
         () => cleanupE2EDaemons(userDataDir),
         () => rmSync(userDataDir, { recursive: true, force: true }),
-        ...(agentBrowserSocketDir
-          ? [() => rmSync(agentBrowserSocketDir, { recursive: true, force: true })]
-          : [])
+        ...(socketDir ? [() => rmSync(socketDir, { recursive: true, force: true })] : [])
       ])
     } catch (cleanupError) {
       throw new AggregateError([error, cleanupError], 'Headless runtime startup and cleanup failed')

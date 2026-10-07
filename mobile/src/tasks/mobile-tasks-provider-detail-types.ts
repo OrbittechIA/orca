@@ -13,6 +13,8 @@ export type RepoSummary = {
   badgeColor?: string
   kind?: 'git' | 'folder'
   connectionId?: string | null
+  /** Sent by `repo.list`; a runtime-hosted repo carries no `connectionId`. */
+  executionHostId?: string | null
   issueSourcePreference?: IssueSourcePreference
   /** Fork parent resolved by the host; drives upstream Project row matching. */
   upstream?: { owner: string; repo: string; host?: string } | null

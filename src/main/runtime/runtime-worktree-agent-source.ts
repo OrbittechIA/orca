@@ -4,6 +4,8 @@ import type { AgentMainAgentStatus } from '../../shared/main-agent-status'
 
 export type RuntimeWorktreeAgentSource = {
   paneKey: string
+  sessionId?: string
+  providerSession?: { key: 'session_id' | 'conversation_id'; id: string }
   ptyId?: string
   tabId?: string
   worktreeId?: string

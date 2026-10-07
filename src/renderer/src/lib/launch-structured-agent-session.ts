@@ -6,6 +6,7 @@ import type {
 import {
   createStructuredAgentSessionId,
   structuredAgentSessionCreateParams,
+  type StructuredAgentSessionLaunchOrigin,
   type StructuredAgentSessionCreateParams,
   type StructuredAgentSessionResumeSource
 } from '../../../shared/structured-agent-session-create'
@@ -114,7 +115,8 @@ export function createStructuredAgentSessionLaunchIntent(
   agent: AgentSessionHandleProvider,
   executionHostId?: ExecutionHostId,
   resumeFrom?: StructuredAgentSessionResumeSource,
-  hostSeedOptions?: LaunchSeed
+  hostSeedOptions?: LaunchSeed,
+  launchOrigin?: StructuredAgentSessionLaunchOrigin
 ): StructuredAgentSessionLaunchIntent {
   const owner = structuredAgentSessionOwnerTarget(
     worktreeId,
@@ -127,7 +129,8 @@ export function createStructuredAgentSessionLaunchIntent(
     agent,
     sessionId,
     resumeFrom,
-    hostSeedOptions
+    hostSeedOptions,
+    launchOrigin
   )
 }
 
@@ -137,7 +140,8 @@ function buildStructuredAgentSessionLaunchIntent(
   agent: AgentSessionHandleProvider,
   sessionId: string,
   resumeFrom: StructuredAgentSessionResumeSource | undefined,
-  hostSeedOptions: LaunchSeed
+  hostSeedOptions: LaunchSeed,
+  launchOrigin?: StructuredAgentSessionLaunchOrigin
 ): StructuredAgentSessionLaunchIntent {
   const state = useAppStore.getState()
   recordWebSessionFocusIntent(
@@ -158,6 +162,7 @@ function buildStructuredAgentSessionLaunchIntent(
       worktree: toRuntimeWorktreeSelector(worktreeId),
       agent,
       ...(resumeFrom ? { resumeFrom } : {}),
+      ...(launchOrigin ? { launchOrigin } : {}),
       randomUuid: createBrowserUuid
     }),
     ...launchSeedOptions(state, owner, agent, hostSeedOptions)
@@ -174,7 +179,8 @@ export function retryStructuredAgentSessionLaunchIntent(
     intent.agent,
     intent.sessionId,
     intent.params.resumeFrom,
-    intent.seedOptions
+    intent.seedOptions,
+    intent.params.launchOrigin
   )
 }
 
@@ -190,6 +196,7 @@ export function restoreStructuredAgentSessionLaunchIntent(args: {
   resumeFrom?: StructuredAgentSessionResumeSource
   /** A paired server's seed, kept with the launch so a reload shows what create runs. */
   seedOptions?: Readonly<Record<string, string>>
+  launchOrigin?: StructuredAgentSessionLaunchOrigin
 }): StructuredAgentSessionLaunchIntent {
   const state = useAppStore.getState()
   const { target } = structuredAgentSessionOwnerTarget(args.worktreeId, args.executionHostId)
@@ -215,7 +222,8 @@ export function restoreStructuredAgentSessionLaunchIntent(args: {
       },
       worktree: toRuntimeWorktreeSelector(args.worktreeId),
       agent: args.agent,
-      ...(args.resumeFrom ? { resumeFrom: args.resumeFrom } : {})
+      ...(args.resumeFrom ? { resumeFrom: args.resumeFrom } : {}),
+      ...(args.launchOrigin ? { launchOrigin: args.launchOrigin } : {})
     },
     ...launchSeedOptions(state, { target }, args.agent, args.seedOptions)
   }
@@ -241,7 +249,14 @@ export function abandonStructuredAgentSessionLaunchIntent(
 async function requireHostCreateSupport(
   intent: StructuredAgentSessionLaunchIntent
 ): Promise<LaunchSeed> {
-  const support = await askHostCreateSupport(intent.target, intent.params.worktree, intent.agent)
+  const support = await askHostCreateSupport(
+    intent.target,
+    intent.params.worktree,
+    intent.agent,
+    intent.params.launchOrigin
+      ? { sessionId: intent.sessionId, launchOrigin: intent.params.launchOrigin }
+      : undefined
+  )
   if (support.kind === 'unreachable') {
     throw new StructuredAgentSessionCreateUnknownOutcomeError(
       support.message,
@@ -303,3 +318,5 @@ export async function launchStructuredAgentSession(
   }
   return { sessionId: result.value.sessionId, fence: result.value.fence }
 }
+
+export { CREATE_SUPPORT_PROBE_TIMEOUT_MS } from '@/lib/structured-agent-session-host-admission'

@@ -5,25 +5,77 @@
 // through the host's single resume path, which re-derives eligibility rather than trusting the ids
 // it is given.
 
-import { defineMethod } from '../core'
+import { defineMethod, type RpcContext } from '../core'
+import type { StructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-host'
 import {
+  canReachStructuredSession,
   ensureStructuredHostInstalled,
   requireStructuredHost,
-  structuredCallerFor
+  requireWorkItemStartStatusHost,
+  structuredCallerFor,
+  supportsStructuredSessions
 } from './structured-agent-session-gate'
 import { RestartResumableParams, RestartResumeParams } from './structured-agent-session-schemas'
+
+async function requireRestartResumeHost(
+  ctx: RpcContext,
+  sessionIds?: readonly string[]
+): Promise<StructuredAgentSessionHost> {
+  if (supportsStructuredSessions(ctx)) {
+    await ensureStructuredHostInstalled(ctx)
+    return requireStructuredHost(ctx)
+  }
+  await ensureStructuredHostInstalled(
+    ctx,
+    sessionIds?.[0] ? { sessionId: sessionIds[0] } : { workItemStartOnly: true }
+  )
+  // Refuses exactly as v1.4.209 did unless this caller owns at least one Start session.
+  return requireWorkItemStartStatusHost(ctx)
+}
+
+/** Named ids must all be reachable; an omitted list narrows to the reachable candidates, and stays
+ *  omitted only when that drops nothing, so the global path keeps its exact call. */
+async function authorizedResumeSessionIds(
+  ctx: RpcContext,
+  host: StructuredAgentSessionHost,
+  requested: readonly string[] | undefined,
+  includeFailures = false
+): Promise<readonly string[] | undefined> {
+  if (requested) {
+    if (requested.length === 0) {
+      requireStructuredHost(ctx)
+    }
+    for (const sessionId of requested) {
+      requireStructuredHost(ctx, sessionId)
+    }
+    return requested
+  }
+  const candidates = [
+    ...(await host.restartResume.list()),
+    ...(includeFailures ? await host.restartResume.listFailures() : [])
+  ]
+  const reachable = candidates.filter((candidate) =>
+    canReachStructuredSession(ctx, host, candidate.sessionId)
+  )
+  return reachable.length === candidates.length && supportsStructuredSessions(ctx)
+    ? undefined
+    : [...new Set(reachable.map((candidate) => candidate.sessionId))]
+}
 
 export const STRUCTURED_AGENT_SESSION_RESTART_RESUME_METHODS = [
   defineMethod({
     name: 'agentSession.restartResumable',
     params: RestartResumableParams,
     handler: async (_params, ctx) => {
-      await ensureStructuredHostInstalled(ctx)
-      const host = requireStructuredHost(ctx)
+      const host = await requireRestartResumeHost(ctx)
       return {
-        sessions: await host.restartResume.list(),
+        sessions: (await host.restartResume.list()).filter((session) =>
+          canReachStructuredSession(ctx, host, session.sessionId)
+        ),
         // Acted-on offers whose agent did not carry on. Optional on the wire; older clients ignore it.
-        failed: await host.restartResume.listFailures()
+        failed: (await host.restartResume.listFailures()).filter((session) =>
+          canReachStructuredSession(ctx, host, session.sessionId)
+        )
       }
     }
   }),
@@ -33,9 +85,10 @@ export const STRUCTURED_AGENT_SESSION_RESTART_RESUME_METHODS = [
     name: 'agentSession.restartResumableDismiss',
     params: RestartResumableParams,
     handler: async (params, ctx) => {
-      await ensureStructuredHostInstalled(ctx)
-      const host = requireStructuredHost(ctx)
-      const dismissed = await host.restartResume.dismiss(params.sessionIds)
+      const host = await requireRestartResumeHost(ctx)
+      const dismissed = await host.restartResume.dismiss(
+        await authorizedResumeSessionIds(ctx, host, params.sessionIds, true)
+      )
       if (params.sessionIds === undefined) {
         // clearAll is the authoritative mutation: it removes pending and in-flight records, so a
         // second read would only add a new failure point after the user's explicit dismissal.
@@ -43,8 +96,12 @@ export const STRUCTURED_AGENT_SESSION_RESTART_RESUME_METHODS = [
       }
       return {
         dismissed,
-        sessions: await host.restartResume.list(),
-        failed: await host.restartResume.listFailures()
+        sessions: (await host.restartResume.list()).filter((session) =>
+          canReachStructuredSession(ctx, host, session.sessionId)
+        ),
+        failed: (await host.restartResume.listFailures()).filter((session) =>
+          canReachStructuredSession(ctx, host, session.sessionId)
+        )
       }
     }
   }),
@@ -55,10 +112,9 @@ export const STRUCTURED_AGENT_SESSION_RESTART_RESUME_METHODS = [
     name: 'agentSession.restartContinue',
     params: RestartResumeParams,
     handler: async (params, ctx) => {
-      await ensureStructuredHostInstalled(ctx)
-      const host = requireStructuredHost(ctx)
+      const host = await requireRestartResumeHost(ctx, params.sessionIds)
       return host.restartResume.continueAfterRestart(
-        params.sessionIds,
+        await authorizedResumeSessionIds(ctx, host, params.sessionIds),
         structuredCallerFor(ctx).callerKey
       )
     }
@@ -69,9 +125,9 @@ export const STRUCTURED_AGENT_SESSION_RESTART_RESUME_METHODS = [
     // method, so dropping it is a wire removal an older client would meet as an unknown method.
     name: 'agentSession.restartResume',
     params: RestartResumeParams,
-    handler: async (_params, ctx) => {
-      await ensureStructuredHostInstalled(ctx)
-      requireStructuredHost(ctx)
+    handler: async (params, ctx) => {
+      const host = await requireRestartResumeHost(ctx, params.sessionIds)
+      await authorizedResumeSessionIds(ctx, host, params.sessionIds)
       return { results: [] }
     }
   })

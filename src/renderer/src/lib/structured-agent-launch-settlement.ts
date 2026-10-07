@@ -8,11 +8,15 @@ import {
 } from '@/lib/structured-agent-session-launch'
 import type { StructuredPromptDeliveryResult } from '@/lib/structured-agent-session-launch-prompt'
 import { findIdleEmptyStructuredChat } from '@/lib/structured-agent-session-idle-empty-chat'
+import type { StructuredAgentLaunchRecovery } from '@/lib/structured-agent-session-launch-callers'
 
 export type StructuredAgentLaunchSettlement =
   | {
       kind: 'structured'
       sessionId: string
+      /** What a later retry must re-enter with should the delivery end up unknown. Always set by
+       *  the settle loop; optional so hand-built settlements outside it stay valid. */
+      recovery?: StructuredAgentLaunchRecovery
       promptDeliveryResult?: Promise<StructuredPromptDeliveryResult>
     }
   | {
@@ -20,7 +24,7 @@ export type StructuredAgentLaunchSettlement =
       /** Null when the launch was abandoned before its host admitted a chat. */
       sessionId: string | null
     }
-  | { kind: 'visibility-unknown'; sessionId: string }
+  | { kind: 'visibility-unknown'; sessionId: string; recovery?: StructuredAgentLaunchRecovery }
   /** `notified`: the launch already told the user, so a caller adds no message of its own. */
   | { kind: 'failed'; error: unknown; notified?: true }
   /** The owning host declined the chat before anything was created; its terminal opened instead. */
@@ -37,6 +41,8 @@ export type StructuredAgentLaunchHandle = {
   sessionId: string
   /** The host the chat is created on. */
   executionHostId: ExecutionHostId
+  /** What a retry must re-enter with if this launch's outcome ends up unknown. */
+  recovery?: StructuredAgentLaunchRecovery
   settlement: Promise<StructuredAgentLaunchSettlement>
   promptDeliveryResult?: Promise<StructuredPromptDeliveryResult>
   cancel: () => void
@@ -75,6 +81,7 @@ async function settleStartedStructuredAgentLaunch(
     return {
       kind: 'structured',
       sessionId: receipt.sessionId,
+      recovery: launch.recovery,
       ...(launch.promptDeliveryResult ? { promptDeliveryResult: launch.promptDeliveryResult } : {})
     }
   } catch (error) {
@@ -87,7 +94,7 @@ async function settleStartedStructuredAgentLaunch(
     if (launch.isVisibilityUnknown()) {
       // Why: the state stays pending for the unknown badge and retry, but this caller is done.
       launch.releaseCallerAfterUnknownOutcome()
-      return { kind: 'visibility-unknown', sessionId: launch.sessionId }
+      return { kind: 'visibility-unknown', sessionId: launch.sessionId, recovery: launch.recovery }
     }
     return { kind: 'failed', error }
   } finally {
@@ -130,6 +137,7 @@ export function beginStructuredAgentLaunchSettlement(
   return {
     sessionId: launch.sessionId,
     executionHostId: launch.executionHostId,
+    recovery: launch.recovery,
     settlement: settleStartedStructuredAgentLaunch(worktreeId, launch, hooks),
     cancel: () => cancelStructuredAgentLaunch(worktreeId, launch.sessionId),
     ...(launch.promptDeliveryResult ? { promptDeliveryResult: launch.promptDeliveryResult } : {})

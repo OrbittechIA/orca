@@ -181,6 +181,10 @@ export class OrcaRuntimeWithRuntimeId {
   >()
 
   protected readonly terminalMutationLock = new WorktreeTerminalMutationLock()
+  /** Workspace lifecycle, not terminals: a structured session create holds the shared side
+   *  from authoritative resolution through attach; removal (and so replacement) takes the
+   *  exclusive side around the whole removal. Same lock class, its own instance. */
+  protected readonly worktreeLifecycleLock = new WorktreeTerminalMutationLock()
 
   protected terminalSleepStateByWorktreeId = new Map<
     string,

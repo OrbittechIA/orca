@@ -230,6 +230,16 @@ export const AGENT_SESSION_QUEUED_MESSAGES_RUNTIME_CAPABILITY =
 // journal and lifecycle surfaces independently from Codex support.
 export const CLAUDE_STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY =
   'agent-session.structured.claude.v1' as const
+
+/** The host admits a scoped `launchOrigin: 'work-item-start'` create from a paired runtime caller.
+ *  Separate from the structured capability above: that one says structured sessions exist at all,
+ *  this one says the Work Item Start route is admitted without the global experimental setting. A
+ *  client must not drop the terminal startup from `worktree.create` against a host lacking it. */
+export const WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY =
+  'agent-session.work-item-start.v1' as const
+// Client twin: reach into the caller's own Start sessions only, never ordinary structured chats.
+export const WORK_ITEM_START_STRUCTURED_SESSION_CLIENT_CAPABILITY =
+  'agent-session.work-item-start.client.v1' as const
 // Why: paired structured clients explicitly hold every visible session surface, allowing the host
 // to stop provider children after the last surface closes without tying lifetime to a transport.
 export const STRUCTURED_AGENT_SESSION_HOLD_RUNTIME_CAPABILITY =
@@ -390,6 +400,7 @@ export const RUNTIME_CAPABILITIES = [
   AGENT_SESSION_HOST_AUTHORITY_RUNTIME_CAPABILITY,
   AGENT_SESSION_OMP_RESUME_PATH_RUNTIME_CAPABILITY,
   AGENT_SESSION_KEYBOARD_RUNTIME_CAPABILITY,
+  WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY,
   STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
   STRUCTURED_AGENT_SESSION_CLIENT_LAUNCH_MODE_CAPABILITY,
   AGENT_SESSION_PENDING_SEND_RESULT_RUNTIME_CAPABILITY,

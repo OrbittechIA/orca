@@ -98,8 +98,10 @@ export class StructuredAgentSessionClientDelivery {
   publishRestored = (sessionId: string): void =>
     this.statusFeed.publish(sessionId, undefined, { replay: true })
 
-  subscribeStatus = (subscriber: StructuredAgentSessionStatusSubscriber): (() => void) =>
-    this.statusFeed.subscribe(subscriber)
+  subscribeStatus = (
+    subscriber: StructuredAgentSessionStatusSubscriber,
+    includeSession?: (sessionId: string) => boolean
+  ): (() => void) => this.statusFeed.subscribe(subscriber, includeSession)
   forgetStatus = (sessionId: string): void => this.statusFeed.forget(sessionId)
 
   subscribeTurnCompletions = (

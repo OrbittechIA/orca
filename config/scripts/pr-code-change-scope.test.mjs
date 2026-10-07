@@ -258,6 +258,29 @@ describe('per-job path classification', () => {
     }
   })
 
+  it('runs Linux packaging for the daemon shutdown descendant oracle and its production paths', () => {
+    for (const file of [
+      'config/docker/daemon-shutdown-descendants/Dockerfile',
+      'config/docker/daemon-shutdown-descendants/bundle-entry.ts',
+      'config/docker/daemon-shutdown-descendants/fixture.cjs',
+      'config/docker/daemon-shutdown-descendants/run-case.sh',
+      'config/scripts/run-daemon-shutdown-descendants-docker.mjs'
+    ]) {
+      expectClassification([file], { package: true })
+    }
+    for (const file of [
+      'src/main/daemon/terminal-host.ts',
+      'src/main/daemon/terminal-session-teardown.ts',
+      'src/main/daemon/terminal-host-session-shutdown.ts',
+      'src/main/daemon/terminal-descendant-shutdown.ts',
+      'src/main/pty-descendant-termination.ts',
+      'src/main/pty-descendant-exit-verification.ts',
+      'src/main/pty-process-table-parser.ts'
+    ]) {
+      expectClassification([file], { package: true, package_windows: true })
+    }
+  })
+
   it('runs both package jobs when the shared skills runtime verifier changes', () => {
     expectClassification(['config/scripts/verify-skills-cli-runtime.cjs'], {
       package: true,
