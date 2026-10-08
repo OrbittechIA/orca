@@ -45,6 +45,7 @@ import {
   stopStructuredAgentSessionRuntime
 } from './structured-agent-session-runtime'
 import { createStructuredAgentSessionLogger } from '../native-chat/agent-session-wire/structured-agent-session-logger'
+import { cursorOf, itemsOf, textOf } from './structured-agent-session-journal-frame-test-fixture'
 
 const journals = createTrackedJournalOpener()
 
@@ -283,13 +284,6 @@ function drainStreamedEvents(): Promise<void> {
   return getStructuredAgentSessionHost()?.flushStreamedEvents(SESSION) ?? Promise.resolve()
 }
 
-function textOf(item: AgentJournalRenderItem): string {
-  const body = item.body
-  return body?.kind === 'message'
-    ? body.blocks.map((block) => (block.type === 'text' ? block.text : '')).join('')
-    : ''
-}
-
 /** The durable submission row, which settlement rewrites after the send returns. */
 async function submissionOf(clientMessageId: string): Promise<AgentJournalSubmission | undefined> {
   return (await getStructuredAgentSessionHost()?.journalSnapshot(SESSION))?.submissions.find(
@@ -365,35 +359,6 @@ beforeEach(async () => {
     methods: STRUCTURED_AGENT_SESSION_METHODS
   })
 })
-
-function itemsOf(frames: AgentSessionSubscribeEvent[]): AgentJournalRenderItem[] {
-  const items = new Map<string, AgentJournalRenderItem>()
-  for (const frame of frames) {
-    const published =
-      frame.type === 'snapshot' || frame.type === 'reset'
-        ? frame.page.items
-        : frame.type === 'batch'
-          ? frame.batch.items
-          : []
-    for (const item of published) {
-      items.set(item.itemId, item)
-    }
-  }
-  return [...items.values()]
-}
-
-function cursorOf(frames: AgentSessionSubscribeEvent[]): { epoch: string; sequence: number } {
-  for (let index = frames.length - 1; index >= 0; index -= 1) {
-    const frame = frames[index] as AgentSessionSubscribeEvent
-    if (frame.type === 'batch') {
-      return frame.batch.cursor
-    }
-    if (frame.type === 'snapshot' || frame.type === 'reset') {
-      return frame.page.liveCursor ?? frame.page.window.nextCursor
-    }
-  }
-  throw new Error('subscription published no cursor')
-}
 
 afterEach(async () => {
   await journals.closeAll()

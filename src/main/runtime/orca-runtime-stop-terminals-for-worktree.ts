@@ -327,10 +327,7 @@ export class OrcaRuntimeWithStopTerminalsForWorktree extends OrcaRuntimeWithReso
     kind: WorktreeTerminalMutationKind,
     deadline?: number
   ): Promise<() => void> {
-    return await this.terminalMutationLock.acquire(
-      runtimeWorktreeIdentityKey(worktreeId),
-      kind,
-      deadline
-    )
+    const key = runtimeWorktreeIdentityKey(worktreeId)
+    return await this.terminalMutationLock.acquire(key, kind, deadline)
   }
 }

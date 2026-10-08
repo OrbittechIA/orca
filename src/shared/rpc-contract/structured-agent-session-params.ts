@@ -43,24 +43,20 @@ export const Identifier = (message: string, maxLength = MAX_ID_LENGTH) =>
     .max(maxLength, message)
     .refine((value) => value === value.trim(), message)
 
-export const JournalCursor = z
-  .object({
-    epoch: Identifier('Invalid journal epoch'),
-    sequence: z.number().int().nonnegative()
-  })
-  .strict()
+export const JournalCursor = z.strictObject({
+  epoch: Identifier('Invalid journal epoch'),
+  sequence: z.number().int().nonnegative()
+})
 
-export const MutationEnvelope = z
-  .object({
-    sessionId: SessionId,
-    clientOperationId: Identifier('Invalid client operation id'),
-    /** Null is the "must not exist yet" case; every other call fences. */
-    expectedRuntimeFence: z.number().int().positive().nullable(),
-    payloadFingerprint: z
-      .string()
-      .regex(/^[0-9a-f]{64}$/, 'Payload fingerprint must be a sha256 hex digest')
-  })
-  .strict()
+export const MutationEnvelope = z.strictObject({
+  sessionId: SessionId,
+  clientOperationId: Identifier('Invalid client operation id'),
+  /** Null is the "must not exist yet" case; every other call fences. */
+  expectedRuntimeFence: z.number().int().positive().nullable(),
+  payloadFingerprint: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/, 'Payload fingerprint must be a sha256 hex digest')
+})
 
 export const ProviderHandle = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('codex'), threadId: Identifier('Invalid thread id') }).strict(),
@@ -81,21 +77,17 @@ export const ExecutionHostId = z
     message: 'Invalid execution host id'
   })
 
-export const ExecutionLocation = z
-  .object({
-    executionHostId: ExecutionHostId,
-    wslDistro: Identifier('Invalid WSL distro').nullable(),
-    workspaceId: Identifier('Invalid workspace id'),
-    workspaceKind: z.enum(['git-worktree', 'folder'])
-  })
-  .strict()
+export const ExecutionLocation = z.strictObject({
+  executionHostId: ExecutionHostId,
+  wslDistro: Identifier('Invalid WSL distro').nullable(),
+  workspaceId: Identifier('Invalid workspace id'),
+  workspaceKind: z.enum(['git-worktree', 'folder'])
+})
 
-export const AccountHome = z
-  .object({
-    variable: z.enum(['CLAUDE_CONFIG_DIR', 'CODEX_HOME']),
-    path: z.string().min(1).max(4096)
-  })
-  .strict()
+export const AccountHome = z.strictObject({
+  variable: z.enum(['CLAUDE_CONFIG_DIR', 'CODEX_HOME']),
+  path: z.string().min(1).max(4096)
+})
 
 export const AttachParams = z
   .object({
@@ -112,34 +104,30 @@ export const AttachParams = z
 /** An identity, and nothing the host would otherwise read off disk. A transcript path or account
  *  home here would let a client choose which file this host imports and which credential directory
  *  the provider child launches against; both are derived host-side from this id instead. */
-export const ResumeSource = z
-  .object({
-    providerSessionId: Identifier('Invalid provider session id')
-  })
-  .strict()
+export const ResumeSource = z.strictObject({
+  providerSessionId: Identifier('Invalid provider session id')
+})
 
 /** The one origin that earns the narrow Work Item Start admission. A literal, not an
  *  enum: any other value must fail validation rather than widen the admission. */
 const LaunchOrigin = z.literal('work-item-start')
 
-export const CreateIntentParams = z
-  .object({
-    envelope: MutationEnvelope,
-    worktree: Identifier('Invalid worktree selector'),
-    agent: z.enum(['claude', 'codex']),
-    resumeFrom: ResumeSource.optional(),
-    /**
-     * The tab id the client reserved for this chat, so it can place the tab before the reply. The
-     * host owns the id from here: it is persisted on the session record and is what the host's tab
-     * snapshot will publish, so it must be a host tab id, as `agent.launch` requires of `paneKey`.
-     *
-     * This object is strict, so an older host refuses a payload carrying it. A client sends it
-     * only after `AGENT_SESSION_CREATE_TAB_ID_RUNTIME_CAPABILITY` is advertised.
-     */
-    tabId: z.string().refine(isAgentSessionSurfaceTabId, 'Invalid chat tab ID').optional(),
-    launchOrigin: LaunchOrigin.optional()
-  })
-  .strict()
+export const CreateIntentParams = z.strictObject({
+  envelope: MutationEnvelope,
+  worktree: Identifier('Invalid worktree selector'),
+  agent: z.enum(['claude', 'codex']),
+  resumeFrom: ResumeSource.optional(),
+  /**
+   * The tab id the client reserved for this chat, so it can place the tab before the reply. The
+   * host owns the id from here: it is persisted on the session record and is what the host's tab
+   * snapshot will publish, so it must be a host tab id, as `agent.launch` requires of `paneKey`.
+   *
+   * This object is strict, so an older host refuses a payload carrying it. A client sends it
+   * only after `AGENT_SESSION_CREATE_TAB_ID_RUNTIME_CAPABILITY` is advertised.
+   */
+  tabId: z.string().refine(isAgentSessionSurfaceTabId, 'Invalid chat tab ID').optional(),
+  launchOrigin: LaunchOrigin.optional()
+})
 
 export const CreateParams = z.union([AttachParams, CreateIntentParams])
 
