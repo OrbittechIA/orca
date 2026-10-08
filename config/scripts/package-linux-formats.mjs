@@ -65,6 +65,7 @@ function runElectronBuilder(args, environment) {
 export async function packageLinuxFormats({
   preparedDirectory = resolve('dist/linux-unpacked'),
   outputDirectory = resolve('dist'),
+  sourceDirectory = resolve(import.meta.dirname, '../..'),
   prepareAppImageTools = preparePrAppImageTools,
   runBuilder = runElectronBuilder
 } = {}) {
@@ -75,7 +76,7 @@ export async function packageLinuxFormats({
   const expectedLiteral =
     process.env.ORCA_BUILD_UNCERTIFIED === '1'
       ? null
-      : readBuildProvenanceLiteral({ cwd: resolve(import.meta.dirname, '../..') })
+      : readBuildProvenanceLiteral({ cwd: sourceDirectory })
   const startedAt = performance.now()
   mkdirSync(outputDirectory, { recursive: true })
   const staging = mkdtempSync(join(outputDirectory, '.linux-package-formats-'))
