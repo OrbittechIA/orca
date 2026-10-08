@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { RpcClient } from '../transport/rpc-client'
+import type { RpcResponse } from '../transport/types'
+import { FakeSession } from '../transport/mobile-endpoint-supervisor-test-fakes'
 import { isUnknownRecord } from '../../../src/shared/unknown-record'
 
 const storage = vi.hoisted(() => {
@@ -38,9 +40,10 @@ function record(value: unknown): Record<string, unknown> {
   return isUnknownRecord(value) ? value : {}
 }
 
-function createdSession(sessionId: string) {
+function createdSession(sessionId: string): RpcResponse {
   const cursor = { epoch: 'test-epoch', sequence: 0 }
   return {
+    id: 'create-response',
     ok: true,
     result: {
       ok: true,
@@ -69,14 +72,15 @@ function createdSession(sessionId: string) {
 }
 
 function host() {
-  const accepted = new Map<string, unknown>()
+  const accepted = new Map<string, RpcResponse>()
+  const client = new FakeSession('connected')
   const sends: string[] = []
   let loseReplies = true
-  const sendRequest = vi.fn(async (method: string, raw: unknown) => {
+  client.sendRequest.mockImplementation(async (method, raw) => {
     const params = record(raw)
     const envelope = record(params.envelope)
     if (method === 'agentSession.createSupport') {
-      return { ok: true, result: { supported: true } }
+      return { id: 'support-response', ok: true, result: { supported: true } }
     }
     if (method === 'agentSession.create') {
       return createdSession(String(envelope.sessionId))
@@ -86,25 +90,25 @@ function host() {
     }
     const operationId = String(envelope.clientOperationId)
     sends.push(operationId)
-    if (!accepted.has(operationId)) {
-      accepted.set(operationId, {
+    const receipt: RpcResponse = accepted.get(operationId) ?? {
+      id: 'send-response',
+      ok: true,
+      result: {
         ok: true,
-        result: {
-          ok: true,
-          value: {
-            clientMessageId: operationId,
-            submission: { clientMessageId: operationId, dispatchState: 'accepted' }
-          }
+        value: {
+          clientMessageId: operationId,
+          submission: { clientMessageId: operationId, dispatchState: 'accepted' }
         }
-      })
+      }
     }
+    accepted.set(operationId, receipt)
     if (loseReplies) {
       throw markRpcDeliveryUnknown(new Error('Reply lost after acceptance'))
     }
-    return accepted.get(operationId)
+    return receipt
   })
   return {
-    client: { sendRequest } as unknown as RpcClient,
+    client,
     accepted,
     sends,
     recover: () => {
