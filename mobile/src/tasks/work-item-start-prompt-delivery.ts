@@ -7,13 +7,13 @@ import { agentSessionRefusalOperationState } from '../../../src/shared/agent-ses
 import type { structuredAgentSessionSendBody } from '../../../src/shared/structured-agent-session-outbox'
 import { structuredAgentSessionPayloadFingerprint } from '../../../src/shared/structured-agent-session-mutation'
 import { requestStructuredAgentSessionMutation } from '../session/mobile-structured-agent-session-rpc'
-import { structuredSessionOperationId } from '../session/structured-session-operation-id'
 import {
   clearMobileStructuredSendOperation,
   getOrCreateMobileStructuredSendOperation,
   mobileStructuredSendOperationKey
 } from '../session/mobile-structured-send-operation-journal'
 import type { RpcClient } from '../transport/rpc-client'
+import { recordWorkItemStartSendIdentity } from './work-item-start-send-identity-journal'
 import type { WorkItemStartStructuredSessionResult } from './work-item-start-structured-session'
 
 /** Same-envelope replays after an unknown outcome, before the Start reports unconfirmed. */
@@ -36,6 +36,10 @@ export async function deliverWorkItemStartPrompt(args: {
   client: RpcClient
   worktreeId: string
   sessionId: string
+  attemptSessionId: string
+  attemptCreateClientOperationId: string
+  sendClientOperationId?: string
+  initializeSendJournal: boolean
   fence: number
   body: ReturnType<typeof structuredAgentSessionSendBody>
 }): Promise<WorkItemStartStructuredSessionResult> {
@@ -49,24 +53,63 @@ export async function deliverWorkItemStartPrompt(args: {
     sessionKey: sessionId,
     intentFingerprint: payloadFingerprint
   })
-  let persisted: Awaited<ReturnType<typeof getOrCreateMobileStructuredSendOperation>>
+  let clientOperationId = args.sendClientOperationId
+  const missingRetainedSend = new Error('The earlier send identity is unavailable')
   try {
-    persisted = await getOrCreateMobileStructuredSendOperation({
+    const persisted = await getOrCreateMobileStructuredSendOperation({
       operationKey,
       callerIdentity: `work-item-start:${worktreeId}`,
       payloadFingerprint,
       attachmentPaths: [],
-      createOperationId: structuredSessionOperationId
+      createOperationId: () => {
+        if (!args.initializeSendJournal || !args.sendClientOperationId) {
+          throw missingRetainedSend
+        }
+        return args.sendClientOperationId
+      }
     })
+    if (clientOperationId && clientOperationId !== persisted.operationId) {
+      return {
+        kind: 'unconfirmed',
+        sessionId,
+        message:
+          'The earlier Work Item Start send identity conflicts. Check the conversation before sending the prompt again.'
+      }
+    }
+    clientOperationId = persisted.operationId
   } catch (error) {
-    // No durable record means no safe way to replay: the prompt is reported, not sent.
-    return {
-      kind: 'prompt-undelivered',
-      sessionId,
-      message: `The Work Item Start prompt was not sent: ${error instanceof Error ? error.message : 'its send operation could not be recorded'}.`
+    // A retired chat journal is safe only when the Start still holds its original send identity.
+    if (error !== missingRetainedSend || !clientOperationId) {
+      return args.initializeSendJournal
+        ? {
+            kind: 'prompt-undelivered',
+            sessionId,
+            message: `The Work Item Start prompt was not sent: ${error instanceof Error ? error.message : 'its send operation could not be recorded'}.`
+          }
+        : {
+            kind: 'unconfirmed',
+            sessionId,
+            message:
+              'The earlier Work Item Start could not be confirmed. Check the conversation before sending the prompt again.'
+          }
     }
   }
-  const clientOperationId = persisted.operationId
+  try {
+    clientOperationId = await recordWorkItemStartSendIdentity(
+      {
+        worktreeId,
+        sessionId: args.attemptSessionId,
+        createClientOperationId: args.attemptCreateClientOperationId
+      },
+      clientOperationId
+    )
+  } catch {
+    return {
+      kind: 'unconfirmed',
+      sessionId,
+      message: 'The Work Item Start send identity could not be saved. Retry Start to reconcile it.'
+    }
+  }
   const pendingSend = { clientOperationId, fence }
   const settle = async (
     result: WorkItemStartStructuredSessionResult

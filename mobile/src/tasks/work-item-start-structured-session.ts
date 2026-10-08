@@ -14,6 +14,11 @@ import {
 } from '../session/structured-session-operation-id'
 import type { RpcClient } from '../transport/rpc-client'
 import { deliverWorkItemStartPrompt } from './work-item-start-prompt-delivery'
+import {
+  clearWorkItemStartSendIdentity,
+  readWorkItemStartSendIdentity,
+  recordWorkItemStartSendIdentity
+} from './work-item-start-send-identity-journal'
 
 export type WorkItemStartStructuredSessionResult =
   /** The session exists and the prompt was accepted; the run has one authoritative writer. */
@@ -137,18 +142,29 @@ async function runWorkItemStartStructuredSession(args: {
   prompt: string
 }): Promise<WorkItemStartStructuredSessionResult> {
   const { client, worktreeId, agent } = args
+  const proposedAttempt = {
+    worktreeId,
+    worktreeName: args.worktreeName ?? '',
+    agent,
+    prompt: args.prompt,
+    sessionId: createStructuredAgentSessionId(agent, structuredSessionRandomUuid),
+    createClientOperationId: structuredSessionOperationId()
+  }
   let attempt
+  let sendClientOperationId: string | undefined
   try {
-    // An attempt already recorded for this workspace wins: its identity, agent and prompt are the
-    // ones the host may already hold, so a retry can never mint a second session.
-    attempt = await recordWorkItemStartAttempt({
-      worktreeId,
-      worktreeName: args.worktreeName ?? '',
-      agent,
-      prompt: args.prompt,
-      sessionId: createStructuredAgentSessionId(agent, structuredSessionRandomUuid),
-      createClientOperationId: structuredSessionOperationId()
-    })
+    // A retained attempt owns the identity, agent and prompt the host may already hold.
+    attempt = await recordWorkItemStartAttempt(proposedAttempt)
+    sendClientOperationId = await readWorkItemStartSendIdentity(attempt)
+    if (
+      !sendClientOperationId &&
+      attempt.createClientOperationId === proposedAttempt.createClientOperationId
+    ) {
+      sendClientOperationId = await recordWorkItemStartSendIdentity(
+        attempt,
+        structuredSessionOperationId()
+      )
+    }
   } catch (error) {
     // Without a durable identity a lost reply could not be reconciled, so nothing is requested.
     return {
@@ -162,13 +178,18 @@ async function runWorkItemStartStructuredSession(args: {
     attempt.worktreeId,
     {
       sessionId: attempt.sessionId,
-      createClientOperationId: attempt.createClientOperationId
+      createClientOperationId: attempt.createClientOperationId,
+      sendClientOperationId,
+      initializeSendJournal:
+        attempt.createClientOperationId === proposedAttempt.createClientOperationId
     },
     attempt.prompt
   )
   // Settled outcomes release the identity; an unconfirmed one keeps it for the retry.
   if (result.kind !== 'unconfirmed') {
-    await clearWorkItemStartAttempt(attempt.worktreeId, attempt.sessionId).catch(() => undefined)
+    await clearWorkItemStartAttempt(attempt.worktreeId, attempt.sessionId)
+      .then(() => clearWorkItemStartSendIdentity(attempt))
+      .catch(() => undefined)
   }
   return result
 }
@@ -177,7 +198,12 @@ async function openWorkItemStartSession(
   client: RpcClient,
   agent: 'claude' | 'codex',
   worktreeId: string,
-  identity: { sessionId: string; createClientOperationId: string },
+  identity: {
+    sessionId: string
+    createClientOperationId: string
+    sendClientOperationId?: string
+    initializeSendJournal: boolean
+  },
   prompt: string
 ): Promise<WorkItemStartStructuredSessionResult> {
   const launch = await createMobileStructuredAgentSession(client, worktreeId, agent, {
@@ -224,6 +250,10 @@ async function openWorkItemStartSession(
     client,
     worktreeId,
     sessionId: launch.sessionId,
+    attemptSessionId: identity.sessionId,
+    attemptCreateClientOperationId: identity.createClientOperationId,
+    sendClientOperationId: identity.sendClientOperationId,
+    initializeSendJournal: identity.initializeSendJournal,
     fence: launch.fence,
     body
   })

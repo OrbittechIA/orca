@@ -338,6 +338,11 @@ describe('work item start workspace create params', () => {
 })
 
 describe('startWorkItemStructuredSession', () => {
+  beforeEach(() => {
+    asyncStorage.store.clear()
+    resetMobileStructuredSendOperationJournalForTests()
+  })
+
   it('creates the scoped session and delivers its single prompt once', async () => {
     const client = clientReturning(SUPPORTED, createdSession(), ACCEPTED_SEND)
 
