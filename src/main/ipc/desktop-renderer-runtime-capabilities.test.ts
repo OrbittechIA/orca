@@ -1,8 +1,3 @@
-import {
-  STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
-  WORK_ITEM_START_STRUCTURED_SESSION_CLIENT_CAPABILITY,
-  CLAUDE_STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY
-} from '../../shared/protocol-version'
 /**
  * The desktop renderer talks to two hosts — its own main process and a paired remote — and used to
  * advertise a different capability set to each, hand-maintained on both sides. `agent.launch` is
@@ -12,6 +7,9 @@ import {
 
 import { describe, expect, it } from 'vitest'
 import {
+  STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
+  WORK_ITEM_START_STRUCTURED_SESSION_CLIENT_CAPABILITY,
+  CLAUDE_STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
   AGENT_SESSION_BOUNDARY_RUNTIME_CAPABILITY,
   AUTOMATION_CREATE_IDEMPOTENCY_RUNTIME_CAPABILITY,
   AUTOMATION_OWNER_FENCING_RUNTIME_CAPABILITY,
