@@ -17,10 +17,12 @@ describe('SSH hostile-host workflow', () => {
   it('runs on demand and on path-filtered, non-draft pull requests only', () => {
     expect(Object.keys(workflow.on).sort()).toEqual(['pull_request', 'workflow_dispatch'])
     expect(workflow.on.pull_request.paths).toContain('src/main/ssh/ssh-relay-*')
-    expect(workflow.jobs.glibc_slot.if).toContain('github.event.pull_request.draft != true')
-    expect(workflow.jobs.musl_slot.needs).toBe('glibc_slot')
-    expect(workflow.jobs.glibc217_slot.needs).toBe('musl_slot')
-    expect(workflow.jobs.hosts.needs).toBe('glibc217_slot')
+    const builders = ['glibc_slot', 'musl_slot', 'glibc217_slot']
+    for (const name of builders) {
+      expect(workflow.jobs[name].if).toContain('github.event.pull_request.draft != true')
+      expect(workflow.jobs[name].needs).toBeUndefined()
+    }
+    expect(workflow.jobs.hosts.needs).toEqual(builders)
   })
 
   // Why: the slots must come from the same builders the headless-server lanes qualify, so a
@@ -52,14 +54,25 @@ describe('SSH hostile-host workflow', () => {
     const download = workflow.jobs.hosts.steps.find((step) =>
       String(step.uses).startsWith('actions/download-artifact')
     )
-    expect(download.with.name).toBe(upload.with.name)
+    expect(upload.with.name).toBe('hostile-hosts-glibc217-slot')
+    expect(download.with.pattern).toBe('hostile-hosts-*-slot')
+    expect(download.with.path).toBe('${{ runner.temp }}/hostile-host-prebuild-lanes')
+    const merge = workflow.jobs.hosts.steps.find(
+      (step) => step.name === 'Merge verified Linux slots'
+    )
+    expect(merge.run).toContain(
+      'node config/scripts/merge-orcad-prebuilds.mjs "$RUNNER_TEMP"/hostile-host-prebuild-lanes/*'
+    )
+    expect(merge.run).toContain(
+      'pnpm build:orcad-prebuilds --require-slots linux-x64-glibc,linux-x64-musl,linux-x64-glibc217'
+    )
   })
 
   it('opts the matrix in and runs it against both x64 Linux slots', () => {
     const steps = workflow.jobs.hosts.steps
     const matrix = steps.find((step) => step.name === 'Run the hostile-host matrix')
     expect(matrix.env.ORCA_RUN_SSH_HOSTILE_HOSTS).toBe('1')
-    expect(matrix.run).toBe('pnpm test src/main/ssh/ssh-relay-hostile-hosts.docker.test.ts')
+    expect(matrix.run).toBe('pnpm test:node src/main/ssh/ssh-relay-hostile-hosts.docker.test.ts')
     expect(steps.map((step) => step.run ?? '').join('\n')).toContain(
       '--targets linux-x64-glibc,linux-x64-musl'
     )
@@ -90,6 +103,6 @@ describe('SSH hostile-host workflow', () => {
       ORCA_RUN_SSH_HOSTILE_HOSTS: '1',
       ORCA_SSH_HOSTILE_HOST_CELLS: '${{ matrix.cell }}'
     })
-    expect(cellStep.run).toBe('pnpm test src/main/ssh/ssh-relay-hostile-hosts.docker.test.ts')
+    expect(cellStep.run).toBe('pnpm test:node src/main/ssh/ssh-relay-hostile-hosts.docker.test.ts')
   })
 })

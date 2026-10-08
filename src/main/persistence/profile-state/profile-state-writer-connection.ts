@@ -208,15 +208,18 @@ export class ProfileStateWriterConnection {
     id: number,
     command: PendingProfileStateWriterRequest['command']
   ): PendingProfileStateWriterRequest {
-    return createProfileStateWriterRequest(id, command, this.timeoutMs, () =>
-      this.fault(
-        new ProfileStateWriterError(
-          'profile-state-writer-timeout',
-          'Profile state writer command timed out',
-          this.dispatchedOutcome()
+    const pending = createProfileStateWriterRequest(id, command, this.timeoutMs, () => {
+      if (this.active === pending) {
+        this.fault(
+          new ProfileStateWriterError(
+            'profile-state-writer-timeout',
+            'Profile state writer command timed out',
+            this.dispatchedOutcome()
+          )
         )
-      )
-    )
+      }
+    })
+    return pending
   }
 
   private receive(value: unknown): void {
@@ -260,7 +263,7 @@ export class ProfileStateWriterConnection {
     if (!pending) {
       return
     }
-    clearTimeout(pending.timer)
+    pending.clearDeadline()
     if (response) {
       pending.resolve(response)
     } else {

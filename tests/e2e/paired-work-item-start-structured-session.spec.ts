@@ -10,7 +10,9 @@ import {
   WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY
 } from '../../src/shared/protocol-version'
 import { structuredAgentSessionCreateParams } from '../../src/shared/structured-agent-session-create'
-import { structuredAgentSessionPayloadFingerprint } from '../../src/shared/structured-agent-session-mutation'
+import { createStructuredAgentSessionOperationId } from '../../src/shared/structured-agent-session-mutation'
+import { structuredAgentSessionMessageSendMutation } from '../../src/shared/structured-agent-session-send-mutation'
+import type { AgentSessionHistoryResult } from '../../src/shared/agent-session-wire'
 import { parseBuildProvenance } from '../../src/shared/build-provenance'
 import { collectWorkItemStartE2eEvidence } from './work-item-start-e2e-collect'
 import {
@@ -134,7 +136,6 @@ type AttestationResult = {
   appContent?: { kind: string; sha256?: string } | null
   attestationId?: string
 } | null
-type HistoryResult = { page?: { items?: { role?: string; kind?: string }[] } }
 
 test('a paired Work Item Start opens one structured session and delivers its prompt once', async ({
   testRepoPath
@@ -220,20 +221,19 @@ test('a paired Work Item Start opens one structured session and delivers its pro
 
     // 4. One delivery. The prompt is the work item's own launch text, sent once through the
     //    session that was just admitted — never seeded into a pane.
-    const body = { text: `https://example.invalid/issues/${SYNTHETIC_WORK_ITEM}`, attachments: [] }
-    const send = await call<MutationResult<SendResult>>('agentSession.send', {
-      envelope: {
+    const send = await call<MutationResult<SendResult>>(
+      'agentSession.send',
+      structuredAgentSessionMessageSendMutation({
         sessionId,
-        clientOperationId: randomUUID(),
+        clientOperationId: createStructuredAgentSessionOperationId(randomUUID),
         expectedRuntimeFence: fence,
-        payloadFingerprint: structuredAgentSessionPayloadFingerprint({
-          method: 'agentSession.send',
-          sessionId,
-          fields: { body }
-        })
-      },
-      body
-    })
+        body: {
+          kind: 'message',
+          role: 'user',
+          blocks: [{ type: 'text', text: `https://example.invalid/issues/${SYNTHETIC_WORK_ITEM}` }]
+        }
+      })
+    )
     expect(send.ok).toBe(true)
     expect(['accepted', 'pending']).toContain(send.value?.submission.dispatchState)
 
@@ -252,20 +252,23 @@ test('a paired Work Item Start opens one structured session and delivers its pro
 
     // Entrega é PROVADA, não afirmada: o journal da sessão é quem sabe quantas mensagens do
     // cliente chegaram. Um `1` escrito à mão aqui seria a asserção provando a si mesma.
-    const history = await call<HistoryResult>('agentSession.history', {
-      sessionId,
-      direction: 'tail',
-      limit: 50
-    })
-    const journalled = (history.page?.items ?? []).filter(
-      (item) => item.role === 'user' || item.kind === 'user-message'
-    ).length
+    await expect
+      .poll(async () => {
+        const history = await call<AgentSessionHistoryResult>('agentSession.history', {
+          sessionId,
+          direction: 'tail',
+          limit: 50
+        })
+        return history.ok
+          ? history.page.items.filter(
+              (item) => item.body.kind === 'message' && item.body.role === 'user'
+            ).length
+          : 0
+      })
+      .toBe(1)
+    // The journal and provider must both observe exactly one delivery.
+    await expect.poll(() => readInertLedger(ledger)).toEqual({ turnStarts: 1, spawns: 1 })
     const ledgerCounts = readInertLedger(ledger)
-    // As duas pontas precisam concordar: o journal diz o que foi aceito, o provider diz o que
-    // foi despachado. Divergência aqui é um writer que uma das duas não viu.
-    expect(journalled).toBe(1)
-    expect(ledgerCounts.turnStarts).toBe(1)
-    expect(ledgerCounts.spawns).toBe(1)
     const promptDeliveries = ledgerCounts.turnStarts
 
     if (!CERTIFICATION) {

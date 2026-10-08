@@ -948,6 +948,32 @@ jobs:
         with:
           native-runtime: node
 
+      # Forks may have older release tags than the upstream compatibility fixtures.
+      - name: Fetch pinned upstream compatibility releases
+        run: |
+          releases=(
+            'v1.4.184:2307f2ebbe1c1e737c0b12d920bb0a208332db2c'
+            'v1.4.190:6e4f817101daa18d82824b69243d9079baa9c416'
+            'v1.4.199:28957d6004dd191b6f0baff493a9fd3d37405d9d'
+            'v1.4.205:11aba8bdc5e492d3ba01fc7fe333495ace74128f'
+            'v1.4.211:5534462b50c660888487a2108700d4cf284270db'
+            'v1.4.212:d937d22f498505c017634be9bf0540c9fa42e665'
+            'v1.4.214:7468e9cccb35a8494f76dc95a37627121113ee80'
+            'v1.4.218:75ea50273328d9bd5465170d10a098711d61b5a4'
+            'v1.4.222:4bb6f2072b07c1f0664b809551f77754700570e4'
+          )
+          refs=()
+          for release in "${releases[@]}"; do
+            tag="${release%%:*}"
+            refs+=("refs/tags/$tag:refs/tags/$tag")
+          done
+          git fetch --atomic --no-tags --no-recurse-submodules --filter=blob:none \
+            https://github.com/stablyai/orca.git "${refs[@]}"
+          for release in "${releases[@]}"; do
+            tag="${release%%:*}"
+            test "$(git rev-parse "$tag^{commit}")" = "${release#*:}"
+          done
+
       # R1: an upgrade from the newest release must adopt its live terminal daemon.
       - name: Daemon protocol crossing against newest release
         run: pnpm run check:daemon-protocol-crossing

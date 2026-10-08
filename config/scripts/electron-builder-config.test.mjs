@@ -117,7 +117,7 @@ describe('electron-builder config', () => {
       }
       expect(existsSync(join(destination, 'notes'))).toBe(false)
     } finally {
-      await rm(root, { recursive: true, force: true })
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     }
   })
 

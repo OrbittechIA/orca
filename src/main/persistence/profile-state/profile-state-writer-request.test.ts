@@ -1,0 +1,55 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createProfileStateWriterRequest } from './profile-state-writer-request'
+
+beforeEach(() => vi.useFakeTimers())
+afterEach(() => vi.useRealTimers())
+
+describe('writer request final timeout decision', () => {
+  it('expires an unanswered request after one check turn without rearming its deadline', () => {
+    const onTimeout = vi.fn()
+    createProfileStateWriterRequest(1, 'write-domains', 1000, onTimeout)
+    vi.advanceTimersByTime(999)
+    expect(onTimeout).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+    expect(onTimeout).not.toHaveBeenCalled()
+    vi.runOnlyPendingTimers()
+    expect(onTimeout).toHaveBeenCalledOnce()
+    expect(vi.getTimerCount()).toBe(0)
+    vi.advanceTimersByTime(60_000)
+    expect(onTimeout).toHaveBeenCalledOnce()
+  })
+
+  it('accepts a queued response after the timer fires and cancels the final timeout check', async () => {
+    const onTimeout = vi.fn()
+    const request = createProfileStateWriterRequest(1, 'write-domains', 1000, onTimeout)
+    vi.advanceTimersByTime(1000)
+    request.clearDeadline()
+    request.resolve({ id: 1, ok: true, revision: 2 })
+    vi.runOnlyPendingTimers()
+    await expect(request.promise).resolves.toMatchObject({ revision: 2 })
+    expect(onTimeout).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('cancels before expiry and can clear a queued check repeatedly without touching its successor', () => {
+    const canceledTimeout = vi.fn()
+    const canceled = createProfileStateWriterRequest(1, 'assert-revision', 1000, canceledTimeout)
+    canceled.clearDeadline()
+    vi.advanceTimersByTime(1000)
+    expect(canceledTimeout).not.toHaveBeenCalled()
+    const prior = createProfileStateWriterRequest(2, 'write-domains', 1000, canceledTimeout)
+    vi.advanceTimersByTime(1000)
+    prior.clearDeadline()
+    const nextTimeout = vi.fn()
+    createProfileStateWriterRequest(3, 'write-domains', 1000, nextTimeout)
+    prior.clearDeadline()
+    vi.advanceTimersByTime(999)
+    expect(canceledTimeout).not.toHaveBeenCalled()
+    expect(nextTimeout).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+    vi.runOnlyPendingTimers()
+    expect(nextTimeout).toHaveBeenCalledOnce()
+    expect(canceledTimeout).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+})

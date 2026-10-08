@@ -10,7 +10,7 @@ export type PendingProfileStateWriterRequest = {
   promise: Promise<SuccessfulProfileStateWriterResponse>
   resolve: (response: SuccessfulProfileStateWriterResponse) => void
   reject: (error: Error) => void
-  timer: ReturnType<typeof setTimeout>
+  clearDeadline: () => void
 }
 
 export function isExpectedProfileStateWriterSuccess(
@@ -50,10 +50,27 @@ export function createProfileStateWriterRequest(
   timeoutMs: number,
   onTimeout: () => void
 ): PendingProfileStateWriterRequest {
+  let active = true
+  let timeoutCheck: ReturnType<typeof setImmediate> | undefined
+  const timer = setTimeout(() => {
+    // Let a worker reply already queued behind an overdue timer reach the connection first.
+    timeoutCheck = setImmediate(() => {
+      timeoutCheck = undefined
+      if (active) {
+        active = false
+        onTimeout()
+      }
+    })
+  }, timeoutMs)
   return {
     id,
     command,
     ...Promise.withResolvers<SuccessfulProfileStateWriterResponse>(),
-    timer: setTimeout(onTimeout, timeoutMs)
+    clearDeadline: () => {
+      active = false
+      clearTimeout(timer)
+      clearImmediate(timeoutCheck)
+      timeoutCheck = undefined
+    }
   }
 }
