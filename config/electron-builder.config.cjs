@@ -37,6 +37,73 @@ const {
 } = require('./scripts/packaged-orcad-template.cjs')
 const { verifySkillsCliRuntime } = require('./scripts/verify-skills-cli-runtime.cjs')
 const { verifyStaticAppImagePackage } = require('./scripts/static-appimage-package-contract.cjs')
+const { dirname } = require('node:path')
+
+/** Set only for a throwaway local package: it embeds no identity and can never certify.
+ *  Read per call, not at load: the gate must answer for the process that packages. */
+const uncertifiedBuild = () => process.env.ORCA_BUILD_UNCERTIFIED === '1'
+
+async function verifyPackagedBuildProvenance(asarPath) {
+  if (uncertifiedBuild()) {
+    console.warn('[build-provenance] ORCA_BUILD_UNCERTIFIED=1: packaged bundle not verified')
+    return
+  }
+  const { readBuildProvenanceLiteral } = await import('./scripts/build-provenance.mjs')
+  const { verifyBundledBuildProvenance } = await import('./scripts/verify-build-provenance.mjs')
+  const asar = require('@electron/asar')
+  const bundle = asar.extractFile(asarPath, join('out', 'main', 'index.js')).toString('utf8')
+  const expected = verifyBundledBuildProvenance({
+    bundlePath: `${asarPath}:out/main/index.js`,
+    bundle,
+    expectedLiteral: readBuildProvenanceLiteral({ cwd: resolve(__dirname, '..') })
+  })
+  console.log(
+    `[build-provenance] packaged bundle carries ${expected.version} ${expected.commit} build ${expected.buildId}`
+  )
+}
+
+/** The candidate manifest binds each artifact to the `app.asar` it ships, which only the unpacked
+ *  app directory still exposes; installers wrap it. */
+async function writePackagedAppContentSidecar(context, asarPath) {
+  if (uncertifiedBuild()) {
+    return
+  }
+  const { writeAppContentSidecar } = await import('./scripts/write-candidate-manifest.mjs')
+  const arch = { 0: 'ia32', 1: 'x64', 2: 'armv7l', 3: 'arm64', 4: 'universal' }[context.arch]
+  const target = writeAppContentSidecar({
+    distDir: context.outDir,
+    electronPlatform: context.electronPlatformName,
+    arch,
+    asarPath
+  })
+  console.log(`[build-provenance] wrote ${target}`)
+}
+
+const completedCandidateArtifacts = new Map()
+
+async function writeCandidateManifestForPackaging(file) {
+  if (uncertifiedBuild()) {
+    return
+  }
+  const { readBuildProvenanceLiteral } = await import('./scripts/build-provenance.mjs')
+  const { buildCandidateManifest } = await import('./scripts/write-candidate-manifest.mjs')
+  if (!/\.(exe|appimage|deb|rpm|zip|dmg)$/i.test(file)) {
+    return
+  }
+  const distDir = dirname(resolve(file))
+  const provenanceLiteral = readBuildProvenanceLiteral({ cwd: resolve(__dirname, '..') })
+  const artifacts = completedCandidateArtifacts.get(distDir) ?? new Set()
+  artifacts.add(resolve(file))
+  const manifest = buildCandidateManifest({
+    distDir,
+    artifactPaths: [...artifacts],
+    provenanceLiteral
+  })
+  completedCandidateArtifacts.set(distDir, artifacts)
+  const target = join(distDir, 'candidate-manifest.json')
+  writeFileSync(target, `${JSON.stringify(manifest, null, 2)}\n`)
+  console.log(`[build-provenance] wrote ${target} (${manifest.artifacts.length} artifact(s))`)
+}
 const { signWindowsUninstallerViaSignPath } = require('./scripts/windows-uninstaller-signing.cjs')
 
 // Why: dev-channel builds must carry the *release* identity — same bundle id,
@@ -224,8 +291,11 @@ module.exports = {
     // it is gitignored, but exclude it defensively so a stray local capture at
     // package time never bloats app.asar.
     '!pr-evidence{,/**/*}',
-    // Local build logs and rollback copies are never application resources.
+    // Keep local notes and test outputs out of the certified package.
     '!notes{,/**/*}',
+    '!test-results{,/**/*}',
+    '!playwright-report{,/**/*}',
+    '!coverage{,/**/*}',
     // Why: local agent/tooling directories may contain worktree symlink loops;
     // they are never runtime inputs and must not be traversed by electron-builder.
     '!{.claude,.grok,.agents,.codex}{,/**/*}',
@@ -324,9 +394,14 @@ module.exports = {
     'node_modules/yaml/**'
   ],
   artifactBuildCompleted: ({ file, arch }) => {
+    // Synchronous on purpose: an invalid AppImage throws before anything else runs.
     if (file.endsWith('.AppImage')) {
       verifyStaticAppImagePackage(file, arch)
     }
+    // The manifest is regenerated after EVERY artifact rather than once at the end, so a
+    // later target failing on this host (rpm without rpmbuild) never leaves the finished
+    // artifacts without the manifest that binds them to the commit.
+    return writeCandidateManifestForPackaging(file)
   },
   // electron-builder calls this with the context alone. The second parameter is the bundle root,
   // so a test can point the guard at a scratch bundle instead of needing the repo's out/ built.
@@ -349,6 +424,10 @@ module.exports = {
     if (!existsSync(resourcesDir)) {
       throw new Error(`Missing packaged resources directory: ${resourcesDir}`)
     }
+    // Certification reads the PACKAGED bundle, so this is where the identity is proved: the
+    // literal electron-vite substituted must be this repo's clean HEAD, or packaging stops.
+    await verifyPackagedBuildProvenance(join(resourcesDir, 'app.asar'))
+    await writePackagedAppContentSidecar(context, join(resourcesDir, 'app.asar'))
     // FpmTarget replaces this with deb/rpm while building those artifacts from the shared app tree.
     if (context.electronPlatformName === 'linux') {
       writeFileSync(join(resourcesDir, 'package-type'), 'AppImage')

@@ -15,6 +15,9 @@ import type { WorkspaceKey } from '../../shared/folder-workspace-types'
 import type { Repo } from '../../shared/repo-types'
 import type { Store } from '../persistence'
 import { areWorktreePathsEqual, mergeWorktree } from '../ipc/worktree-logic'
+import type { AgentSessionExecutionLocation } from '../../shared/agent-session-record'
+import { workItemStartPreCreateLocation } from '../native-chat/structured-agent-session-create-support'
+import { getLocalProjectWorktreeGitOptions } from '../project-runtime-git-options'
 
 export class OrcaRuntimeWithResolveWorktreeSelector extends OrcaRuntimeWithResolveBrowserNetworkExecutionHostForWorktree {
   protected async resolveWorktreeSelector(selector: string): Promise<ResolvedWorktree> {
@@ -169,6 +172,18 @@ export class OrcaRuntimeWithResolveWorktreeSelector extends OrcaRuntimeWithResol
       throw new Error('selector_ambiguous')
     }
     throw new Error('repo_not_found')
+  }
+
+  /** Where a strict Work Item Start's workspace would run, before `worktree.create` makes it. */
+  protected async resolveWorkItemStartPreCreateLocation(
+    repoSelector: string
+  ): Promise<AgentSessionExecutionLocation> {
+    const repo = await this.resolveRepoSelector(repoSelector)
+    return workItemStartPreCreateLocation({
+      repo,
+      configuredWslDistro: () =>
+        getLocalProjectWorktreeGitOptions(this.requireStore(), repo).wslDistro ?? null
+    })
   }
 
   protected requireStore(): Store {

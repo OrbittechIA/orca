@@ -3,10 +3,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ProfileStateWriteWorkerClient } from './profile-state-writer-worker-client'
+import * as writerRequests from './profile-state-writer-request'
 
 const clients: ProfileStateWriteWorkerClient[] = []
 const roots: string[] = []
 afterEach(async () => {
+  vi.restoreAllMocks()
   await Promise.all(clients.splice(0).map((client) => client.close()))
   for (const root of roots.splice(0)) {
     rmSync(root, { recursive: true, force: true })
@@ -86,6 +88,32 @@ describe('writer protocol refuses uncertain acknowledgements', () => {
       code: 'profile-state-writer-protocol',
       outcome: 'known-failure'
     })
+  })
+
+  it('ignores a settled request timeout callback while its successor is active', async () => {
+    const callbacks: (() => void)[] = []
+    const createRequest = writerRequests.createProfileStateWriterRequest
+    vi.spyOn(writerRequests, 'createProfileStateWriterRequest').mockImplementation(
+      (id, command, timeoutMs, onTimeout) => {
+        callbacks.push(onTimeout)
+        return createRequest(id, command, timeoutMs, onTimeout)
+      }
+    )
+    const notify = vi.fn()
+    const client = clientFor(
+      `parentPort.postMessage({ id: request.id, ok: true, revision: 1 })
+       if (request.command === 'close') parentPort.close()`,
+      undefined,
+      notify
+    )
+    await client.ready
+    expect(await client.assertCurrentRevision()).toBe(1)
+    const successor = client.assertCurrentRevision()
+    expect(callbacks).toHaveLength(3)
+    callbacks[1]()
+    await expect(successor).resolves.toBe(1)
+    await client.close()
+    expect(notify).not.toHaveBeenCalled()
   })
 
   it('faults an unanswered request and rejects later work without retry', async () => {

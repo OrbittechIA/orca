@@ -14,6 +14,7 @@ import { normalizeMachineName } from '../../../shared/machine-name'
 import type { PersistedState } from '../../../shared/persisted-state-types'
 import type { PreparedLoadedTerminalSettings } from './prepare-loaded-terminal-settings'
 import type { PreparedLoadedProfileSettings } from './prepare-loaded-profile-settings'
+import { resolveWorkItemStartPromptDelivery } from '../../../shared/agent-session-options'
 
 export function normalizeLoadedGlobalSettings(
   parsed: PersistedState,
@@ -60,6 +61,9 @@ export function normalizeLoadedGlobalSettings(
     // old default indistinguishable from a real opt-in. Preserve stored `true`; only
     // the default changed.
     ...stripRetiredGlobalSettings(parsed.settings),
+    workItemStartPromptDelivery: resolveWorkItemStartPromptDelivery(
+      parsed.settings?.workItemStartPromptDelivery
+    ),
     worktreeVisibilityDefaults: migratedExternalVisibility.defaults,
     prBotAuthorOverrides: normalizePRBotAuthorOverrides(parsed.settings?.prBotAuthorOverrides),
     // Why: v1.3.42 renamed the sidekick setting to pet; carry the old flag forward once so enabled users don't lose it.

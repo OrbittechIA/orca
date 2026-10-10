@@ -28,6 +28,7 @@ import type { TerminalColorOverrides } from './terminal-color-overrides'
 import type { TerminalQuickCommand } from './terminal-quick-command-types'
 import type { TuiAgent } from './tui-agent'
 import type { ZcodePlanSite } from './zcode-plan-sites'
+import type { WorkItemStartPromptDelivery } from './agent-session-options'
 import type {
   AgentDashboardMode,
   BranchPrefixStrategy,
@@ -39,23 +40,12 @@ import type {
   TaskViewPresetId
 } from './ui-chrome-types'
 import type { SetupScriptLaunchMode } from './worktree/launch-types'
-import type {
-  CustomWorktreeVisibilitySource,
-  ExternalWorktreeVisibility,
-  WorktreeVisibilitySourcePreferences
-} from './repo-types'
+import type { WorktreeVisibilityDefaults } from './worktree-visibility-defaults-types'
 
 /** MiniMax account region used to select the quota endpoint. */
 export type MiniMaxEndpoint = 'overseas' | 'cn'
 
-export type WorktreeVisibilityDefaults = {
-  /** Default for worktrees outside a recognized source. */
-  external?: ExternalWorktreeVisibility
-  /** Host-owned roots applied to every repository on that host. */
-  customSources?: CustomWorktreeVisibilitySource[]
-  /** Defaults for built-in and host-owned custom sources. */
-  sourcePreferences?: WorktreeVisibilitySourcePreferences
-}
+export type { WorktreeVisibilityDefaults } from './worktree-visibility-defaults-types'
 
 export type GlobalSettings = {
   workspaceDir: string
@@ -378,6 +368,8 @@ export type GlobalSettings = {
   skipCodexRateLimitResetConfirm: boolean
   /** Default preset in the new-workspace GitHub task view. */
   defaultTaskViewPreset: TaskViewPresetId
+  /** Whether direct Start/Use actions leave work item context editable or submit after authoritative readiness. */
+  workItemStartPromptDelivery?: WorkItemStartPromptDelivery
   /** Persisted last-used task source so Tasks reopens to the same provider instead of defaulting to GitHub. */
   defaultTaskSource: TaskProvider
   /** Persisted visible task providers; hides unused providers from Tasks chrome and sidebar shortcuts. */

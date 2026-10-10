@@ -68,6 +68,7 @@ export abstract class AgentHookServerIngestStructured extends AgentHookServerIng
     const observedAt = Math.max(Date.now(), priorStatus?.receivedAt ?? 0)
     const status: AgentStatusIpcPayload = {
       paneKey,
+      structuredSessionId: parsed.sessionId,
       tabId,
       worktreeId: parsed.workspaceId,
       connectionId: null,

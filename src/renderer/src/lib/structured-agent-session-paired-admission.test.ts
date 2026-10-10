@@ -24,6 +24,7 @@ vi.mock('@/runtime/structured-agent-session-client', () => ({
 }))
 
 import { useAppStore } from '@/store'
+import { callStructuredAgentSession } from '@/runtime/structured-agent-session-client'
 import { adoptAgentSessionLaunchVerdict } from './agent-session-launch-plan'
 import { beginStructuredAgentSessionProvisionalLaunch } from './structured-agent-session-provisional-tab'
 import { beginDirectWorkItemStructuredLaunch } from './launch-work-item-direct-agent-routing'
@@ -36,7 +37,13 @@ import { peekWebSessionFocusIntent } from '@/runtime/web-session-focus-intent'
 const WORKTREE = 'repo-1::/srv/app'
 const INITIAL_SETTINGS = useAppStore.getState().settings
 
-function pairedPlan(overrides: { resumeFrom?: { providerSessionId: string } } = {}) {
+function pairedPlan(
+  overrides: {
+    resumeFrom?: { providerSessionId: string }
+    launchOrigin?: 'work-item-start'
+    promptDelivery?: 'submit-after-ready'
+  } = {}
+) {
   return adoptAgentSessionLaunchVerdict({
     requestId: 'request-1',
     route: 'structured-native-chat',
@@ -108,7 +115,8 @@ describe('a structured chat launch on a paired server', () => {
       declinedTerminal: { agentArgs: '--model opus', launchSource: 'task_page' }
     })
 
-    expect(result).toEqual({ completed: true, structuredLaunch: true, primaryTabId: null })
+    expect(result).toMatchObject({ completed: true, structuredLaunch: true, primaryTabId: null })
+    await expect(result.launch?.settlement).resolves.toEqual({ kind: 'terminal' })
     await vi.waitFor(() => expect(mocks.launchAgentInNewTab).toHaveBeenCalledOnce())
     expect(mocks.launchAgentInNewTab).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -217,6 +225,30 @@ describe('a structured chat launch on a paired server', () => {
         })
       ])
     )
+    launch?.cancel()
+  })
+
+  it('keeps a strict Start on its owning server and never opens a terminal on refusal', async () => {
+    mocks.createSupport.mockResolvedValue({ supported: false })
+    const onHostDeclined = vi.fn()
+    const launch = beginStructuredAgentSessionProvisionalLaunch({
+      plan: pairedPlan({ launchOrigin: 'work-item-start', promptDelivery: 'submit-after-ready' }),
+      hooks: {},
+      onHostDeclined
+    })
+
+    expect(launch?.tab).toMatchObject({ executionHostId: 'runtime:server-1' })
+    await expect(launch?.settlement).resolves.toMatchObject({ kind: 'failed' })
+    expect(callStructuredAgentSession).toHaveBeenCalledWith(
+      { kind: 'environment', environmentId: 'server-1' },
+      'agentSession.createSupport',
+      expect.objectContaining({ sessionId: launch?.sessionId, launchOrigin: 'work-item-start' })
+    )
+    expect(vi.mocked(callStructuredAgentSession).mock.calls.map((call) => call[1])).toEqual([
+      'agentSession.createSupport'
+    ])
+    expect(onHostDeclined).not.toHaveBeenCalled()
+    expect(mocks.launchAgentInNewTab).not.toHaveBeenCalled()
     launch?.cancel()
   })
 })

@@ -1,3 +1,7 @@
+import {
+  isPendingCreationSurfaceVisible,
+  isCreatedWorkspaceInView
+} from './worktree-creation-visibility'
 import { prepareWorktreeCreationHooks } from '@/lib/worktree-creation-hook-preparation'
 import { toast } from 'sonner'
 import { useAppStore } from '@/store'
@@ -26,25 +30,11 @@ import {
 import { completeWorktreeCreation } from '@/lib/worktree-creation-completion'
 import { showWorktreeCreationReadyToast } from '@/lib/worktree-creation-ready-toast'
 import { mountCreatedWorktreeStartupTabsInBackground } from '@/lib/worktree-creation-background-mount'
+import {
+  markThrownStructuredWorktreeLaunchFailed,
+  markStructuredWorktreeLaunchOutcome
+} from '@/lib/worktree-creation-structured-recovery'
 import { ensureWebRuntimeWorktreeTerminalAfterWake } from '@/lib/web-runtime-worktree-terminal-after-wake'
-
-// Why: activePendingCreationId can outlive the terminal route when the user
-// switches app views; only the terminal route renders the creation panel.
-function isPendingCreationSurfaceVisible(creationId: string): boolean {
-  const state = useAppStore.getState()
-  return state.activeView === 'terminal' && state.activePendingCreationId === creationId
-}
-
-// Why: the created row is listed before completion, so a user may already have opened it.
-function isCreatedWorkspaceInView(creationId: string, worktreeId: string): boolean {
-  const state = useAppStore.getState()
-  return (
-    isPendingCreationSurfaceVisible(creationId) ||
-    (state.activeView === 'terminal' &&
-      state.activePendingCreationId === null &&
-      state.activeWorktreeId === worktreeId)
-  )
-}
 
 export async function executeWorktreeCreation(
   creationId: string,
@@ -300,15 +290,20 @@ export async function executeWorktreeCreation(
         primaryTabId
       })
     } catch (error) {
-      // Why: plan.launch is guarded inside, but its sync prologue is not; treat
-      // an escaped throw like a failed launch (accepted) and still complete.
-      console.error('worktree create: structured session launch failed', worktree.id, error)
+      if (
+        markThrownStructuredWorktreeLaunchFailed(creationId, worktree.id, preparedRequest, error)
+      ) {
+        return
+      }
     }
     if (structuredSession) {
       structuredLaunchAccepted = structuredSession.accepted
       activation = structuredSession.activation
       primaryTabId = structuredSession.primaryTabId
-      if (structuredSession.cancelled) {
+      if (
+        structuredSession.cancelled ||
+        markStructuredWorktreeLaunchOutcome(creationId, worktree.id, structuredSession)
+      ) {
         return
       }
     }

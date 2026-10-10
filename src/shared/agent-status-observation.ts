@@ -84,7 +84,11 @@ export type MirroredEvidenceReceipt = { mirroredEvidenceReceivedAt?: number }
  *  Declared here beside the observation facet because both are per-write facets mixed into
  *  `AgentStatusEntry` rather than fields a reporter supplies. */
 export type AgentStatusRowFacets = WithAgentStatusObservation &
-  MirroredEvidenceReceipt & { acceptedStatusSeq?: number }
+  MirroredEvidenceReceipt & {
+    acceptedStatusSeq?: number
+    /** Host-derived structured identity; absent on PTY rows and older hosts. */
+    structuredSessionId?: string
+  }
 
 // ─── THE ORDERING RULE ──────────────────────────────────────────────────────
 // `(authorityId, incarnation, revision)` is a total order ONLY within one authorityId.

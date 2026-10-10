@@ -19,26 +19,34 @@ describe('OrcaRuntimeService', () => {
         scope: { type: 'global' as const }
       }
     ]
-    const runtime = new OrcaRuntimeService({
-      ...store,
-      getSettings: () => ({
-        ...store.getSettings(),
-        hostSettingOverrides: {
-          'ssh:target-1': { displayLabel: 'Build host', defaultWorktreeLocation: '/srv/worktrees' }
-        },
-        experimentalNewWorktreeCardStyle: true,
-        compactWorktreeCards: true,
-        minimaxGroupId: 'group-42',
-        minimaxUsageModels: 'general,abab6.5',
-        minimaxEndpoint: 'cn',
-        terminalQuickCommands
-      })
-    } as never)
+    const runtime = new OrcaRuntimeService(
+      // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the paired-settings projection reads the store's settings only; the fixture extends the real test store with the overrides under test.
+      {
+        ...store,
+        getSettings: () => ({
+          ...store.getSettings(),
+          hostSettingOverrides: {
+            'ssh:target-1': {
+              displayLabel: 'Build host',
+              defaultWorktreeLocation: '/srv/worktrees'
+            }
+          },
+          experimentalNewWorktreeCardStyle: true,
+          compactWorktreeCards: true,
+          workItemStartPromptDelivery: 'submit-after-ready',
+          minimaxGroupId: 'group-42',
+          minimaxUsageModels: 'general,abab6.5',
+          minimaxEndpoint: 'cn',
+          terminalQuickCommands
+        })
+      } as never
+    )
 
     expect(runtime.getClientSettings()).toMatchObject({
       worktreeVisibilityDefaults: { external: 'hide' },
       experimentalNewWorktreeCardStyle: true,
       compactWorktreeCards: true,
+      workItemStartPromptDelivery: 'submit-after-ready',
       minimaxGroupId: 'group-42',
       minimaxUsageModels: 'general,abab6.5',
       // Why: without this the paired client silently falls back to 'overseas' and shows the wrong region.
@@ -196,6 +204,7 @@ describe('OrcaRuntimeService', () => {
       ...store.getSettings(),
       experimentalNewWorktreeCardStyle: false,
       compactWorktreeCards: false,
+      workItemStartPromptDelivery: 'draft' as const,
       minimaxGroupId: '',
       minimaxUsageModels: 'general',
       minimaxEndpoint: 'overseas'
@@ -214,6 +223,7 @@ describe('OrcaRuntimeService', () => {
       await runtime.updateClientSettings({
         experimentalNewWorktreeCardStyle: true,
         compactWorktreeCards: true,
+        workItemStartPromptDelivery: 'submit-after-ready',
         minimaxGroupId: 'group-42',
         minimaxUsageModels: 'general,abab6.5',
         minimaxEndpoint: 'cn'
@@ -221,6 +231,7 @@ describe('OrcaRuntimeService', () => {
     ).toMatchObject({
       experimentalNewWorktreeCardStyle: true,
       compactWorktreeCards: true,
+      workItemStartPromptDelivery: 'submit-after-ready',
       minimaxGroupId: 'group-42',
       minimaxUsageModels: 'general,abab6.5',
       minimaxEndpoint: 'cn'
@@ -229,6 +240,7 @@ describe('OrcaRuntimeService', () => {
       {
         experimentalNewWorktreeCardStyle: true,
         compactWorktreeCards: true,
+        workItemStartPromptDelivery: 'submit-after-ready',
         minimaxGroupId: 'group-42',
         minimaxUsageModels: 'general,abab6.5',
         minimaxEndpoint: 'cn'

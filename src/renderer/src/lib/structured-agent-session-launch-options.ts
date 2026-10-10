@@ -190,3 +190,25 @@ export function useStructuredAgentSessionLaunchSelection(
     () => null
   )
 }
+
+/** Every sender waits on the launch promise, so picks held during launch reach the host first. */
+export function publishWithHeldOptions(
+  state: StructuredLaunchState,
+  created: Promise<StructuredAgentLaunchReceipt>
+): Promise<StructuredAgentLaunchReceipt> {
+  return created.then((receipt) => applyStructuredLaunchHeldOptions(state, receipt))
+}
+
+/** Each attempt's probe names the seed the paired server's create will use; the picker shows it. */
+export function adoptPairedHostSeed(
+  state: StructuredLaunchState,
+  seedOptions: StructuredLaunchState['selection']['seed']
+): void {
+  if (JSON.stringify(seedOptions) === JSON.stringify(state.intent.seedOptions)) {
+    return
+  }
+  const { seedOptions: _previous, ...intent } = state.intent
+  state.intent = seedOptions ? { ...intent, seedOptions } : intent
+  state.selection = { ...state.selection, seed: seedOptions }
+  notifyStructuredLaunchListeners()
+}

@@ -240,10 +240,7 @@ describe('per-job path classification', () => {
       'config/docker/daemon-shutdown-descendants/run-case.sh',
       'config/scripts/run-daemon-shutdown-descendants-docker.mjs'
     ]) {
-      expectClassification([file], {
-        package: true,
-        mobile_web_app: file === 'config/scripts/script-child-process.mjs'
-      })
+      expectClassification([file], { package: true })
     }
     for (const file of [
       'src/main/daemon/terminal-host.ts',

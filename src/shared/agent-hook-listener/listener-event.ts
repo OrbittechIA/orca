@@ -48,6 +48,8 @@ export type AgentHookEventPayload = {
   /** Row projected from a structured session the host holds: `owned` while its provider child
    *  runs here, `held` once the child is gone but the session is still open. Never persisted. */
   structuredHost?: StructuredHostStatus
+  /** Derived from the canonical structured-session subject, never from a terminal id. */
+  structuredSessionId?: string
   /** Runtime terminal handle the pane resolved to when main parsed this status off the PTY.
    *  Lets a reader rejoin the row to its terminal after the pane key moved. Never persisted:
    *  a handle belongs to the runtime that issued it. */

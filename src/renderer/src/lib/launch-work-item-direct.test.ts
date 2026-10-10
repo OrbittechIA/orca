@@ -11,6 +11,9 @@ const mocks = vi.hoisted(() => ({
   ensureRemoteDetectedAgents: vi.fn(),
   updateWorktreeMeta: vi.fn(),
   setSidebarOpen: vi.fn(),
+  // O Start estrito passa pela semente do draft estruturado, que limpa a anterior.
+  clearNativeChatLaunchDraft: vi.fn(),
+  setNativeChatLaunchDraft: vi.fn(),
   seedNativeChatLaunchPrompt: vi.fn(),
   seedNativeChatLaunchDraft: vi.fn(),
   markNativeChatLaunchPromptFailed: vi.fn(),
@@ -19,12 +22,15 @@ const mocks = vi.hoisted(() => ({
   openModalFallback: vi.fn(),
   resolvePrBase: vi.fn(),
   getConnectionId: vi.fn(),
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: placeholder until `beforeEach` installs the store fixture; every read happens after that.
   store: {} as Record<string, unknown> & {
     ensureDetectedAgents: ReturnType<typeof vi.fn>
     ensureRemoteDetectedAgents: ReturnType<typeof vi.fn>
     createWorktree: ReturnType<typeof vi.fn>
     updateWorktreeMeta: ReturnType<typeof vi.fn>
     setSidebarOpen: ReturnType<typeof vi.fn>
+    clearNativeChatLaunchDraft: ReturnType<typeof vi.fn>
+    setNativeChatLaunchDraft: ReturnType<typeof vi.fn>
     seedNativeChatLaunchPrompt: ReturnType<typeof vi.fn>
     seedNativeChatLaunchDraft: ReturnType<typeof vi.fn>
     markNativeChatLaunchPromptFailed: ReturnType<typeof vi.fn>
@@ -93,6 +99,18 @@ vi.mock('@/lib/new-workspace', () => ({
   isGitLabIssueUrl: vi.fn(() => false)
 }))
 
+// Um Start estrito (`submit-after-ready` por este entrypoint) exige a capability
+// escopada do host; sem ela o preflight recusa antes de criar a worktree, que é o
+// comportamento correto e não o que estes casos medem.
+vi.mock('@/runtime/local-runtime-capabilities', () => ({
+  readLocalRuntimeCapabilitiesOrUnknown: () => [
+    'agent-session.structured.v1',
+    'agent-session.work-item-start.v1'
+  ],
+  refreshLocalRuntimeCapabilities: vi
+    .fn()
+    .mockResolvedValue(['agent-session.structured.v1', 'agent-session.work-item-start.v1'])
+}))
 vi.mock('@/lib/telemetry', () => ({
   track: vi.fn(),
   tuiAgentToAgentKind: (agent: string) => agent
@@ -200,8 +218,10 @@ describe('launchWorkItemDirect', () => {
       setSidebarOpen: mocks.setSidebarOpen,
       seedNativeChatLaunchPrompt: mocks.seedNativeChatLaunchPrompt,
       seedNativeChatLaunchDraft: mocks.seedNativeChatLaunchDraft,
-      markNativeChatLaunchPromptFailed: mocks.markNativeChatLaunchPromptFailed
-    } as typeof mocks.store
+      markNativeChatLaunchPromptFailed: mocks.markNativeChatLaunchPromptFailed,
+      clearNativeChatLaunchDraft: mocks.clearNativeChatLaunchDraft,
+      setNativeChatLaunchDraft: mocks.setNativeChatLaunchDraft
+    }
     // @ts-expect-error -- test shim
     globalThis.window = { api: mockApi }
   })
@@ -340,33 +360,20 @@ describe('launchWorkItemDirect', () => {
       }
     })
 
-    expect(mocks.createWorktree).toHaveBeenCalledWith(
+    const createArgs = mocks.createWorktree.mock.calls[0]
+    expect(createArgs).toHaveLength(25)
+    expect(createArgs?.slice(0, 7)).toEqual([
       'repo-1',
       'eng-42-ship-linear-parity',
       undefined,
       'inherit',
       undefined,
       'sidebar',
-      'Ship Linear parity',
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      'ENG-42',
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined
-    )
+      'Ship Linear parity'
+    ])
+    expect(createArgs?.slice(7, 11)).toEqual(Array(4).fill(undefined))
+    expect(createArgs?.[11]).toBe('ENG-42')
+    expect(createArgs?.slice(12)).toEqual(Array(13).fill(undefined))
   })
 
   it('prefills a link-only Linear reference without source context', async () => {
@@ -513,6 +520,10 @@ describe('launchWorkItemDirect', () => {
         openModalFallback: vi.fn(),
         agentOverride: 'claude',
         promptDelivery: 'submit-after-ready',
+        // Estes casos exercem a entrega PELO TERMINAL: sob o contrato estrito isso
+        // só é permitido com o opt-in explícito, e declará-lo é o que diz qual
+        // contrato o caso mede.
+        allowLegacyTerminalPromptSubmission: true,
         item: {
           type: 'issue',
           number: null,
@@ -568,6 +579,10 @@ describe('launchWorkItemDirect', () => {
         openModalFallback: vi.fn(),
         agentOverride: 'claude',
         promptDelivery: 'submit-after-ready',
+        // Estes casos exercem a entrega PELO TERMINAL: sob o contrato estrito isso
+        // só é permitido com o opt-in explícito, e declará-lo é o que diz qual
+        // contrato o caso mede.
+        allowLegacyTerminalPromptSubmission: true,
         item: {
           type: 'pr',
           number: 7,
@@ -853,7 +868,9 @@ describe('launchWorkItemDirect', () => {
         openModalFallback: mocks.openModalFallback,
         launchSource: 'task_page',
         agentOverride: 'codex',
-        promptDelivery: 'submit-after-ready'
+        promptDelivery: 'submit-after-ready',
+        // Mede a partida por TERMINAL; sob o contrato estrito isso exige o opt-in.
+        allowLegacyTerminalPromptSubmission: true
       })
     ).resolves.toBe(true)
 

@@ -13,19 +13,29 @@ export function selectExactWorkerProviderSession(args: {
   launchToken: string | null | undefined
   observedAfter: number
   statuses: readonly AgentStatusIpcPayload[]
+  requireUniqueLiveBinding?: boolean
 }): ExactWorkerProviderSession | null {
-  const status = args.statuses
+  if (args.requireUniqueLiveBinding && (!args.launchToken || args.connectionId === undefined)) {
+    return null
+  }
+  const matches = args.statuses
     .filter(
       (entry) =>
         entry.paneKey === args.paneKey &&
         connectionMatches(entry.connectionId, args.connectionId, args.wslDistro) &&
         (!args.launchToken || entry.launchToken === args.launchToken) &&
         entry.providerSessionOnly !== true &&
+        (!args.requireUniqueLiveBinding ||
+          (entry.restoredUnconfirmed !== true && Boolean(entry.providerSession?.id))) &&
         entry.providerSession !== undefined &&
         entry.agentType !== undefined &&
         entry.receivedAt >= args.observedAfter
     )
-    .sort((left, right) => right.receivedAt - left.receivedAt)[0]
+    .sort((left, right) => right.receivedAt - left.receivedAt)
+  if (args.requireUniqueLiveBinding && matches.length !== 1) {
+    return null
+  }
+  const status = matches[0]
   if (!status?.providerSession || !status.agentType) {
     return null
   }

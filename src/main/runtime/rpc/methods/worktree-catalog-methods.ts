@@ -1,6 +1,7 @@
 import { defineMethod } from '../core'
 import { resolveWorktreeCatalogSnapshot } from '../worktree-catalog-snapshot'
 import { supportsWorktreeVisibilitySourceDefaults } from '../worktree-visibility-client-capability'
+import { scopeWorktreePsStructuredIdentity } from './worktree-ps-structured-identity-scope'
 import {
   projectWorktreeListRemovals,
   projectWorktreePsRemovals
@@ -18,16 +19,19 @@ export const WORKTREE_CATALOG_METHODS = [
     params: WorktreePsParams,
     handler: async (params, context) => {
       const pendingAtScan = snapshotPendingWorktreeRemovals()
-      const result = projectWorktreePsRemovals(
-        await context.runtime.getWorktreePs(
-          params.limit,
-          supportsWorktreeVisibilitySourceDefaults(
-            context,
-            params.supportsWorktreeVisibilitySourceDefaults
-          )
+      const result = scopeWorktreePsStructuredIdentity(
+        projectWorktreePsRemovals(
+          await context.runtime.getWorktreePs(
+            params.limit,
+            supportsWorktreeVisibilitySourceDefaults(
+              context,
+              params.supportsWorktreeVisibilitySourceDefaults
+            )
+          ),
+          context,
+          pendingAtScan
         ),
-        context,
-        pendingAtScan
+        context
       )
       // Why: callers that never send the field get the byte-exact legacy response.
       return params.afterSnapshotId === undefined

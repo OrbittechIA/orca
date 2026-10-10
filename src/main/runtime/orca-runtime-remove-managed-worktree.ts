@@ -31,6 +31,7 @@ import { removeRuntimeRegisteredRemoteWorktree } from './runtime-registered-remo
 import { removeRuntimeRegisteredLocalWorktree } from './runtime-registered-local-worktree-removal'
 import { removeOrphanOrFolderWorktree } from './orca-runtime-remove-orphan-or-folder-worktree'
 import { deleteRemoteWorktreeHistory } from '../remote-worktree-history-cleanup'
+import { removeWithWorktreeLifecycleHeld } from './runtime-worktree-removal-lifecycle-hold'
 
 export class OrcaRuntimeWithRemoveManagedWorktree extends OrcaRuntimeWithCreateManagedRemoteWorktree {
   async removeManagedWorktree(
@@ -44,10 +45,7 @@ export class OrcaRuntimeWithRemoveManagedWorktree extends OrcaRuntimeWithCreateM
       allowFailedArchiveHook = false,
       hostId
     } = options
-    if (!this.store) {
-      throw new Error('runtime_unavailable')
-    }
-    const store = this.store
+    const store = this.requireStore()
     const cleanupHostId = parseExecutionHostId(hostId)?.id
     const removalTarget = await this.resolveWorktreeRemovalTarget(worktreeSelector, cleanupHostId)
     // Why: a retry or a second client asking while Git still deletes joins that removal.
@@ -81,8 +79,11 @@ export class OrcaRuntimeWithRemoveManagedWorktree extends OrcaRuntimeWithCreateM
         ? finishAcceptedWorktreeRemoval(await inFlightRemoval, removalTarget.id, cleanupHostId)
         : inFlightRemoval
     }
-    const removal = (async (): Promise<RemoveWorktreeResult & { warning?: string }> => {
-      return withWorktreeSpan({ stage: 'remove', path: removalTarget.path }, async () => {
+    // The hold is scoped to the host this removal runs on: a same-id record on another host
+    // keeps its own lifecycle, exactly as the in-flight coalescing above is scoped.
+    const lifecycle = { store, removalTarget, hostId: cleanupHostId }
+    const removal = removeWithWorktreeLifecycleHeld(this, lifecycle, () =>
+      withWorktreeSpan({ stage: 'remove', path: removalTarget.path }, async () => {
         const repoOwner = resolveWorktreeRemovalRepoOwner(
           store,
           removalTarget.repoId,
@@ -289,7 +290,7 @@ export class OrcaRuntimeWithRemoveManagedWorktree extends OrcaRuntimeWithCreateM
           publish: () => this.publishWorktreeRemovalChange(repo.id)
         })
       })
-    })()
+    )
     this.removeManagedWorktreeInFlight.track(cleanupScopeKey, optionsKey, removal)
     try {
       const accepted = await removal

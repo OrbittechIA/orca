@@ -29,6 +29,8 @@ import {
   stopStructuredAgentSessionRuntime
 } from './structured-agent-session-runtime'
 import { createStructuredAgentSessionLogger } from '../native-chat/agent-session-wire/structured-agent-session-logger'
+import { WorktreeTerminalMutationLock } from './worktree-terminal-mutation-lock'
+import { runtimeWorktreeLifecycleKey } from './runtime-worktree-path-identity'
 
 export const SESSION = 'session-integration-1'
 export const THREAD = 'thread-integration'
@@ -190,6 +192,7 @@ export async function openStructuredCodexRpcHarness(
   let operations = 0
   const root = await mkdtemp(join(tmpdir(), 'orca-structured-integration-'))
   const codex = fakeCodex()
+  const lifecycleLock = new WorktreeTerminalMutationLock()
   // `<13-digit ms>-<32 hex>`, the only shape the durable ledger accepts. Real time, not a frozen
   // constant: the runtime under test stamps the ledger with its own clock and refuses a future id.
   const operationId = (): string => {
@@ -226,6 +229,8 @@ export async function openStructuredCodexRpcHarness(
   const runtime = {
     getRuntimeId: () => 'runtime-1',
     getClientSettings: () => ({ experimentalStructuredNativeChat: true }),
+    holdWorktreeLifecycle: (worktreeId: string, host?: string | null) =>
+      lifecycleLock.acquire(runtimeWorktreeLifecycleKey(worktreeId, host), 'shared'),
     getStructuredAgentSessionCreateSupport: async () => ({ supported: true }),
     resolveStructuredAgentSessionCreateIntent: async () => {
       const {

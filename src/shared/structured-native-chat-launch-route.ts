@@ -14,7 +14,8 @@ import type { GlobalSettings } from './global-settings-types'
 import type { ProjectExecutionRuntimeResolution } from './project-execution-runtime'
 import {
   STRUCTURED_AGENT_SESSION_CLIENT_LAUNCH_MODE_CAPABILITY,
-  STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY
+  STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
+  WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY
 } from './protocol-version'
 import type { TuiAgent } from './tui-agent'
 import type { WorkspaceLaunchKind } from './workspace-launch-kind'
@@ -60,6 +61,13 @@ export type StructuredNativeChatSupportInput = {
   requiresTuiLaunchCommand?: boolean
   /** An existing PTY agent keeps its execution transport. */
   reusesTerminal?: boolean
+  /**
+   * A Work Item Start, which is a *scoped* create the host gates separately. Declaring it
+   * makes this route also require the work-item-start capability, because dropping the
+   * terminal startup against a host that lacks the scoped route leaves the workspace with
+   * no writer at all — a host can have structured sessions and still refuse this one.
+   */
+  launchOrigin?: 'work-item-start'
 }
 
 /** The user's default for a new agent tab: native chat rather than the raw TUI. */
@@ -116,6 +124,13 @@ export function resolveStructuredNativeChatSupport(
     return { supported: false, blocker: 'runtime-capability-unknown' }
   }
   if (!input.hostCapabilities.includes(STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY)) {
+    return { supported: false, blocker: 'runtime-capability' }
+  }
+  if (
+    input.launchOrigin === 'work-item-start' &&
+    !input.hostCapabilities.includes(WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY)
+  ) {
+    // Structured support alone does not admit a scoped Work Item Start on an older host.
     return { supported: false, blocker: 'runtime-capability' }
   }
   if (host.kind === 'runtime') {

@@ -44,6 +44,7 @@ export function structuredAgentSessionCreateFingerprint(input: {
   agent: 'claude' | 'codex'
   resumeFrom?: { providerSessionId: string }
   tabId?: string
+  launchOrigin?: 'work-item-start'
 }): string {
   return structuredAgentSessionPayloadFingerprint({
     method: 'agentSession.create',
@@ -56,7 +57,8 @@ export function structuredAgentSessionCreateFingerprint(input: {
       resumeFrom: input.resumeFrom,
       // The host digests the same field; a retry naming another tab still replays with the
       // recorded one, since the host owns the id.
-      tabId: input.tabId
+      tabId: input.tabId,
+      launchOrigin: input.launchOrigin
     }
   })
 }

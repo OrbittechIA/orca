@@ -21,6 +21,39 @@ function status(
 }
 
 describe('exact worker provider session selection', () => {
+  it('requires one live scoped hook row for receipt recovery', () => {
+    const exact = status('tab:worker', 'current', { launchToken: 'launch-current' })
+    const args = {
+      paneKey: 'tab:worker',
+      processIncarnation: 'incarnation',
+      connectionId: null,
+      launchToken: 'launch-current',
+      observedAfter: 150,
+      requireUniqueLiveBinding: true
+    }
+    expect(selectExactWorkerProviderSession({ ...args, statuses: [exact] })).toMatchObject({
+      providerSession: { id: 'current' }
+    })
+    for (const statuses of [
+      [],
+      [exact, { ...exact, providerSession: { key: 'session_id' as const, id: 'other' } }],
+      [{ ...exact, paneKey: 'tab:other' }],
+      [{ ...exact, connectionId: 'other-host' }],
+      [{ ...exact, launchToken: 'old-launch' }],
+      [{ ...exact, restoredUnconfirmed: true }],
+      [{ ...exact, providerSessionOnly: true }],
+      [{ ...exact, providerSession: undefined }],
+      [{ ...exact, receivedAt: 100 }]
+    ]) {
+      expect(selectExactWorkerProviderSession({ ...args, statuses })).toBeNull()
+    }
+    expect(
+      selectExactWorkerProviderSession({ ...args, launchToken: null, statuses: [exact] })
+    ).toBeNull()
+    expect(
+      selectExactWorkerProviderSession({ ...args, connectionId: undefined, statuses: [exact] })
+    ).toBeNull()
+  })
   it('selects only the current pane, connection, and observation window', () => {
     const selected = selectExactWorkerProviderSession({
       paneKey: 'tab:worker',

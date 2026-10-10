@@ -33,3 +33,27 @@ export const agentLaunchCommandErrorMessage = (): string =>
     'auto.lib.launch.work.item.direct.3de6371df3',
     'Could not build the agent launch command.'
   )
+
+export const structuredWorkItemLaunchUnavailableMessage = (): string =>
+  translate(
+    'auto.lib.launch.work.item.direct.structuredUnavailable',
+    'Submit after ready requires a local structured Codex or Claude session without a custom launch command. The workspace was created, but no agent or prompt was started.'
+  )
+
+export const structuredWorkItemComposerPreflightUnavailableMessage = (): string =>
+  translate(
+    'auto.lib.launch.work.item.composer.structuredUnavailable',
+    'Submit after ready requires a local structured Codex or Claude session without a custom launch command. No workspace, terminal, or prompt was started.'
+  )
+
+export const structuredWorkItemComposerEmptyPromptMessage = (): string =>
+  translate(
+    'auto.lib.launch.work.item.composer.structuredEmptyPrompt',
+    'Submit after ready needs a work item prompt to send. No workspace, terminal, or prompt was started.'
+  )
+
+export const structuredWorkItemPromptDeliveryFailedMessage = (): string =>
+  translate(
+    'auto.lib.launch.work.item.direct.structuredPromptDeliveryFailed',
+    'The structured agent session did not accept the work item prompt. Orca did not retry or start another writer.'
+  )

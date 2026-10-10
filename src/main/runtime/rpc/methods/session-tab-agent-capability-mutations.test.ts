@@ -1,5 +1,5 @@
 import '../unused-default-rpc-methods.test-fixture'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   CLAUDE_STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
   STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
@@ -10,6 +10,8 @@ import type { OrcaRuntimeService } from '../../orca-runtime'
 import { RpcDispatcher } from '../dispatcher'
 import type { RpcDispatchStreamingOptions } from '../dispatcher-stream-options'
 import { SESSION_TAB_METHODS } from './session-tabs'
+import { setStructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-registry'
+import { hostCalls, hostStub } from './structured-agent-session-rpc.test-fixture'
 
 const METHODS = [
   {
@@ -45,6 +47,11 @@ const METHODS = [
     })
   },
   {
+    name: 'session.tabs.updatePaneLayout',
+    runtimeMethod: 'updateMobileSessionPaneLayout',
+    params: (tabId: string) => ({ worktree: 'id:wt-1', tabId, root: null })
+  },
+  {
     name: 'session.tabs.setTabProps',
     runtimeMethod: 'setMobileSessionTabProps',
     params: (tabId: string) => ({ worktree: 'id:wt-1', tabId, isPinned: true })
@@ -52,6 +59,10 @@ const METHODS = [
 ] as const
 
 const DESTRUCTIVE_METHOD_NAMES = new Set(['session.tabs.close', 'session.tabs.closeLifecycle'])
+
+afterEach(() => {
+  setStructuredAgentSessionHost(null)
+})
 
 describe('session tab structured capability mutations', () => {
   for (const method of METHODS) {
@@ -164,6 +175,38 @@ describe('session tab structured capability mutations', () => {
       expect(closeMobileSessionTab).toHaveBeenCalledOnce()
     }
   )
+
+  it.each([
+    ['session.tabs.close', 'closeMobileSessionTab'],
+    ['session.tabs.closeLifecycle', 'closeMobileSessionTab'],
+    ['session.tabs.activate', 'activateMobileSessionTab'],
+    ['session.tabs.move', 'moveMobileSessionTab'],
+    ['session.tabs.updatePaneLayout', 'updateMobileSessionPaneLayout'],
+    ['session.tabs.setTabProps', 'setMobileSessionTabProps']
+  ] as const)(
+    'restores durable scope before authorizing %s after restart',
+    async (methodName, runtimeMethod) => {
+      for (const [clientKind, pairedDeviceId, allowed] of [
+        ['runtime', 'device-other', false],
+        ['mobile', 'device-owner', false],
+        ['runtime', 'device-owner', true]
+      ] as const) {
+        setStructuredAgentSessionHost(null)
+        const fixture = createRestartFixture()
+        const method = METHODS.find((candidate) => candidate.name === methodName)!
+        const response = await fixture.dispatch(
+          method.name,
+          method.params('codex-session'),
+          clientKind,
+          pairedDeviceId
+        )
+
+        expect(response.ok).toBe(allowed)
+        expect(fixture.restoreStructuredAgentSessionTabs).toHaveBeenCalledOnce()
+        expect(fixture.calls[runtimeMethod]).toHaveBeenCalledTimes(allowed ? 1 : 0)
+      }
+    }
+  )
 })
 
 function createFixture(
@@ -175,6 +218,7 @@ function createFixture(
     closeMobileSessionTab: vi.fn().mockResolvedValue({ closed: true }),
     activateMobileSessionTab: vi.fn().mockResolvedValue(snapshot),
     moveMobileSessionTab: vi.fn().mockResolvedValue({ moved: true }),
+    updateMobileSessionPaneLayout: vi.fn().mockResolvedValue({ updated: true }),
     setMobileSessionTabProps: vi.fn().mockResolvedValue({ updated: true })
   }
   const runtime = {
@@ -201,6 +245,56 @@ function createFixture(
         { id: 'request-1', authToken: 'token', method, params },
         (response) => replies.push(response),
         context
+      )
+      return JSON.parse(replies[0]!)
+    }
+  }
+}
+
+function createRestartFixture() {
+  const snapshot = agentSnapshot()
+  const calls = {
+    closeMobileSessionTab: vi.fn().mockResolvedValue({ closed: true }),
+    activateMobileSessionTab: vi.fn().mockResolvedValue(snapshot),
+    moveMobileSessionTab: vi.fn().mockResolvedValue({ moved: true }),
+    updateMobileSessionPaneLayout: vi.fn().mockResolvedValue({ updated: true }),
+    setMobileSessionTabProps: vi.fn().mockResolvedValue({ updated: true })
+  }
+  const restoreStructuredAgentSessionTabs = vi.fn(async () => {
+    const host = hostStub()
+    hostCalls.getRecord.mockReturnValue({
+      launchOrigin: 'work-item-start',
+      launchAuthority: { kind: 'paired-device', deviceId: 'device-owner' }
+    })
+    setStructuredAgentSessionHost(host)
+  })
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the session-tab methods read runtime id, client settings, restore and inventory off the runtime; the fixture pins those and `calls` supplies the rest under test.
+  const runtime = {
+    getRuntimeId: () => 'test-runtime',
+    getClientSettings: () => ({ experimentalStructuredNativeChat: true }),
+    restoreStructuredAgentSessionTabs,
+    listMobileSessionTabs: vi.fn().mockResolvedValue(snapshot),
+    ...calls
+  } as unknown as OrcaRuntimeService
+  const dispatcher = new RpcDispatcher({ runtime, methods: SESSION_TAB_METHODS })
+  return {
+    calls,
+    restoreStructuredAgentSessionTabs,
+    dispatch: async (
+      method: string,
+      params: unknown,
+      clientKind: 'mobile' | 'runtime',
+      pairedDeviceId: string
+    ) => {
+      const replies: string[] = []
+      await dispatcher.dispatchStreaming(
+        { id: 'request-1', authToken: 'token', method, params },
+        (response) => replies.push(response),
+        {
+          clientKind,
+          pairedDeviceId,
+          clientCapabilities: [STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY]
+        }
       )
       return JSON.parse(replies[0]!)
     }

@@ -1,23 +1,25 @@
+import type { RpcContext } from '../core'
+import { projectSessionTabsForContext } from './session-tabs-inventory'
+import { restoreStructuredTabsIfSupported } from './structured-session-tab-restore'
 import { resolveRuntimeNavigationTarget } from '../../../../shared/runtime-navigation'
-import type { OrcaRuntimeService } from '../../orca-runtime'
 import { defineMethod } from '../core'
 import {
   assertProjectedSessionTabVisible,
   translateProjectedSessionTabMove
 } from './session-tab-browser-placement-projection'
-import { projectSessionTabsForClient } from './session-tabs-inventory'
 import { ActivateTab, MoveTab, SetTabProps, UpdatePaneLayout } from './session-tabs-schemas'
 
 export const SESSION_TAB_MUTATION_METHODS = [
   defineMethod({
     name: 'session.tabs.activate',
     params: ActivateTab,
-    handler: async (params, { runtime, clientKind, pairedDeviceId, clientCapabilities }) => {
+    handler: async (params, context) => {
+      const { runtime, clientKind, pairedDeviceId } = context
       if (clientKind) {
-        const visible = projectSessionTabsForClient(
+        await restoreStructuredTabsIfSupported(context)
+        const visible = projectSessionTabsForContext(
           await runtime.listMobileSessionTabs(params.worktree, pairedDeviceId),
-          clientKind,
-          clientCapabilities
+          context
         )
         assertProjectedSessionTabVisible(visible, params.tabId)
       }
@@ -36,17 +38,19 @@ export const SESSION_TAB_MUTATION_METHODS = [
           })
         }
       )
-      return projectSessionTabsForMutationClient(result, clientKind, clientCapabilities)
+      return projectSessionTabsForContext(result, context)
     }
   }),
   defineMethod({
     name: 'session.tabs.move',
     params: MoveTab,
-    handler: async (params, { runtime, pairedDeviceId, clientCapabilities, clientKind }) => {
+    handler: async (params, context) => {
+      const { runtime, pairedDeviceId, clientKind } = context
       let translated: Parameters<typeof translateProjectedSessionTabMove>[2] = params
       if (clientKind) {
+        await restoreStructuredTabsIfSupported(context)
         const raw = await runtime.listMobileSessionTabs(params.worktree, pairedDeviceId)
-        const projected = projectSessionTabsForClient(raw, clientKind, clientCapabilities)
+        const projected = projectSessionTabsForContext(raw, context)
         translated = translateProjectedSessionTabMove(raw, projected, params)
       }
       const base = { tabId: translated.tabId, targetGroupId: translated.targetGroupId }
@@ -74,15 +78,9 @@ export const SESSION_TAB_MUTATION_METHODS = [
   defineMethod({
     name: 'session.tabs.updatePaneLayout',
     params: UpdatePaneLayout,
-    handler: async (params, { runtime, pairedDeviceId, clientCapabilities, clientKind }) => {
-      await assertVisibleMutationTab(
-        runtime,
-        params.worktree,
-        params.tabId,
-        pairedDeviceId,
-        clientKind,
-        clientCapabilities
-      )
+    handler: async (params, context) => {
+      const { runtime } = context
+      await assertVisibleMutationTab(context, params.worktree, params.tabId)
       return runtime.updateMobileSessionPaneLayout(params.worktree, {
         tabId: params.tabId,
         root: params.root,
@@ -95,15 +93,9 @@ export const SESSION_TAB_MUTATION_METHODS = [
   defineMethod({
     name: 'session.tabs.setTabProps',
     params: SetTabProps,
-    handler: async (params, { runtime, pairedDeviceId, clientCapabilities, clientKind }) => {
-      await assertVisibleMutationTab(
-        runtime,
-        params.worktree,
-        params.tabId,
-        pairedDeviceId,
-        clientKind,
-        clientCapabilities
-      )
+    handler: async (params, context) => {
+      const { runtime } = context
+      await assertVisibleMutationTab(context, params.worktree, params.tabId)
       return runtime.setMobileSessionTabProps(params.worktree, {
         tabId: params.tabId,
         ...(params.color !== undefined ? { color: params.color } : {}),
@@ -114,23 +106,18 @@ export const SESSION_TAB_MUTATION_METHODS = [
   })
 ]
 
-const projectSessionTabsForMutationClient = projectSessionTabsForClient
-
 async function assertVisibleMutationTab(
-  runtime: OrcaRuntimeService,
+  context: RpcContext,
   worktree: string,
-  tabId: string,
-  pairedDeviceId: string | undefined,
-  clientKind: 'mobile' | 'runtime' | undefined,
-  clientCapabilities: Parameters<typeof projectSessionTabsForClient>[2]
+  tabId: string
 ): Promise<void> {
-  if (!clientKind) {
+  if (!context.clientKind) {
     return
   }
-  const visible = projectSessionTabsForClient(
-    await runtime.listMobileSessionTabs(worktree, pairedDeviceId),
-    clientKind,
-    clientCapabilities
+  await restoreStructuredTabsIfSupported(context)
+  const visible = projectSessionTabsForContext(
+    await context.runtime.listMobileSessionTabs(worktree, context.pairedDeviceId),
+    context
   )
   assertProjectedSessionTabVisible(visible, tabId)
 }

@@ -181,6 +181,8 @@ export class OrcaRuntimeWithRuntimeId {
   >()
 
   protected readonly terminalMutationLock = new WorktreeTerminalMutationLock()
+  // Creates share this separate lifecycle lock; removal holds it exclusively through teardown.
+  protected readonly worktreeLifecycleLock = new WorktreeTerminalMutationLock()
 
   protected terminalSleepStateByWorktreeId = new Map<
     string,

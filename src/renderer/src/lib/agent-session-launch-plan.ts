@@ -29,6 +29,8 @@ import type { AgentLaunchRequestId } from '@/lib/agent-launch-request-id'
 export type AgentSessionLaunchRequest = AgentLaunchRouteArgs & {
   /** The user action this launch serves, minted where that action is handled. */
   requestId: AgentLaunchRequestId
+  /** Declara o create escopado do Work Item Start ao resolver a rota. */
+  launchOrigin?: 'work-item-start'
   resumeFrom?: StructuredAgentSessionResumeSource
   onPromptDelivered?: () => void
 }
@@ -39,6 +41,8 @@ export type AgentSessionLaunchRequest = AgentLaunchRouteArgs & {
  * (or a retry within the same session) re-enters here without re-resolving.
  */
 export type AgentSessionLaunchVerdict = {
+  /** Carregado no veredito para que o settle envie o create escopado, não um genérico. */
+  launchOrigin?: 'work-item-start'
   route: AgentLaunchRoute
   /** The user action this launch serves; a re-entry with this verdict is that same action. */
   requestId: AgentLaunchRequestId
@@ -50,6 +54,8 @@ export type AgentSessionLaunchVerdict = {
   promptDelivery?: NativeChatLaunchPromptDelivery
   resumeFrom?: StructuredAgentSessionResumeSource
   onPromptDelivered?: () => void
+  /** Re-enter an unknown launch with the exact intent and staged prompt it persisted. */
+  recover?: StructuredAgentLaunchOptions['recover']
 }
 
 export type AgentSessionStructuredFeasibilityRequest = AgentLaunchRouteArgs & {
@@ -89,7 +95,9 @@ function structuredLaunchOptions(verdict: AgentSessionLaunchVerdict): Structured
     ...(verdict.promptDelivery ? { promptDelivery: verdict.promptDelivery } : {}),
     ...(verdict.resumeFrom ? { resumeFrom: verdict.resumeFrom } : {}),
     ...(verdict.onPromptDelivered ? { onPromptDelivered: verdict.onPromptDelivered } : {}),
-    ...(verdict.executionHostId ? { executionHostId: verdict.executionHostId } : {})
+    ...(verdict.executionHostId ? { executionHostId: verdict.executionHostId } : {}),
+    ...(verdict.launchOrigin ? { launchOrigin: verdict.launchOrigin } : {}),
+    ...(verdict.recover ? { recover: verdict.recover } : {})
   }
 }
 
@@ -175,7 +183,10 @@ export function planAgentSessionLaunch(
   store: AgentLaunchRouteStore,
   request: AgentSessionLaunchRequest
 ): AgentSessionLaunchPlan {
-  const input = buildAgentLaunchRouteInput(store, request)
+  const input = {
+    ...buildAgentLaunchRouteInput(store, request),
+    ...(request.launchOrigin ? { launchOrigin: request.launchOrigin } : {})
+  }
   const route = resolveAgentLaunchRoute(input)
   const executionHostId =
     route === 'structured-native-chat' ? parseExecutionHostId(input.executionHostId)?.id : undefined
@@ -188,6 +199,7 @@ export function planAgentSessionLaunch(
     ...(request.prompt !== undefined ? { prompt: request.prompt } : {}),
     ...(request.promptDelivery ? { promptDelivery: request.promptDelivery } : {}),
     ...(request.resumeFrom ? { resumeFrom: request.resumeFrom } : {}),
-    ...(request.onPromptDelivered ? { onPromptDelivered: request.onPromptDelivered } : {})
+    ...(request.onPromptDelivered ? { onPromptDelivered: request.onPromptDelivered } : {}),
+    ...(request.launchOrigin ? { launchOrigin: request.launchOrigin } : {})
   })
 }

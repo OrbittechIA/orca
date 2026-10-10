@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
+import { provenanceEnvironmentForElectronVite } from './build-provenance.mjs'
 import { appendBuildOldSpaceOption } from './node-old-space-limit.mjs'
 import { RENDERER_BUILD_DIR, verifyRendererBootGraph } from './renderer-boot-graph.mjs'
 
@@ -13,12 +14,14 @@ const electronViteCli = path.join(path.dirname(electronVitePackageJson), 'bin', 
 // renderer bundle. Reserve memory on smaller hosts so the OS does not kill Vite.
 const nodeOptions = appendBuildOldSpaceOption(process.env.NODE_OPTIONS)
 
+// Provenance is read HERE, before electron-vite writes its transient config bundle into the
+// working directory; the config validates the handed-over identity against git and embeds it.
 const child = spawn(process.execPath, [electronViteCli, 'build', ...process.argv.slice(2)], {
   stdio: 'inherit',
-  env: {
-    ...process.env,
-    NODE_OPTIONS: nodeOptions
-  }
+  env: provenanceEnvironmentForElectronVite({
+    cwd: path.resolve(import.meta.dirname, '../..'),
+    env: { ...process.env, NODE_OPTIONS: nodeOptions }
+  })
 })
 
 child.on('exit', (code, signal) => {

@@ -215,6 +215,10 @@ export function getKnownExecutionHostIdForWorktree(
     // default, especially when local and runtime checkouts share a project.
     return worktreeHostId
   }
+  const projectedRuntimeOwner = getProjectedRuntimeOwnerEnvironmentId(worktree)
+  if (projectedRuntimeOwner) {
+    return `runtime:${encodeURIComponent(projectedRuntimeOwner)}`
+  }
   const repoId = worktree?.repoId ?? getRepoIdFromWorktreeId(worktreeId)
   const repo = findRepoRecord(state.repos, repoId)
   if (!repo) {
