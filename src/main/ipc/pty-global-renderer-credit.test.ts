@@ -194,7 +194,7 @@ describe('registerPtyHandlers', () => {
       finalProc.emitExit(0)
 
       expect(mainWindow.webContents.send.mock.calls).toEqual([
-        ['pty:data', { id: finalSpawn.id, data: 'final-tail' }],
+        ['pty:data', { id: finalSpawn.id, data: 'final-tail', seq: 10, rawLength: 10 }],
         ['pty:exit', { id: finalSpawn.id, code: 0, incarnationId: finalSpawn.incarnationId }]
       ])
       expect(getPtyRendererDeliveryDebugSnapshot()).toMatchObject({
@@ -284,7 +284,9 @@ describe('registerPtyHandlers', () => {
         'pty:data',
         {
           id: spawns[activeIndex]!.id,
-          data: 'active-output'
+          data: 'active-output',
+          seq: 13,
+          rawLength: 13
         }
       ])
       expect(getPtyRendererDeliveryDebugSnapshot()).toMatchObject({
@@ -332,7 +334,9 @@ describe('registerPtyHandlers', () => {
       expect(mainWindow.webContents.send).toHaveBeenCalledTimes(33)
       expect(mainWindow.webContents.send).toHaveBeenNthCalledWith(33, 'pty:data', {
         id: activeSpawn.id,
-        data: 'x'.repeat(16 * 1024)
+        data: 'x'.repeat(16 * 1024),
+        seq: 528 * 1024,
+        rawLength: 16 * 1024
       })
       expect(getPtyRendererDeliveryDebugSnapshot()).toMatchObject({
         pendingChars: 240 * 1024,
