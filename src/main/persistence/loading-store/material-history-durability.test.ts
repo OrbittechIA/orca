@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { getDefaultPersistedState } from '../../../shared/constants'
 import type { WorktreeMeta } from '../../../shared/worktree/meta-types'
 import { canonicalWorktreeIdentity } from '../../../shared/worktree/identity'
@@ -61,7 +61,6 @@ it('retains the historical canonical row when identity rotation makes it unrefer
   expect(state.worktreeMetaByIdentity![key]).toEqual(retained)
 })
 
-import { vi } from 'vitest'
 import {
   createWorkerMaintenanceFixture,
   createSqliteMaintenanceFixture,

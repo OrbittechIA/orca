@@ -1,5 +1,9 @@
-import { expect, it, vi } from 'vitest'
-import { planWorktreeMaterial } from './runtime-worktree-material'
+import { afterEach, expect, it, vi } from 'vitest'
+import {
+  planWorktreeMaterial,
+  observeMaterialProcessAbsence,
+  type MaterialAuthority
+} from './runtime-worktree-material'
 import {
   WorktreeMaterialManifest,
   WorktreeMaterialRestore
@@ -68,8 +72,6 @@ it('folder and missing metadata stay unverifiable with no create or liveness cla
   })
 })
 
-import { afterEach } from 'vitest'
-import { observeMaterialProcessAbsence, type MaterialAuthority } from './runtime-worktree-material'
 import { agentSessionRecordFixture } from '../../shared/agent-session-record.test-fixture'
 import { getDefaultPersistedState } from '../../shared/constants'
 import { captureLocalWorktreeMaterialCensus } from '../persistence/tracking-repos/local-worktree-material-census'

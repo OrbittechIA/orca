@@ -56,11 +56,10 @@ function canonicalMaterialValue(value: unknown): unknown {
   if (!value || typeof value !== 'object') {
     return value
   }
-  const source = value as Record<string, unknown>
   const result: Record<string, unknown> = {}
-  for (const key of Object.keys(source).sort()) {
-    if (source[key] !== undefined) {
-      result[key] = canonicalMaterialValue(source[key])
+  for (const key of Object.keys(value).sort()) {
+    if (Reflect.get(value, key) !== undefined) {
+      result[key] = canonicalMaterialValue(Reflect.get(value, key))
     }
   }
   return result

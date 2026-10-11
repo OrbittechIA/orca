@@ -1,6 +1,6 @@
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { WORKTREE_HANDLERS } from './handlers/worktree'
 import { RuntimeClient } from './runtime-client'
@@ -113,7 +113,6 @@ it('rejects duplicate manifest keys before contacting runtime', async () => {
 })
 
 import { execFileSync, spawnSync } from 'node:child_process'
-import { resolve } from 'node:path'
 import { build } from 'esbuild'
 
 it('rejects a FIFO in a bounded child before any RPC', async () => {
