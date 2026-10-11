@@ -598,3 +598,23 @@ it('floating defaults admit their fallback and final cwd without a worktree cens
     db.close()
   }
 })
+
+it('an opened ledger returning null cannot become an absent-file empty ledger', async () => {
+  const f = createSqliteMaintenanceFixture()
+  const db = new OrchestrationDb(':memory:')
+  const runtime = new OrcaRuntimeService(f.store)
+  runtime.setOrchestrationDb(db)
+  const claims = vi.spyOn(db, 'readPendingMaterialClaims').mockReturnValue(null)
+  const boundary = vi.spyOn(runtime, 'getAvailableAuthoritativeWindow')
+  try {
+    expect(runtime.materialAdmissionAuthority.readPendingClaims()).toBeNull()
+    await expect(runtime.createTerminal(undefined, { cwd: '/fixture/safe' })).rejects.toThrow(
+      'E_MATERIAL_ADMISSION_UNVERIFIABLE'
+    )
+    expect(boundary).not.toHaveBeenCalled()
+  } finally {
+    claims.mockRestore()
+    boundary.mockRestore()
+    db.close()
+  }
+})

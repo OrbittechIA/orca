@@ -23,7 +23,7 @@ import {
   type MaterialAuthority
 } from './runtime-worktree-material'
 import {
-  readAbsentMaterialClaims,
+  readAvailableMaterialClaims,
   type MaterialManifest
 } from '../../shared/worktree/material-types'
 import { installRuntimeLinearCommandSurface } from './runtime-linear-command-surface'
@@ -56,8 +56,10 @@ class OrcaRuntimeService extends OrcaRuntimeWithMigrationCatalog {
   readonly materialAdmissionAuthority: MaterialAdmissionAuthority = {
     getExistingDb: () => this.getOrchestrationDbIfAvailable(),
     readPendingClaims: () =>
-      this.getOrchestrationDbIfAvailable()?.readPendingMaterialClaims() ??
-      readAbsentMaterialClaims(join(getAppEnvironment().getPath('userData'), 'orchestration.db')),
+      readAvailableMaterialClaims(
+        this.getOrchestrationDbIfAvailable(),
+        join(getAppEnvironment().getPath('userData'), 'orchestration.db')
+      ),
     captureCensus: (id) => this.store?.captureLocalWorktreeMaterialCensus?.(id) ?? null
   }
 

@@ -234,7 +234,13 @@ export function materialIndexEntries(staged: string): string[] | null {
 }
 
 /** A cold ledger can be treated as empty only when its file is proven absent. */
-export function readAbsentMaterialClaims(filename: string): MaterialManifest[] {
+export function readAvailableMaterialClaims(
+  opened: { readPendingMaterialClaims(): MaterialManifest[] | null } | null,
+  filename: string
+): MaterialManifest[] | null {
+  if (opened) {
+    return opened.readPendingMaterialClaims()
+  }
   try {
     lstatSync(filename)
   } catch (error) {
