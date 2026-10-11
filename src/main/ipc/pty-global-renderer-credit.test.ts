@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { spawnMock } from './pty-ipc-mock-registry'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
 import { registerPtyHandlers, getPtyRendererDeliveryDebugSnapshot } from './pty'
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 
 vi.mock('electron', () => import('./pty-ipc-mock-registry').then((m) => m.electronModuleMock()))
 vi.mock('fs', () => import('./pty-ipc-mock-registry').then((m) => m.fsModuleMock()))
@@ -69,7 +70,7 @@ describe('registerPtyHandlers', () => {
     }
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const bulkSpawns: { id: string }[] = []
       for (const _proc of bulkProcs) {
         bulkSpawns.push(
@@ -152,7 +153,7 @@ describe('registerPtyHandlers', () => {
     }
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       for (const _proc of bulkProcs) {
         await handlers.get('pty:spawn')!(null, {
           cols: 80,
@@ -211,7 +212,7 @@ describe('registerPtyHandlers', () => {
     spawnMock.mockReturnValue(proc.proc)
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const spawn = (await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -248,7 +249,7 @@ describe('registerPtyHandlers', () => {
     }
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const spawns: { id: string }[] = []
       for (const _proc of procs) {
         spawns.push(
@@ -302,7 +303,7 @@ describe('registerPtyHandlers', () => {
     spawnMock.mockReturnValue(activeProc.proc)
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const activeSpawn = (await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,

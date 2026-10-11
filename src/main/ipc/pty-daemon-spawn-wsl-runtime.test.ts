@@ -8,6 +8,7 @@ import {
 import { delimiter, join } from 'node:path'
 import { _setWslCachesForTests } from '../wsl'
 import { registerPtyHandlers } from './pty'
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 
 vi.mock('electron', () => import('./pty-ipc-mock-registry').then((m) => m.electronModuleMock()))
 vi.mock('fs', () => import('./pty-ipc-mock-registry').then((m) => m.fsModuleMock()))
@@ -347,6 +348,7 @@ describe('registerPtyHandlers', () => {
           for (const testCase of cases) {
             setupDaemonAdapter(true, testCase.reportedWslDistro)
             const runtime = {
+              materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
               setPtyController: vi.fn(),
               createPreAllocatedTerminalHandle: vi.fn(() => null),
               preAllocateHandleForPty: vi.fn(),

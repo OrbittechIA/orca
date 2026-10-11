@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
 import { createDaemonActiveProviderFixtures } from './pty-ipc-daemon-provider-fixtures'
 import { registerPtyHandlers } from './pty'
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { detectAgentCommandsOnHost } from '../preflight/agent-detection'
 import { buildAgentStartupPlan, buildAgentResumeStartupPlan } from '../../shared/tui-agent-startup'
 import { agentStartedTelemetry } from '../agent-launch/agent-started-telemetry'
@@ -79,7 +80,7 @@ describe('independent renderer Qoder provider spawn boundary', () => {
         throw new Error('Missing existing Qoder startup plan')
       }
       const physicalSpawn = setupDaemonAdapter()
-      registerPtyHandlers(mainWindow)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -111,7 +112,7 @@ describe('independent renderer Qoder provider spawn boundary', () => {
     '/caller/qodercli --resume original-review-session'
   ])('preserves an explicitly chosen command: %s', async (command) => {
     const physicalSpawn = setupDaemonAdapter()
-    registerPtyHandlers(mainWindow)
+    registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
     await handlers.get('pty:spawn')!(null, {
       cols: 80,
       rows: 24,

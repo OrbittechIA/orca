@@ -16,6 +16,7 @@ import {
   setPtyOwnership,
   setLocalPtyProvider
 } from './pty'
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 
 vi.mock('electron', () => import('./pty-ipc-mock-registry').then((m) => m.electronModuleMock()))
 vi.mock('fs', () => import('./pty-ipc-mock-registry').then((m) => m.fsModuleMock()))
@@ -95,7 +96,7 @@ describe('registerPtyHandlers', () => {
       it('passes the minted sessionId through to provider.spawn and host env setup', async () => {
         const daemonSpawn = setupDaemonAdapter()
         handlers.clear()
-        registerPtyHandlers(mainWindow as never)
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
         await handlers.get('pty:spawn')!(null, {
           cols: 80,
           rows: 24,
@@ -113,7 +114,7 @@ describe('registerPtyHandlers', () => {
       it('respects a caller-provided sessionId instead of minting a new one', async () => {
         const daemonSpawn = setupDaemonAdapter()
         handlers.clear()
-        registerPtyHandlers(mainWindow as never)
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
         await handlers.get('pty:spawn')!(null, {
           cols: 80,
           rows: 24,
@@ -130,7 +131,7 @@ describe('registerPtyHandlers', () => {
         // Why: daemon reconnect keys live-shell survival on the sessionId; prefixing with worktreeId scopes sessions by worktree with a unique tail.
         const daemonSpawn = setupDaemonAdapter()
         handlers.clear()
-        registerPtyHandlers(mainWindow as never)
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
         await handlers.get('pty:spawn')!(null, {
           cols: 80,
           rows: 24,
@@ -229,7 +230,7 @@ describe('registerPtyHandlers', () => {
         const daemonSpawn = setupDaemonAdapter()
         const argsEnv: Record<string, string> = { FOO: 'bar' }
         handlers.clear()
-        registerPtyHandlers(mainWindow as never)
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
         await handlers.get('pty:spawn')!(null, {
           cols: 80,
           rows: 24,
@@ -245,7 +246,7 @@ describe('registerPtyHandlers', () => {
         // Why: effectiveSessionId reaches filesystem side-effects, so a traversal payload must be refused before they run.
         const daemonSpawn = setupDaemonAdapter()
         handlers.clear()
-        registerPtyHandlers(mainWindow as never)
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
         await expect(
           handlers.get('pty:spawn')!(null, {
             cols: 80,
@@ -274,6 +275,7 @@ describe('registerPtyHandlers', () => {
           getForegroundProcess: vi.fn(async () => null)
         } as never)
         const runtime = {
+          materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
           setPtyController: vi.fn(),
           createPreAllocatedTerminalHandle: vi.fn(() => null),
           preAllocateHandleForPty: vi.fn(),
@@ -309,6 +311,7 @@ describe('registerPtyHandlers', () => {
           getForegroundProcess: vi.fn(async () => null)
         } as never)
         const runtime = {
+          materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
           setPtyController: vi.fn(),
           createPreAllocatedTerminalHandle: vi.fn(() => null),
           preAllocateHandleForPty: vi.fn(),
@@ -372,8 +375,8 @@ describe('registerPtyHandlers', () => {
         } as never)
         handlers.clear()
         registerPtyHandlers(
-          mainWindow as never,
-          undefined,
+          mainWindow,
+          createPtyIpcAdmissionRuntime(),
           undefined,
           (() => ({
             httpProxyUrl: 'http://proxy.example:8080',
@@ -494,8 +497,8 @@ describe('registerPtyHandlers', () => {
         } as never)
         handlers.clear()
         registerPtyHandlers(
-          mainWindow as never,
-          undefined,
+          mainWindow,
+          createPtyIpcAdmissionRuntime(),
           undefined,
           undefined,
           undefined,
@@ -551,8 +554,8 @@ describe('registerPtyHandlers', () => {
         } as never)
         handlers.clear()
         registerPtyHandlers(
-          mainWindow as never,
-          undefined,
+          mainWindow,
+          createPtyIpcAdmissionRuntime(),
           undefined,
           undefined,
           undefined,
@@ -608,8 +611,8 @@ describe('registerPtyHandlers', () => {
         setPtyOwnership(scopedPtyId, 'ssh-1')
         handlers.clear()
         registerPtyHandlers(
-          mainWindow as never,
-          undefined,
+          mainWindow,
+          createPtyIpcAdmissionRuntime(),
           undefined,
           undefined,
           undefined,

@@ -15,6 +15,7 @@ import { createDaemonActiveProviderFixtures } from './pty-ipc-daemon-provider-fi
 import { join } from 'node:path'
 import { SETUP_AGENT_SEQUENCE_STARTUP_COMMAND_ENV } from '../../shared/setup-agent-sequencing'
 import { registerPtyHandlers, resolveCodexHomeAfterManagedAuthReadiness } from './pty'
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 
 const consumerConfigHome = join(TEST_MANAGED_ROOT, 'opencode-consumer-config')
 
@@ -87,7 +88,7 @@ describe('registerPtyHandlers', () => {
         })
         const daemonSpawn = setupDaemonAdapter()
         handlers.clear()
-        registerPtyHandlers(mainWindow as never, undefined, () => TEST_CODEX_HOME, (() => ({
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime(), () => TEST_CODEX_HOME, (() => ({
           codexManagedAccounts: [
             {
               id: 'account-1',
@@ -157,7 +158,7 @@ describe('registerPtyHandlers', () => {
         const daemonSpawn = setupDaemonAdapter()
         const resolveHome = vi.fn(() => selectedHome)
         handlers.clear()
-        registerPtyHandlers(mainWindow as never, undefined, resolveHome, (() => ({
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime(), resolveHome, (() => ({
           codexManagedAccounts: [TEST_CODEX_HOME, nextHome].map((managedHomePath, index) => ({
             id: `account-${index + 1}`,
             managedHomePath,
@@ -191,7 +192,7 @@ describe('registerPtyHandlers', () => {
         })
         const daemonSpawn = setupDaemonAdapter()
         handlers.clear()
-        registerPtyHandlers(mainWindow as never, undefined, () => TEST_CODEX_HOME, (() => ({
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime(), () => TEST_CODEX_HOME, (() => ({
           codexManagedAccounts: [
             {
               id: 'account-1',
@@ -218,7 +219,7 @@ describe('registerPtyHandlers', () => {
         })
         const daemonSpawn = setupDaemonAdapter()
         handlers.clear()
-        registerPtyHandlers(mainWindow as never, undefined, () => TEST_CODEX_HOME, (() => ({
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime(), () => TEST_CODEX_HOME, (() => ({
           codexManagedAccounts: [
             {
               id: 'account-1',
@@ -299,7 +300,7 @@ describe('registerPtyHandlers', () => {
           ) => (context?.unavailableManagedHomePath ? null : TEST_CODEX_HOME)
         )
         handlers.clear()
-        registerPtyHandlers(mainWindow as never, undefined, resolveHome, (() => ({
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime(), resolveHome, (() => ({
           codexManagedAccounts: [
             {
               id: 'account-1',
@@ -348,7 +349,7 @@ describe('registerPtyHandlers', () => {
                 : thirdHome
         )
         handlers.clear()
-        registerPtyHandlers(mainWindow as never, undefined, resolveHome, (() => ({
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime(), resolveHome, (() => ({
           codexManagedAccounts: [TEST_CODEX_HOME, secondHome, thirdHome].map(
             (managedHomePath, index) => ({
               id: `account-${index + 1}`,
