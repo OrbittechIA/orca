@@ -20,6 +20,13 @@ let authority: ProfileStateSqliteAuthority | undefined
 let busy = false
 let stopping = false
 let previousId = 0
+const materialHistoryRefusals = new Set([
+  'E_MATERIAL_HISTORY_UNVERIFIABLE',
+  'E_MATERIAL_HISTORY_CONFLICT',
+  'E_MATERIAL_HISTORY_LIMIT',
+  'E_MATERIAL_HISTORY_REVISION_CONFLICT',
+  'E_MATERIAL_HISTORY_AUTHORITY_UNAVAILABLE'
+])
 
 function reply(response: ProfileStateWriterResponse): void {
   port.postMessage(response)
@@ -117,7 +124,17 @@ async function accept(value: unknown): Promise<void> {
     reply(await execute(value))
   } catch (error) {
     // Export staging accepts both JSON versions; only uncertain SQL outcomes retire the writer.
-    const failure = encodeProfileStateWriterError(error, value.command === 'close')
+    let failure = encodeProfileStateWriterError(error, value.command === 'close')
+    // Preserve only finite assertion refusals; payloads and indeterminate SQL errors stay redacted.
+    if (
+      value.command === 'assert-material-history' &&
+      failure.outcome === 'known-failure' &&
+      error instanceof Error &&
+      error.constructor === Error &&
+      materialHistoryRefusals.has(error.message)
+    ) {
+      failure = { code: error.message, message: error.message, outcome: 'known-failure' }
+    }
     reply({ id: value.id, ok: false, error: failure })
     stopping ||= failure.outcome === 'indeterminate'
   } finally {

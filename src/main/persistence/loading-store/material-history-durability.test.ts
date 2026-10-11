@@ -170,7 +170,14 @@ it('revision drift and corrupted expected history refuse before the publication 
     f.store.runDurableMutation(callback, {
       materialHistory: { ...assertion, historyDigest: 'f'.repeat(64) }
     })
-  ).rejects.toThrow('E_MATERIAL_HISTORY_UNVERIFIABLE')
+  ).rejects.toMatchObject({
+    code: 'E_MATERIAL_HISTORY_UNVERIFIABLE',
+    message: 'E_MATERIAL_HISTORY_UNVERIFIABLE',
+    outcome: 'known-failure'
+  })
+  // The read-only refusal keeps the same writer available and cannot call publication.
+  await expect(f.authority.assertMaterialHistory(assertion)).resolves.toBeUndefined()
+  expect(callback).not.toHaveBeenCalled()
   const peer = f.peer()
   try {
     peer.readInitialState()
@@ -180,7 +187,10 @@ it('revision drift and corrupted expected history refuse before the publication 
   }
   await expect(
     f.store.runDurableMutation(callback, { materialHistory: assertion })
-  ).rejects.toThrow()
+  ).rejects.toMatchObject({
+    code: 'E_MATERIAL_HISTORY_REVISION_CONFLICT',
+    outcome: 'known-failure'
+  })
   expect(callback).not.toHaveBeenCalled()
 })
 
