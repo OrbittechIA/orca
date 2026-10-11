@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { PtyTransport } from './pty-transport-types'
 import {
   TerminalStreamOpcode,
   decodeTerminalStreamFrame,
@@ -17,12 +18,21 @@ import { executeTerminalPastePlan } from './terminal-paste-executor'
 import type { TerminalPastePlan } from './terminal-paste-model'
 import { TERMINAL_REMOTE_PASTE_OPERATION_TIMEOUT_MS } from './terminal-paste-limits'
 import {
+  REMOTE_RUNTIME_INPUT_ACK_STALL_MS,
   REMOTE_RUNTIME_INPUT_REFUSAL_ROUNDS_BEFORE_ESCALATION,
   REMOTE_RUNTIME_INPUT_RESEND_BACKOFF_MS
 } from './remote-runtime-input-journal'
 
 let subscriptionCallbacks: MultiplexSubscriptionCallbacks = null
 let resolvedPaneHandle = 'terminal-1'
+const activeTransports = new Set<PtyTransport>()
+
+function destroyActiveTransports(): void {
+  for (const transport of activeTransports) {
+    transport.destroy?.()
+    activeTransports.delete(transport)
+  }
+}
 
 const {
   runtimeSubscribe,
@@ -44,6 +54,21 @@ const {
 })
 
 type SentInput = { seq: number; text: string }
+type HostInputAdmission = {
+  kind: 'applied' | 'delivery-unknown' | 'resend'
+  appliedSeq: number
+}
+type HostInputLedgerModule = {
+  TerminalInputSequenceLedger: new () => {
+    readonly id: string
+    admit: (
+      ptyId: string,
+      inputSessionId: string,
+      seq: number,
+      write: () => Promise<'applied'>
+    ) => Promise<HostInputAdmission>
+  }
+}
 
 /** Input frames sent after the `subscribeCount`-th Subscribe frame (stream ids restart per connection). */
 function sentInputs(subscribeCount = 0): SentInput[] {
@@ -120,7 +145,8 @@ function pasteChunk(transport: Parameters<typeof writeTerminalPastePtyInput>[0],
 
 async function connectPane(
   capabilities: Record<string, 1>,
-  callbacks: { onWriteUnavailable?: () => void } = {}
+  callbacks: { onWriteUnavailable?: () => void } = {},
+  inputLedgerId?: string
 ) {
   const { createRemoteRuntimePtyTransport } = await import('./remote-runtime-pty-transport')
   const transport = createRemoteRuntimePtyTransport('env-1', {
@@ -128,10 +154,11 @@ async function connectPane(
     tabId: 'tab-1',
     leafId: 'pane:1'
   })
+  activeTransports.add(transport)
   transport.attach({ existingPtyId: 'remote:terminal-1', cols: 80, rows: 24, callbacks })
   await vi.waitFor(() => expect(subscribeFrameCount()).toBe(1))
   const streamId = latestSubscribePayload().streamId
-  attachStream(streamId, capabilities)
+  attachStream(streamId, capabilities, inputLedgerId)
   await vi.waitFor(() => expect(transport.isConnected()).toBe(true))
   return { transport, streamId }
 }
@@ -149,13 +176,20 @@ describe('remote pane input across a silent outage', () => {
   beforeEach(() => {
     resetRemoteRuntimeTransport()
   })
+  afterEach(() => {
+    try {
+      destroyActiveTransports()
+    } finally {
+      vi.useRealTimers()
+      vi.restoreAllMocks()
+    }
+  })
 
   it('names an input session and negotiates acks on subscribe', async () => {
-    const { transport } = await connectPane({ inputAck: 1 })
+    await connectPane({ inputAck: 1 })
     const payload = latestSubscribePayload()
     expect(payload.capabilities).toMatchObject({ inputAck: 1 })
     expect(payload.inputSessionId).toEqual(expect.any(String))
-    transport.destroy?.()
   })
 
   it('replays input the dead stream never acknowledged onto the replacement stream (P1-1)', async () => {
@@ -179,7 +213,6 @@ describe('remote pane input across a silent outage', () => {
         { seq: lostSeq + 1, text: 'echo 3\r' }
       ])
     )
-    transport.destroy?.()
   })
 
   it('drops unacknowledged input instead of replaying it into a restarted host runtime', async () => {
@@ -195,7 +228,6 @@ describe('remote pane input across a silent outage', () => {
     transport.sendInput('ls\r', 'driving')
 
     await vi.waitFor(() => expect(sentInputs(2).map((input) => input.text)).toEqual(['ls\r']))
-    transport.destroy?.()
   })
 
   it('keeps Ctrl+C in sequence with typing across a silent outage', async () => {
@@ -222,25 +254,88 @@ describe('remote pane input across a silent outage', () => {
       emitInputAck(latestSubscribePayload().streamId, replayed.seq)
     }
     await expect(interrupted).resolves.toBe(true)
-    transport.destroy?.()
   })
 
   it('keeps a paste still in size validation ahead of keys typed after the outage', async () => {
-    const { transport } = await connectPane({ inputAck: 1 })
-    const paste = 'A'.repeat(300 * 1024)
-    transport.sendInput(paste, 'driving')
-    subscriptionCallbacks?.onError?.({
-      code: 'remote_runtime_unavailable',
-      message: 'Could not connect to the remote Orca runtime.'
-    })
-    transport.sendInput('B\r', 'driving')
+    vi.useFakeTimers()
+    try {
+      // Keep the real host receiver out of the renderer project's static dependency graph.
+      const { TerminalInputSequenceLedger } = await vi.importActual<HostInputLedgerModule>(
+        '../../../../main/runtime/rpc/methods/terminal/terminal-input-sequence-ledger'
+      )
+      const ledger = new TerminalInputSequenceLedger()
+      const { transport } = await connectPane({ inputAck: 1 }, {}, ledger.id)
+      const inputSessionId = latestSubscribePayload().inputSessionId
+      if (!inputSessionId) {
+        throw new Error('missing input session for acknowledged stream')
+      }
+      const applied: SentInput[] = []
+      const admissions: Promise<HostInputAdmission>[] = []
+      let acknowledge = false
+      subscriptionSendBinary.mockImplementation((bytes: Uint8Array) => {
+        const frame = decodeTerminalStreamFrame(bytes)
+        if (frame?.opcode !== TerminalStreamOpcode.Input) {
+          return
+        }
+        const input = { seq: frame.seq, text: decodeTerminalStreamText(frame.payload) }
+        admissions.push(
+          ledger
+            .admit('terminal-1', inputSessionId, frame.seq, async () => {
+              applied.push(input)
+              return 'applied'
+            })
+            .then((admission) => {
+              if (acknowledge) {
+                emitInputAck(frame.streamId, admission.appliedSeq)
+              }
+              return admission
+            })
+        )
+      })
+      const paste = 'A'.repeat(300 * 1024)
+      expect(transport.sendInput(paste, 'driving')).toBe(true)
+      expect(sentInputs()).toEqual([])
+      subscriptionCallbacks?.onError?.({
+        code: 'remote_runtime_unavailable',
+        message: 'Could not connect to the remote Orca runtime.'
+      })
+      expect(transport.sendInput('B\r', 'driving')).toBe(true)
 
-    await vi.waitFor(() => expect(runtimeSubscribe).toHaveBeenCalledTimes(2))
-    await reconnect({ inputAck: 1 }, 2)
+      await vi.waitFor(() => expect(runtimeSubscribe).toHaveBeenCalledTimes(2))
+      await reconnect({ inputAck: 1 }, 2, ledger.id)
+      expect(latestSubscribePayload().inputSessionId).toBe(inputSessionId)
 
-    // Why the long timeout: 300 KiB byte-length validation yields and is slow on a loaded runner.
-    await vi.waitFor(() => expect(sentText()).toBe(`${paste}B\r`), { timeout: 10_000 })
-    transport.destroy?.()
+      // Compare all applied bytes without printing a 300 KiB retry diff on failure.
+      const expected = `${paste}B\r`
+      await vi.waitFor(
+        () => expect(applied.map((input) => input.text).join('') === expected).toBe(true),
+        {
+          timeout: 10_000
+        }
+      )
+      const first = sentInputs()
+      const sequences = applied.map((_, index) => index + 1)
+      expect(first.map((input) => input.seq)).toEqual(sequences)
+      expect(applied.map((input) => input.seq)).toEqual(sequences)
+
+      // Lost ACKs trigger retries on the same ledger; the real host receiver applies each slot once.
+      acknowledge = true
+      await vi.advanceTimersByTimeAsync(REMOTE_RUNTIME_INPUT_ACK_STALL_MS)
+      expect(await Promise.all(admissions)).toEqual(
+        [...sequences, ...sequences].map((appliedSeq) => ({ kind: 'applied', appliedSeq }))
+      )
+      const retries = sentInputs().slice(first.length)
+      expect(retries.map((input) => input.seq)).toEqual(sequences)
+      expect(retries.every((input, index) => input.text === first[index].text)).toBe(true)
+      expect(applied.map((input) => input.seq)).toEqual(sequences)
+      expect(applied.map((input) => input.text).join('') === expected).toBe(true)
+      await vi.advanceTimersByTimeAsync(REMOTE_RUNTIME_INPUT_ACK_STALL_MS)
+      expect(sentInputs()).toHaveLength(first.length * 2)
+      expect(runtimeSubscribe).toHaveBeenCalledTimes(2)
+    } finally {
+      destroyActiveTransports()
+      vi.useRealTimers()
+    }
   })
 
   it('never replays toward a host that does not acknowledge input', async () => {
@@ -255,7 +350,40 @@ describe('remote pane input across a silent outage', () => {
     await reconnect({ outputPause: 1 }, 2)
 
     await vi.waitFor(() => expect(sentInputs(2)).toEqual([{ seq: 0, text: 'echo 2\r' }]))
-    transport.destroy?.()
+  })
+
+  it('disposes pending input and recovery before mocks are reused by a no-ACK host', async () => {
+    vi.useFakeTimers()
+    try {
+      const { transport } = await connectPane({ inputAck: 1 })
+      transport.sendInput('old unacknowledged input\r', 'driving')
+      await vi.advanceTimersByTimeAsync(20)
+      expect(sentInputs()).toHaveLength(1)
+      subscriptionCallbacks?.onClose?.()
+      destroyActiveTransports()
+      expect(activeTransports.size).toBe(0)
+      expect(transport.isConnected()).toBe(false)
+      const callsAtDisposal = subscriptionSendBinary.mock.calls.length
+      const subscriptionsAtDisposal = runtimeSubscribe.mock.calls.length
+      await vi.advanceTimersByTimeAsync(
+        REMOTE_RUNTIME_AUTO_RECOVERY_TIMEOUT_MS + REMOTE_RUNTIME_INPUT_ACK_STALL_MS
+      )
+      expect(subscriptionSendBinary).toHaveBeenCalledTimes(callsAtDisposal)
+      expect(runtimeSubscribe).toHaveBeenCalledTimes(subscriptionsAtDisposal)
+
+      resetRemoteRuntimeTransport()
+      const { transport: next } = await connectPane({ outputPause: 1 })
+      expect(latestSubscribePayload().capabilities?.inputAck).toBe(1)
+      next.sendInput('new input\r', 'driving')
+      await vi.advanceTimersByTimeAsync(20)
+      expect(sentInputs()).toEqual([{ seq: 0, text: 'new input\r' }])
+      await vi.advanceTimersByTimeAsync(REMOTE_RUNTIME_INPUT_ACK_STALL_MS)
+      expect(sentInputs()).toEqual([{ seq: 0, text: 'new input\r' }])
+      expect(runtimeSubscribe).toHaveBeenCalledTimes(1)
+    } finally {
+      destroyActiveTransports()
+      vi.useRealTimers()
+    }
   })
 
   it('keeps debounced keys pending at detection instead of splitting the line (P1-2)', async () => {
@@ -278,7 +406,6 @@ describe('remote pane input across a silent outage', () => {
     await reconnect({ outputPause: 1 }, 2)
 
     await vi.waitFor(() => expect(sentText()).toBe('PZ600-0123\r'))
-    transport.destroy?.()
   })
 
   it('keeps input held past the auto-recovery window and delivers it when the same terminal returns within the grace (P1-3)', async () => {
@@ -318,8 +445,8 @@ describe('remote pane input across a silent outage', () => {
           .map((input) => input.text)
           .join('')
       ).toBe('HELD-1\rLATE-2\r')
-      transport.destroy?.()
     } finally {
+      destroyActiveTransports()
       vi.useRealTimers()
     }
   })
@@ -363,8 +490,8 @@ describe('remote pane input across a silent outage', () => {
           .map((input) => input.text)
           .join('')
       ).toBe('ls\r')
-      transport.destroy?.()
     } finally {
+      destroyActiveTransports()
       vi.useRealTimers()
     }
   })
@@ -409,8 +536,8 @@ describe('remote pane input across a silent outage', () => {
           .map((input) => input.text)
           .join('')
       ).toBe('ls\r')
-      transport.destroy?.()
     } finally {
+      destroyActiveTransports()
       vi.useRealTimers()
     }
   })
@@ -434,8 +561,8 @@ describe('remote pane input across a silent outage', () => {
 
       // The given-up chunk's slot is filled empty so the host, which writes in order, can go on.
       expect(sentInputs(reattach).map((input) => input.text)).toEqual(['', 'ls\r'])
-      transport.destroy?.()
     } finally {
+      destroyActiveTransports()
       vi.useRealTimers()
     }
   })
@@ -457,8 +584,8 @@ describe('remote pane input across a silent outage', () => {
       await vi.advanceTimersByTimeAsync(50)
 
       expect(sentInputs(reattach).map((input) => input.text)).toEqual(['echo retained ', ''])
-      transport.destroy?.()
     } finally {
+      destroyActiveTransports()
       vi.useRealTimers()
     }
   })
@@ -487,7 +614,6 @@ describe('remote pane input across a silent outage', () => {
     await vi.waitFor(() => expect(sentInputs().at(-1)).toEqual({ seq: 4, text: 'd' }))
     expect(subscribeFrameCount()).toBe(1)
     expect(onWriteUnavailable).not.toHaveBeenCalled()
-    transport.destroy?.()
   })
 
   it('keeps resending through transient refusals, then falls back to a remount once they persist', async () => {
@@ -514,8 +640,8 @@ describe('remote pane input across a silent outage', () => {
       expect(onWriteUnavailable).toHaveBeenCalledTimes(1)
       emitInputAck(streamId, 0, RESEND_REQUEST)
       expect(onWriteUnavailable).toHaveBeenCalledTimes(1)
-      transport.destroy?.()
     } finally {
+      destroyActiveTransports()
       vi.useRealTimers()
     }
   })
@@ -532,7 +658,6 @@ describe('remote pane input across a silent outage', () => {
     await vi.waitFor(() => expect(sentInputs(2)).toHaveLength(2))
     emitInputAck(latestSubscribePayload().streamId, sentInputs(2)[1].seq)
     await expect(opener).resolves.toBe(false)
-    transport.destroy?.()
   })
 
   it('cancels a bracketed paste whose opener ack was lost, without sending the multiline body', async () => {
@@ -575,7 +700,6 @@ describe('remote pane input across a silent outage', () => {
 
     await expect(pasted).resolves.toMatchObject({ status: 'cancelled' })
     expect(sentText()).not.toContain('echo first')
-    transport.destroy?.()
   })
 
   it('reports an accepted write the host failed with unknown delivery as not sent, and never replays it', async () => {
@@ -590,7 +714,6 @@ describe('remote pane input across a silent outage', () => {
     await reconnect({ inputAck: 1 }, 2)
     transport.sendInput('ls\r', 'driving')
     await vi.waitFor(() => expect(sentInputs(2).map((input) => input.text)).toEqual(['ls\r']))
-    transport.destroy?.()
   })
 
   it.each([1, 2])(
@@ -617,7 +740,6 @@ describe('remote pane input across a silent outage', () => {
         emitInputAck(latestSubscribePayload().streamId, replayed.seq)
       }
       await expect(write).resolves.toBe(true)
-      transport.destroy?.()
     }
   )
 })
