@@ -177,7 +177,7 @@ export function joinStructuredLaunchState(
   const retrying = existing.visibilityUnknown || (strict && existing.callers.outcome === 'failed')
   const joined = joinLaunchDelivery(
     options,
-    recovering ? options.promptDelivery : existing.promptDelivery
+    recovering || claim ? options.promptDelivery : existing.promptDelivery
   )
   const promptMismatch =
     strict &&

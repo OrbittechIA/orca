@@ -18,6 +18,7 @@ export const ORCHESTRATION_MUTATION_REQUEST_SHOW_SPEC: CommandSpec = {
     'current-terminal',
     'provider-session'
   ],
+  identityFlagRoles: { terminal: 'target' },
   notes: [
     'Read-only: it never starts, retries, or settles anything, so it is safe to run after any lost response.',
     'Lookup requires the full canonical Orca base:binding hash; a Core pending fingerprint is not that hash. Optional --terminal, --process-incarnation, --generation and --provider filter recorded prompt fields. Zero/multiple matches remain ambiguous.',
