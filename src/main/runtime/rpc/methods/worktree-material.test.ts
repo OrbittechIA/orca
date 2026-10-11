@@ -255,10 +255,87 @@ it('retains UNKNOWN after possible material effects and restart, but preserves o
       )
     ).rejects.toThrow('before effect')
     expect(
-      reopened.db.getMutationReceipt('caller', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc')?.state
-    ).toBe('pending')
+      reopened.db.getMutationReceipt('caller', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc')
+    ).toBeUndefined()
   } finally {
     reopened.db.close()
+  }
+})
+
+it.each(['E_MATERIAL_CAS_CONFLICT', 'lifecycle_timeout'])(
+  'releases a proved pre-effect %s durably, admitting a fresh legitimate attempt after reload',
+  async (reason) => {
+    const root = mkdtempSync(join(tmpdir(), 'material-refusal-'))
+    paths.push(root)
+    const filename = join(root, 'ledger.sqlite')
+    const first = ledger(filename)
+    const id = '12121212-1212-4212-8212-121212121212'
+    const commits: unknown[] = []
+    const exec = first.db.db.exec.bind(first.db.db)
+    vi.spyOn(first.db.db, 'exec').mockImplementation((sql) => {
+      if (sql === 'COMMIT') {
+        commits.push(first.db.db.pragma('synchronous', { simple: true }))
+      }
+      return exec(sql)
+    })
+    await expect(
+      first.executor.run(
+        request(id),
+        payload(id),
+        () => {
+          expect(first.db.getMutationReceipt('caller', id)?.state).toBe('pending')
+          throw new Error(reason)
+        },
+        'caller'
+      )
+    ).rejects.toThrow(reason)
+    expect(first.db.getMutationReceipt('caller', id)).toBeUndefined()
+    expect(commits).toEqual([2, 2])
+    expect(first.db.db.pragma('synchronous', { simple: true })).toBe(1)
+    first.db.close()
+    const next = ledger(filename)
+    const fresh = '23232323-2323-4232-8232-232323232323'
+    try {
+      expect(next.db.getMutationReceipt('caller', id)).toBeUndefined()
+      const invoke = vi.fn(() => receipt(fresh))
+      await expect(
+        next.executor.run(request(fresh), payload(fresh), invoke, 'caller')
+      ).resolves.toMatchObject({ state: 'restored' })
+      expect(invoke).toHaveBeenCalledOnce()
+    } finally {
+      next.db.close()
+    }
+  }
+)
+
+it('another request reservation is a known refusal with no own claim or invocation', async () => {
+  const f = ledger()
+  const original = '34343434-3434-4343-8343-343434343434'
+  const other = '45454545-4545-4454-8454-454545454545'
+  try {
+    await expect(
+      f.executor.run(
+        request(original),
+        payload(original),
+        (mutation) => {
+          mutation?.markEffectPossible()
+          throw new Error('effect interrupted')
+        },
+        'caller'
+      )
+    ).rejects.toMatchObject({ code: 'operation_unknown' })
+    const before = f.db.getMutationReceipt('caller', original)
+    const invoke = vi.fn()
+    const error = await f.executor
+      .run(request(other), payload(other), invoke, 'caller-b')
+      .catch((error: unknown) => error)
+    expect(error).toMatchObject({ message: 'E_MATERIAL_TARGET_RESERVED' })
+    expect(error).not.toMatchObject({ code: 'operation_unknown' })
+    expect(f.db.getMutationReceipt('caller-b', other)).toBeUndefined()
+    expect(f.db.getMutationReceipt('caller', original)).toEqual(before)
+    expect(invoke).not.toHaveBeenCalled()
+  } finally {
+    f.db.close()
   }
 })
 
@@ -478,5 +555,119 @@ it('concurrent material callers both receive UNKNOWN after the same possible eff
     expect(harness.db.getMutationReceipt('caller', id)?.state).toBe('pending')
   } finally {
     harness.db.close()
+  }
+})
+
+it('failed durable cleanup and a claim found at BEGIN remain UNKNOWN without clearing history', async () => {
+  const f = ledger()
+  const id = '56565656-5656-4565-8565-565656565656'
+  const cleanup = vi.spyOn(f.db, 'discardEffectFreeMaterialClaim').mockImplementation(() => {
+    throw new Error('commit failed')
+  })
+  try {
+    await expect(
+      f.executor.run(
+        request(id),
+        payload(id),
+        () => {
+          throw new Error('pre-effect')
+        },
+        'caller'
+      )
+    ).rejects.toMatchObject({ code: 'operation_unknown' })
+    expect(f.db.getMutationReceipt('caller', id)?.state).toBe('pending')
+    cleanup.mockRestore()
+    const anotherRuntime = ledger()
+    try {
+      const begin = anotherRuntime.db.beginMutationReceipt.bind(anotherRuntime.db)
+      vi.spyOn(anotherRuntime.db, 'beginMutationReceipt').mockImplementation((params) => {
+        begin(params)
+        return begin(params)
+      })
+      const invoke = vi.fn()
+      await expect(
+        anotherRuntime.executor.run(request(id), payload(id), invoke, 'caller')
+      ).rejects.toMatchObject({ code: 'operation_unknown' })
+      expect(invoke).not.toHaveBeenCalled()
+      expect(anotherRuntime.db.getMutationReceipt('caller', id)?.state).toBe('pending')
+    } finally {
+      anotherRuntime.db.close()
+    }
+  } finally {
+    cleanup.mockRestore()
+    f.db.close()
+  }
+})
+
+it.each(['before', 'after'])(
+  'unary material handler through streaming preserves the %s-effect boundary',
+  async (phase) => {
+    const f = ledger()
+    const id = '67676767-6767-4676-8676-676767676767'
+    const root = mkdtempSync(join(tmpdir(), 'material-streaming-'))
+    paths.push(root)
+    const target = join(root, 'created')
+    const restore = vi
+      .spyOn(f.runtime, 'restoreMaterial')
+      .mockImplementation(async (_manifest, requestId, mark) => {
+        expect(requestId).toBe(id)
+        expect(f.db.getMutationReceipt('caller', id)?.state).toBe('pending')
+        expect(typeof mark).toBe('function')
+        if (phase === 'before') {
+          throw new Error('E_MATERIAL_CAS_CONFLICT')
+        }
+        mark()
+        await mkdir(target)
+        throw new Error('interrupted after mkdir')
+      })
+    const dispatcher = new RpcDispatcher({ runtime: f.runtime, methods: WORKTREE_MATERIAL_METHODS })
+    const replies: string[] = []
+    try {
+      await dispatcher.dispatchStreaming(
+        { ...request(id), params: payload(id) },
+        (reply) => replies.push(reply),
+        {
+          authenticatedCallerFingerprint: 'caller'
+        }
+      )
+      expect(restore).toHaveBeenCalledOnce()
+      expect(replies.join('')).toContain(
+        phase === 'before' ? 'E_MATERIAL_CAS_CONFLICT' : 'operation_unknown'
+      )
+      expect(f.db.getMutationReceipt('caller', id)?.state).toBe(
+        phase === 'before' ? undefined : 'pending'
+      )
+      if (phase === 'after') {
+        await dispatcher.dispatchStreaming({ ...request(id), params: payload(id) }, () => {}, {
+          authenticatedCallerFingerprint: 'caller'
+        })
+        expect(restore).toHaveBeenCalledOnce()
+      }
+    } finally {
+      restore.mockRestore()
+      f.db.close()
+    }
+  }
+)
+
+it('a BEGIN failure after durable commit is UNKNOWN and cannot discard the committed claim', async () => {
+  const f = ledger()
+  const id = '78787878-7878-4787-8787-787878787878'
+  const begin = f.db.beginMutationReceipt.bind(f.db)
+  vi.spyOn(f.db, 'beginMutationReceipt').mockImplementation((params) => {
+    begin(params)
+    throw new Error('failed to restore connection setting after COMMIT')
+  })
+  const cleanup = vi.spyOn(f.db, 'discardEffectFreeMaterialClaim')
+  const invoke = vi.fn()
+  try {
+    await expect(f.executor.run(request(id), payload(id), invoke, 'caller')).rejects.toMatchObject({
+      code: 'operation_unknown'
+    })
+    expect(f.db.getMutationReceipt('caller', id)?.state).toBe('pending')
+    expect(invoke).not.toHaveBeenCalled()
+    expect(cleanup).not.toHaveBeenCalled()
+  } finally {
+    f.db.close()
   }
 })

@@ -1,3 +1,6 @@
+import { lstatSync } from 'node:fs'
+import { join } from 'node:path'
+import { getAppEnvironment } from '../../shared/app-environment'
 import type { TerminalCreateOptions } from './orca-runtime-create-terminal-dependencies'
 import type { Worktree } from '../../shared/worktree/types'
 import { restoreMaterialGit } from './runtime-worktree-material-git'
@@ -6,6 +9,7 @@ import {
   materialAdmissionContext,
   withMaterialAdmission,
   withMaterialRestoreAdmission,
+  type MaterialAdmissionHold,
   type MaterialAdmissionAuthority
 } from './runtime-worktree-material-admission'
 import type { RuntimeManagedWorktreeCreateArgs } from './runtime-managed-worktree-create-types'
@@ -45,7 +49,23 @@ class OrcaRuntimeService extends OrcaRuntimeWithMigrationCatalog {
   }
 
   readonly materialAdmissionAuthority: MaterialAdmissionAuthority = {
-    getExistingDb: () => this.getExistingOrchestrationDb(),
+    getExistingDb: () => this.getOrchestrationDbIfAvailable(),
+    readPendingClaims: () => {
+      const opened = this.getOrchestrationDbIfAvailable()
+      if (opened) {
+        return opened.readPendingMaterialClaims()
+      }
+      try {
+        lstatSync(join(getAppEnvironment().getPath('userData'), 'orchestration.db'))
+      } catch (error) {
+        if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+          return []
+        }
+        throw new Error('E_MATERIAL_ADMISSION_UNVERIFIABLE: claim_path_unverifiable')
+      }
+      // Opening even readOnly SQLite may touch WAL sidecars. Use the normal owner's open handle.
+      throw new Error('E_MATERIAL_ADMISSION_UNVERIFIABLE: cold_claim_reader_unavailable')
+    },
     captureCensus: (id) => this.store?.captureLocalWorktreeMaterialCensus?.(id) ?? null
   }
 
@@ -58,11 +78,44 @@ class OrcaRuntimeService extends OrcaRuntimeWithMigrationCatalog {
   }
 
   override createTerminal(selector?: string, opts: TerminalCreateOptions = {}, created?: Worktree) {
+    const observedSelector =
+      selector ?? this.store?.getWorkspaceSession?.()?.activeWorktreeId ?? undefined
     return withMaterialAdmission(
       this.materialAdmissionAuthority,
-      { selector, cwd: opts.cwd },
+      { selector: observedSelector, cwd: opts.cwd },
       (hold) => super.createTerminal(selector, opts, created, hold)
     )
+  }
+
+  async admitDesktopMaterial(
+    selector: string | undefined,
+    opts: TerminalCreateOptions,
+    created: Worktree | undefined,
+    material: MaterialAdmissionHold
+  ) {
+    // Pin the observed default workspace before asking the renderer, which otherwise selects
+    // its active tab later. Its PTY entrypoint independently revalidates the final cwd as well.
+    const desktopSelector =
+      material.selector ??
+      selector ??
+      this.store?.getWorkspaceSession?.()?.activeWorktreeId ??
+      undefined
+    material.revalidate({ selector: desktopSelector, cwd: opts.cwd })
+    const desktopWorkspace = desktopSelector
+      ? await this.resolveTerminalWorkspaceLaunchScope(desktopSelector, created)
+      : null
+    if (desktopWorkspace) {
+      material.revalidate({
+        selector: desktopWorkspace.id,
+        cwd:
+          this.resolveWorkspaceTerminalStartupCwd(desktopWorkspace, opts.cwd) ??
+          desktopWorkspace.path,
+        connectionId: desktopWorkspace.connectionId
+      })
+    } else {
+      material.revalidate()
+    }
+    return desktopWorkspace ? `id:${desktopWorkspace.id}` : desktopSelector
   }
 
   private materialAuthority(manifest: MaterialManifest): MaterialAuthority {

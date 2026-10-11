@@ -36,7 +36,8 @@ export class OrcaRuntimeWithCreateTerminal extends OrcaRuntimeWithTerminalCreate
       if (!this.ptyController?.spawn) {
         throw new Error('runtime_unavailable')
       }
-      const workspace = await this.resolveTerminalWorkspaceLaunchScope(worktreeSelector, created)
+      const pinned = material.selector ?? worktreeSelector
+      const workspace = await this.resolveTerminalWorkspaceLaunchScope(pinned, created)
       const binding = {
         selector: workspace.id,
         cwd: workspace.path,
@@ -291,12 +292,12 @@ export class OrcaRuntimeWithCreateTerminal extends OrcaRuntimeWithTerminalCreate
         releaseStablePaneCreate()
       }
     }
+    const selected = await this.admitDesktopMaterial(worktreeSelector, opts, created, material)
     // The renderer owns this spawn, so this process cannot see when it is requested.
     opts.onPtySpawnDispatched?.()
-    material.revalidate()
     return await createDesktopTerminal(
       this,
-      worktreeSelector,
+      selected,
       opts,
       presentation,
       opts.rendererBacked === true ? authoritativeWindow : null,

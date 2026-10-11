@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { describe, expect, it, vi } from 'vitest'
 import { statSyncMock, spawnMock, wslUncDirectoryExistsAsyncMock } from './pty-ipc-mock-registry'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
@@ -55,7 +56,7 @@ describe('registerPtyHandlers', () => {
 
   it('passes floating terminal cwds through to the spawned shell', async () => {
     // Why: the floating sentinel has no worktree root; its cwd is validated against trusted-directory grants before reaching pty:spawn.
-    registerPtyHandlers(mainWindow as never)
+    registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
 
     await handlers.get('pty:spawn')!(null, {
       cols: 80,
@@ -70,7 +71,7 @@ describe('registerPtyHandlers', () => {
   it('rejects a renderer spawn while destructive worktree removal holds the gate', async () => {
     const removal = acquireWatcherRemovalGate('/repo/app')
     await removal.ready
-    registerPtyHandlers(mainWindow as never)
+    registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
 
     try {
       await expect(
@@ -88,7 +89,7 @@ describe('registerPtyHandlers', () => {
   it('rejects a sibling-worktree terminal cwd inside a worktree being removed', async () => {
     const removal = acquireWatcherRemovalGate('/repo/app')
     await removal.ready
-    registerPtyHandlers(mainWindow as never)
+    registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
 
     try {
       await expect(
@@ -109,6 +110,7 @@ describe('registerPtyHandlers', () => {
   })
   it('rejects a runtime sibling-worktree cwd inside a removing worktree', async () => {
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       registerPty: vi.fn(),
       onPtySpawned: vi.fn(),
@@ -144,7 +146,7 @@ describe('registerPtyHandlers', () => {
     }
   })
   it('falls back to the worktree root when a saved local cwd no longer exists', async () => {
-    registerPtyHandlers(mainWindow as never)
+    registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
     // Why: issue #7239 reproduced in a Japanese-named worktree; the fallback must return the selected worktree path verbatim.
     const worktreePath = '/Users/motoki/orca/workspaces/nakamuramotoki/Fableと議論'
     const missingCwd = `${worktreePath}/deleted-folder`
@@ -183,7 +185,7 @@ describe('registerPtyHandlers', () => {
 
       try {
         installDaemonTestProvider({ spawn: providerSpawn })
-        registerPtyHandlers(mainWindow as never)
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
         await handlers.get('pty:spawn')!(null, {
           cols: 80,
           rows: 24,
@@ -230,7 +232,7 @@ describe('registerPtyHandlers', () => {
 
     try {
       installDaemonTestProvider({ spawn: providerSpawn })
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const result = (await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -284,7 +286,7 @@ describe('registerPtyHandlers', () => {
       getDefaultShell: vi.fn(),
       getProfiles: vi.fn()
     } as never)
-    registerPtyHandlers(mainWindow as never)
+    registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
 
     await handlers.get('pty:spawn')!(null, {
       cols: 80,
@@ -321,7 +323,7 @@ describe('registerPtyHandlers', () => {
 
     try {
       installDaemonTestProvider({ spawn: providerSpawn })
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const result = (await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -345,7 +347,7 @@ describe('registerPtyHandlers', () => {
 
     try {
       installDaemonTestProvider({ spawn: providerSpawn })
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const result = (await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,

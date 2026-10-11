@@ -1,4 +1,12 @@
 import {
+  materialIndexEntries,
+  materialIndexIsWhole,
+  materialGitConfigIsPlain,
+  type MaterialCode,
+  type MaterialManifest,
+  type MaterialGitObservation
+} from '../../shared/worktree/material-types'
+import {
   materialPathAbsent as absent,
   absentLocalMaterialPath as absentPathWithoutSymlinks
 } from './runtime-worktree-material-admission'
@@ -9,11 +17,6 @@ import { devNull } from 'node:os'
 import { gitExecFileAsync, gitOptionalLocksDisabledEnv, isWslPath } from '../git/runner'
 import { deriveGitRemoteIdentity } from '../../shared/git-remote-identity'
 import { parseWorktreeList } from '../../shared/git-worktree-porcelain-parser'
-import type {
-  MaterialCode,
-  MaterialManifest,
-  MaterialGitObservation
-} from '../../shared/worktree/material-types'
 import { hashCanonical } from './rpc/orchestration-mutation-receipt'
 export type { MaterialGitObservation } from '../../shared/worktree/material-types'
 
@@ -84,9 +87,7 @@ async function historicalAdminProof(repoPath: string, manifest: MaterialManifest
     ADMIN_CONFLICT
   )
   const locks = [
-    path.join(admin, 'locked'),
-    path.join(admin, 'index.lock'),
-    path.join(admin, 'HEAD.lock'),
+    ...['locked', 'index.lock', 'HEAD.lock'].map((name) => path.join(admin, name)),
     path.join(common, 'packed-refs.lock'),
     path.join(common, 'refs', 'heads', `${manifest.branch}.lock`)
   ]
@@ -101,33 +102,11 @@ async function historicalAdminProof(repoPath: string, manifest: MaterialManifest
       UNSUPPORTED
     )
   }
-  // Git 2.25 treats fsmonitor=false as a hook pathname, so refuse any nonempty setting.
   const config = await run([...prefix, 'config', '--list'])
-  const unsafe =
-    /^(core\.fsmonitor|filter\..*\.(smudge|process)|extensions\.partialclone|remote\..*\.promisor)=.+/
-  requireGit(!config.split('\n').some((line) => unsafe.test(line)), UNSUPPORTED)
-  requireGit(
-    index.length >= 12 &&
-      [2, 3].includes(index.readUInt32BE(4)) &&
-      !index.includes(Buffer.from('link')),
-    UNSUPPORTED
-  )
-  const staged = await run([...prefix, 'ls-files', '--stage', '-z'])
-  const entriesFromIndex = staged
-    .split('\0')
-    .filter(Boolean)
-    .map((line) => {
-      const match = /^(100644|100755) ([a-f0-9]{40}) 0\t([^\0]+)$/.exec(line)
-      requireGit(
-        match &&
-          Buffer.byteLength(match[3]) <= 4096 &&
-          !match[3]
-            .split('/')
-            .some((part) => !part || part === '..' || part.toLowerCase() === '.git'),
-        UNSUPPORTED
-      )
-      return `${match[1]} blob ${match[2]}\t${match[3]}`
-    })
+  requireGit(materialGitConfigIsPlain(config), UNSUPPORTED)
+  requireGit(materialIndexIsWhole(index), UNSUPPORTED)
+  const entriesFromIndex = materialIndexEntries(await run([...prefix, 'ls-files', '--stage', '-z']))
+  requireGit(entriesFromIndex, UNSUPPORTED)
   const names = entriesFromIndex.map((entry) => entry.slice(entry.indexOf('\t') + 1).toLowerCase())
   requireGit(!names.some((name) => path.posix.basename(name) === '.gitattributes'), UNSUPPORTED)
   requireGit(
@@ -151,13 +130,29 @@ async function historicalAdminProof(repoPath: string, manifest: MaterialManifest
     ADMIN_CONFLICT
   )
   requireGit(entriesFromIndex.length <= 20_000, INVENTORY_UNVERIFIABLE)
+  const local = await run([...prefix, 'config', '--local', '--list'])
+  const enabled = await run([
+    ...prefix,
+    'config',
+    '--local',
+    '--type=bool',
+    '--default',
+    'false',
+    '--get',
+    'extensions.worktreeConfig'
+  ])
+  let worktree = local
+  if (enabled === 'true') {
+    const filename = path.join(admin, 'config.worktree')
+    worktree = (await absent(filename)) ? '' : (await readAdminFile(filename)).toString().trim()
+  }
   const indexDigest = sha256(index)
   const adminLinks = [admin, head.toString(), commonFile.toString()]
   return {
     admin,
     indexDigest,
     // Ordered admin evidence: locator, HEAD, common-dir link, index digest, config digest.
-    digest: hashCanonical([...adminLinks, indexDigest, hashCanonical(config)])
+    digest: hashCanonical([...adminLinks, indexDigest, hashCanonical([local, worktree])])
   }
 }
 
@@ -182,6 +177,8 @@ export async function inspectMaterialGit(
     )
     requireGit(!isWslPath(repoPath) && !isWslPath(manifest.path), 'E_MATERIAL_HOST_UNSUPPORTED')
     const run = (args: string[]) => runMaterialGit(repoPath, args)
+    // Object dereferences in a partial clone may lazy-fetch; refuse before reaching them.
+    requireGit(materialGitConfigIsPlain(await run(['config', '--list'])), UNSUPPORTED)
     requireGit(
       (await realpath(repoPath)) === path.resolve(repoPath) &&
         (await absentPathWithoutSymlinks(manifest.path)),

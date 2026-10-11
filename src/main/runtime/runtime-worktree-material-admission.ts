@@ -1,38 +1,34 @@
+import {
+  materialPathsOverlap as overlaps,
+  requireMaterialProof as requireAdmission,
+  resolveMaterialCensusSelector,
+  type MaterialAdmissionInput,
+  type MaterialMutationIdentity,
+  type MaterialAdmissionScope as Scope,
+  type MaterialManifest,
+  type MaterialMetadataCensus
+} from '../../shared/worktree/material-types'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import path from 'node:path'
 import { lstat } from 'node:fs/promises'
-import { realpathSync } from 'node:fs'
+import { realpathSync, lstatSync } from 'node:fs'
 import type { OrchestrationDb } from './orchestration/db'
-import type { MaterialManifest } from '../../shared/worktree/material-types'
-import type { MaterialMetadataCensus } from '../persistence/tracking-repos/local-worktree-material-census'
 import { splitWorktreeIdForFilesystem } from '../../shared/worktree/id'
 import { parseExecutionHostId } from '../../shared/execution-host'
 import { hashCanonical } from './rpc/orchestration-mutation-receipt'
 
-export type MaterialAdmissionInput = {
-  selector?: string
-  cwd?: string
-  executionHostId?: string | null
-  connectionId?: string | null
-  repoId?: string
-  branch?: string
-  creatingWorktree?: boolean
-}
+export type { MaterialAdmissionInput } from '../../shared/worktree/material-types'
 export type MaterialAdmissionAuthority = {
   getExistingDb(): OrchestrationDb | null
+  readPendingClaims(): MaterialManifest[] | null
   captureCensus(targetId: string): MaterialMetadataCensus | null
 }
 export type MaterialAdmissionHold = {
+  readonly selector?: string
   revalidate(input?: MaterialAdmissionInput): void
   release(): void
 }
-type MaterialMutationIdentity = {
-  callerFingerprint: string
-  requestId: string
-  method: string
-  payloadHash: string
-}
-type Window = { readers: number; writer?: MaterialMutationIdentity }
+type Window = { readers: Set<Scope>; writers: Map<MaterialMutationIdentity, MaterialManifest> }
 const windows = new WeakMap<MaterialAdmissionAuthority, Window>()
 const restored = new AsyncLocalStorage<{
   authority: MaterialAdmissionAuthority
@@ -43,19 +39,9 @@ export const materialAdmissionContext = Symbol('material-admission-context')
 export type MaterialAdmissionRequest = { [materialAdmissionContext]?: MaterialAdmissionAuthority }
 
 function admissionWindow(authority: MaterialAdmissionAuthority): Window {
-  let window = windows.get(authority)
-  if (!window) {
-    window = { readers: 0 }
-    windows.set(authority, window)
-  }
+  const window: Window = windows.get(authority) ?? { readers: new Set(), writers: new Map() }
+  windows.set(authority, window)
   return window
-}
-function overlaps(a: string, b: string): boolean {
-  const relative = path.relative(a, b)
-  return (
-    !relative ||
-    (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))
-  )
 }
 export function materialLocalPath(location: string): string {
   let current = path.resolve(location)
@@ -67,123 +53,147 @@ export function materialLocalPath(location: string): string {
       if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') {
         throw new Error('E_MATERIAL_ADMISSION_UNVERIFIABLE')
       }
+      requireAdmission(
+        !lstatSync(current, { throwIfNoEntry: false })?.isSymbolicLink(),
+        'E_MATERIAL_ADMISSION_UNVERIFIABLE'
+      )
       const parent = path.dirname(current)
-      if (parent === current) {
-        throw new Error('E_MATERIAL_ADMISSION_UNVERIFIABLE')
-      }
+      requireAdmission(parent !== current, 'E_MATERIAL_ADMISSION_UNVERIFIABLE')
       suffix.unshift(path.basename(current))
       current = parent
     }
   }
 }
-function assertAdmission(authority: MaterialAdmissionAuthority, input: MaterialAdmissionInput) {
+function scopeFor(
+  authority: MaterialAdmissionAuthority,
+  input: MaterialAdmissionInput,
+  requireProof = true
+): Scope {
   const host = parseExecutionHostId(input.executionHostId)
+  requireAdmission(!(input.executionHostId && !host), 'E_MATERIAL_ADMISSION_UNVERIFIABLE')
   if (input.connectionId || (host && host.kind !== 'local')) {
-    return
+    return { remote: true, locations: [] }
   }
-  if (input.executionHostId && !host) {
-    throw new Error('E_MATERIAL_ADMISSION_UNVERIFIABLE')
+  let selector = input.selector?.replace(/^id:/, '')
+  let parsed = splitWorktreeIdForFilesystem(selector ?? '')
+  // Exact physical locators need no global ownership census to compare against reservations.
+  // Aliases still require complete, unique resolution, including their execution host.
+  if (selector && !parsed && !requireProof) {
+    return { remote: false, locations: [] }
   }
-  const db = authority.getExistingDb()
-  const claims = db ? db.readPendingMaterialClaims() : []
-  if (claims === null) {
-    throw new Error('E_MATERIAL_ADMISSION_UNVERIFIABLE')
-  }
-  if (!claims.length) {
-    return
-  }
-  const selector = input.selector?.replace(/^id:/, '')
-  const census = authority.captureCensus(selector ?? '')
-  if (!census?.complete) {
-    throw new Error('E_MATERIAL_ADMISSION_UNVERIFIABLE')
-  }
-  const candidates = census.rows.filter(
-    (row) =>
-      !row.retained &&
-      (row.worktreeId === selector ||
-        row.key === selector ||
-        row.metadata.displayName === selector ||
-        `issue:${row.metadata.linkedIssue}` === selector)
-  )
-  const targets = new Map(candidates.map((row) => [`${row.hostId}|${row.worktreeId}`, row]))
-  if (targets.size > 1) {
-    throw new Error('E_MATERIAL_ADMISSION_UNVERIFIABLE')
-  }
-  const resolved = [...targets.values()][0]
-  if (resolved && resolved.hostId !== 'local') {
-    if (host?.kind === 'local' || !parseExecutionHostId(resolved.hostId)) {
-      throw new Error('E_MATERIAL_ADMISSION_UNVERIFIABLE')
+  if (selector && !parsed) {
+    const resolved = resolveMaterialCensusSelector(authority.captureCensus(selector), selector)
+    requireAdmission(resolved, 'E_MATERIAL_ADMISSION_UNVERIFIABLE')
+    if (resolved.hostId !== 'local') {
+      if (host?.kind === 'local' || !parseExecutionHostId(resolved.hostId)) {
+        throw new Error('E_MATERIAL_ADMISSION_UNVERIFIABLE')
+      }
+      return { remote: true, locations: [] }
     }
-    return
+    selector = resolved.worktreeId ?? undefined
+    parsed = splitWorktreeIdForFilesystem(selector ?? '')
   }
-  const workspace = splitWorktreeIdForFilesystem(
-    resolved?.worktreeId ?? selector ?? ''
-  )?.worktreePath
-  if (selector && (!workspace || !path.isAbsolute(workspace))) {
-    throw new Error('E_MATERIAL_ADMISSION_UNVERIFIABLE')
-  }
-  if (input.cwd && !path.isAbsolute(input.cwd) && !workspace) {
+  const workspace = parsed?.worktreePath
+  if (
+    (selector && (!workspace || !path.isAbsolute(workspace))) ||
+    (input.cwd && !path.isAbsolute(input.cwd) && !workspace)
+  ) {
+    if (!requireProof) {
+      return { remote: false, locations: [] }
+    }
     throw new Error('E_MATERIAL_ADMISSION_UNVERIFIABLE')
   }
   const cwd = input.cwd ? path.resolve(workspace ?? '/', input.cwd) : undefined
-  const locations = [workspace, cwd].filter((item): item is string => !!item).map(materialLocalPath)
-  for (const claim of claims) {
-    if (claim.executionHostId !== 'local') {
-      continue
-    }
-    if (
-      locations.some(
-        (location) => overlaps(claim.path, location) || overlaps(location, claim.path)
-      ) ||
-      selector === claim.worktreeId ||
-      (input.repoId === claim.repo.replace(/^id:/, '') && input.branch === claim.branch)
-    ) {
-      throw new Error('E_MATERIAL_TARGET_RESERVED')
-    }
+  return {
+    remote: false,
+    selector,
+    repoId: input.repoId ?? parsed?.repoId,
+    branch: input.branch,
+    locations: [workspace, cwd].filter((item): item is string => !!item)
   }
-  // The internal create entrypoints resolve their candidate by reading before revalidation.
-  if (!locations.length && !(input.creatingWorktree || (input.repoId && input.branch))) {
+}
+function conflicts(scope: Scope, claim: MaterialManifest): boolean {
+  return (
+    !scope.remote &&
+    claim.executionHostId === 'local' &&
+    (scope.locations
+      .map(materialLocalPath)
+      .some((location) => overlaps(claim.path, location) || overlaps(location, claim.path)) ||
+      scope.selector === claim.worktreeId ||
+      (scope.repoId === claim.repo.replace(/^id:/, '') && scope.branch === claim.branch))
+  )
+}
+function checkClaims(authority: MaterialAdmissionAuthority, scope: Scope, resolving: boolean) {
+  if (scope.remote) {
+    return
+  }
+  const claims = authority.readPendingClaims()
+  requireAdmission(!(claims === null), 'E_MATERIAL_ADMISSION_UNVERIFIABLE')
+  requireAdmission(!claims.some((claim) => conflicts(scope, claim)), 'E_MATERIAL_TARGET_RESERVED')
+  if (claims.length && !scope.locations.length && !resolving) {
     throw new Error('E_MATERIAL_ADMISSION_UNVERIFIABLE')
   }
 }
 
-/** No queued writer: a desktop shared call may reenter through a new IPC context. */
+/** Unresolved creation is a read-only resolution barrier; revalidation precedes its first effect. */
 export async function acquireMaterialAdmission(
   authority: MaterialAdmissionAuthority | undefined,
   input: MaterialAdmissionInput
 ): Promise<MaterialAdmissionHold> {
-  if (!authority) {
-    throw new Error('E_MATERIAL_ADMISSION_AUTHORITY_UNAVAILABLE')
-  }
+  requireAdmission(!!authority, 'E_MATERIAL_ADMISSION_AUTHORITY_UNAVAILABLE')
   const window = admissionWindow(authority)
-  let tracked = false
-  const admit = (actual: MaterialAdmissionInput) => {
+  const held = new Set<Scope>()
+  const admit = (actual: MaterialAdmissionInput, resolving = false) => {
     const host = parseExecutionHostId(actual.executionHostId)
-    const local = !actual.connectionId && (!host || host.kind === 'local')
-    if (local && window.writer) {
+    const remote = !!actual.connectionId || (!!host && host.kind !== 'local')
+    const claims = remote ? [] : authority.readPendingClaims()
+    requireAdmission(!(claims === null), 'E_MATERIAL_ADMISSION_UNVERIFIABLE')
+    const scope = scopeFor(authority, actual, claims.length > 0 || window.writers.size > 0)
+    if (
+      !scope.remote &&
+      [...window.writers.values()].some(
+        (claim) => !scope.locations.length || conflicts(scope, claim)
+      )
+    ) {
       throw new Error('E_MATERIAL_ADMISSION_BUSY')
     }
-    assertAdmission(authority, actual)
-    if (local && !tracked) {
-      window.readers++
-      tracked = true
-    }
+    checkClaims(authority, scope, resolving)
+    return scope
   }
-  admit(input)
+  let current = admit(input, input.creatingWorktree === true)
+  held.add(current)
+  window.readers.add(current)
   let released = false
-
   return {
-    revalidate: (actual = input) => {
-      if (released) {
-        throw new Error('E_MATERIAL_ADMISSION_RELEASED')
+    get selector() {
+      return current.selector ? `id:${current.selector}` : undefined
+    },
+    revalidate: (actual) => {
+      requireAdmission(!released, 'E_MATERIAL_ADMISSION_RELEASED')
+      if (actual) {
+        const next = admit(actual)
+        // Replace only the provisional barrier, retaining all already proven physical scopes.
+        if (!current.locations.length) {
+          window.readers.delete(current)
+          held.delete(current)
+        }
+        current = next
+        held.add(next)
+        window.readers.add(next)
       }
-      admit(input)
-      admit(actual)
+      for (const scope of held) {
+        if ([...window.writers.values()].some((claim) => conflicts(scope, claim))) {
+          throw new Error('E_MATERIAL_ADMISSION_BUSY')
+        }
+        checkClaims(authority, scope, false)
+      }
     },
     release: () => {
       if (!released) {
         released = true
-        window.readers -= Number(tracked)
+        for (const scope of held) {
+          window.readers.delete(scope)
+        }
       }
     }
   }
@@ -209,14 +219,30 @@ export function acquireMaterialMutation(
   manifest: MaterialManifest
 ) {
   const window = admissionWindow(authority)
-  if (window.writer || window.readers) {
+  if (
+    [...window.writers.values()].some((claim) =>
+      conflicts(
+        scopeFor(authority, {
+          selector: manifest.worktreeId,
+          cwd: manifest.path,
+          repoId: manifest.repo.replace(/^id:/, ''),
+          branch: manifest.branch,
+          executionHostId: manifest.executionHostId
+        }),
+        claim
+      )
+    ) ||
+    [...window.readers].some(
+      (scope) => !scope.remote && (!scope.locations.length || conflicts(scope, manifest))
+    )
+  ) {
     throw new Error('E_MATERIAL_ADMISSION_BUSY')
   }
-  window.writer = identity
+  window.writers.set(identity, manifest)
   let active = true
   return {
     run: <T>(operation: () => T): T => {
-      if (!active || window.writer !== identity) {
+      if (!active || !window.writers.has(identity)) {
         throw new Error('E_MATERIAL_CLAIM_UNVERIFIABLE')
       }
       return restored.run({ authority, identity, manifest }, operation)
@@ -224,7 +250,7 @@ export function acquireMaterialMutation(
     release: () => {
       if (active) {
         active = false
-        delete window.writer
+        window.writers.delete(identity)
       }
     }
   }
@@ -241,34 +267,14 @@ export async function withMaterialRestoreAdmission<T>(
     !permit ||
     permit.authority !== authority ||
     permit.identity.requestId !== requestId ||
-    admissionWindow(authority).writer !== permit.identity ||
+    !admissionWindow(authority).writers.has(permit.identity) ||
     hashCanonical(permit.manifest) !== hashCanonical(manifest)
   ) {
     throw new Error('E_MATERIAL_CLAIM_UNVERIFIABLE')
   }
-  const row = authority
-    .getExistingDb()
-    ?.getMutationReceipt(permit.identity.callerFingerprint, requestId)
-  if (
-    !row ||
-    row.state !== 'pending' ||
-    row.method !== permit.identity.method ||
-    row.payload_hash !== permit.identity.payloadHash ||
-    !row.receipt ||
-    Buffer.byteLength(row.receipt) > 32_768
-  ) {
-    throw new Error('E_MATERIAL_CLAIM_UNVERIFIABLE')
-  }
-  const recorded: unknown = JSON.parse(row.receipt)
-  if (
-    !recorded ||
-    typeof recorded !== 'object' ||
-    !('materialTarget' in recorded) ||
-    Object.keys(recorded).length !== 1 ||
-    hashCanonical(recorded.materialTarget) !== hashCanonical(manifest)
-  ) {
-    throw new Error('E_MATERIAL_CLAIM_UNVERIFIABLE')
-  }
+  const db = authority.getExistingDb()
+  requireAdmission(db, 'E_MATERIAL_CLAIM_UNVERIFIABLE')
+  db.assertPendingMaterialClaim({ ...permit.identity, material: manifest })
   return operation()
 }
 

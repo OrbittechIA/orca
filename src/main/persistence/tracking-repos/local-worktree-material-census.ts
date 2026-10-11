@@ -1,13 +1,15 @@
 import {
+  materialHistoryDigest as hashCanonical,
+  type MaterialMetadataCensus,
+  type MaterialManifest,
+  type MaterialHistoryAssertion
+} from '../../../shared/worktree/material-types'
+import {
   assertMaterialHistoryDomains,
   validRetainedHistory
 } from '../loading-store/profile-state-authority'
 import { randomUUID } from 'node:crypto'
 import { parseExecutionHostId } from '../../../shared/execution-host'
-import type {
-  MaterialManifest,
-  MaterialHistoryAssertion
-} from '../../../shared/worktree/material-types'
 import type { PersistedState } from '../../../shared/persisted-state-types'
 import type { WorktreeMeta } from '../../../shared/worktree/meta-types'
 import { canonicalWorktreeIdentity } from '../../../shared/worktree/identity'
@@ -16,30 +18,16 @@ import {
   getExecutionHostIdFromWorktreeHostIdentity,
   getWorktreeIdFromHostIdentity
 } from '../../../shared/worktree/host-qualified-identity'
-import { materialHistoryDigest as hashCanonical } from '../../../shared/worktree/material-types'
 
 type CensusState = Pick<
   PersistedState,
   'worktreeMeta' | 'worktreeMetaByIdentity' | 'worktreeIdentityAliases'
 >
 
-export type MaterialMetadataRow = {
-  key: string
-  worktreeId: string | null
-  hostId: string | null
-  instanceId: string | null
-  metadata: WorktreeMeta
-  retained?: boolean
-}
-export type MaterialMetadataCensus = {
-  complete: boolean
-  reason: 'complete' | 'limit' | 'opaque' | 'collision'
-  rows: MaterialMetadataRow[]
-  metadata: WorktreeMeta | null
-  metadataDigest: string | null
-  ownershipDigest: string | null
-}
-
+export type {
+  MaterialMetadataRow,
+  MaterialMetadataCensus
+} from '../../../shared/worktree/material-types'
 /** Captures all three maps without invoking migrating getters or choosing an alias winner. */
 export function captureLocalWorktreeMaterialCensus(
   state: CensusState,

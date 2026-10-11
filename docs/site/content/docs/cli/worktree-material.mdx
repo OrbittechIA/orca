@@ -39,12 +39,18 @@ without connection, retry, respawn, cache reconciliation or audit publication. A
 absence only through exact-incarnation death evidence. In-flight spawn, incomplete ownership, WSL or
 unknown process namespace, duplicate owners and an opaque structured record store prevent proof.
 Structured process evidence is checked for all local owners; expiry alone is never death evidence.
+`coverage.processes: complete` means this managed PTY and structured-record scope only. It does not
+prove absence of arbitrary or orphan processes under the UID; consumers must supply their own proof.
 
 RESTORE commits caller, request ID, method, payload hash and the entire target/CAS tuple atomically
-in the existing durable mutation ledger before filesystem effects. Only that transaction uses FULL
+in the existing durable mutation ledger before filesystem effects. The initial claim and a proved effect-free release use FULL
 synchronous durability. Pending claims conflict across callers and UUIDs, by physical path overlap or
 repo/ref. Ordinary create, terminal, structured session and desktop entrypoints check these claims,
-including after reopening the ledger. Admission is held through effects. An ordinary operation already
+including after ordinary reopening of the ledger. Admission observes an already open connection;
+absence of the database file is proved without opening SQLite. An existing cold database refuses with
+`cold_claim_reader_unavailable` until the normal database owner opens it. No observation starts relay,
+repoints or migrations. Admission is held through effects. Distinct proven paths stay eligible even
+when an unrelated metadata census is opaque; unresolved aliases and unreadable claims fail closed. A related ordinary operation or unresolved target already
 in progress makes a new restore fail before a claim is written; no exclusive waiter can deadlock a
 renderer IPC continuation.
 
@@ -67,5 +73,16 @@ material instances, admin/index/history digests, complete coverage and `writerCo
 SHOW returns this receipt only to its recorded caller, without opening cold SQLite or minting a caller.
 It never certifies current material or custody. Pending, malformed or uncertain outcomes have
 `retryAllowed: false`; use SHOW and PLAN only. Exceptions after possible effects, including failure to
-persist the final receipt, are UNKNOWN and retain the original claim. Never repeat RESTORE under a new
+persist the final receipt, are UNKNOWN and retain the original claim. A handler that finishes with
+a proved pre-effect failure releases only its own exact pending claim durably and returns a known
+refusal. A transport timeout alone is not that proof. A competing target reservation refuses before
+creating a new claim; it does not classify the new request as UNKNOWN. Never repeat RESTORE under a new
 UUID to escape a pending outcome. Original provider/dispatch evidence remains a separate settlement gate.
+
+The admin binding hashes local configuration and, when `extensions.worktreeConfig` is enabled,
+the historical admin's bounded `config.worktree` bytes. With that extension disabled the worktree
+slot repeats the local listing; with it enabled and the file proved absent the slot is empty.
+Effective global/system configuration is checked separately for unsafe features. A different safe
+HOME configuration therefore does not change the receipt's physical binding. Index bytes remain
+unchanged within the APP mutation; later consumers must independently prove tree entries and flags
+when observing a stat-only index refresh, without using that as permission to repeat RESTORE.

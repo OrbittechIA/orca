@@ -1,9 +1,20 @@
-import { mkdtemp, mkdir, writeFile, readFile, rm, symlink } from 'node:fs/promises'
+import {
+  mkdtemp,
+  mkdir,
+  writeFile,
+  readFile,
+  rm,
+  symlink,
+  readdir,
+  stat,
+  utimes
+} from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { gitExecFileAsync } from '../git/runner'
+import * as gitRunner from '../git/runner'
 import { inspectMaterialGit, restoreMaterialGit } from './runtime-worktree-material-git'
 import { planWorktreeMaterial } from './runtime-worktree-material'
 import { hashCanonical } from './rpc/orchestration-mutation-receipt'
@@ -20,7 +31,7 @@ afterEach(async () => {
   }
 })
 
-async function fixture() {
+async function fixture(extraNames: string[] = []) {
   const root = await mkdtemp(join(tmpdir(), 'orca-material-git-'))
   roots.push(root)
   const config = join(root, 'empty-gitconfig')
@@ -36,7 +47,11 @@ async function fixture() {
   await git('config', 'user.name', 'Fixture')
   await git('remote', 'add', 'origin', 'https://example.org/team/repo.git')
   await writeFile(join(repo, 'file.txt'), 'original\n')
-  await git('add', 'file.txt')
+  for (const name of extraNames) {
+    await mkdir(join(repo, name, '..'), { recursive: true })
+    await writeFile(join(repo, name), 'plain blob\n')
+  }
+  await git('add', '.')
   await git('commit', '--quiet', '-m', 'base')
   const target = join(root, 'historical')
   await git('worktree', 'add', '-b', 'historical', target)
@@ -131,6 +146,63 @@ it('refuses stale admin after merged review with exact path/head/index and metad
   expect(await f.git('rev-parse', 'historical')).toBe(f.manifest.head)
   expect(f.authority).toEqual(before)
   expect(existsSync(join(f.repo, 'hook-called'))).toBe(false)
+})
+
+it('link in a plain filename is not a split-index extension and restores unchanged blobs', async () => {
+  const f = await fixture(['docs/links.md', 'linker.c'])
+  const proof = await inspectMaterialGit(f.repo, f.manifest)
+  expect(proof.route).toBe('checkout-index')
+  await restoreMaterialGit(f.repo, f.manifest, proof, vi.fn(), vi.fn())
+  for (const name of ['docs/links.md', 'linker.c']) {
+    expect(await readFile(join(f.target, name), 'utf8')).toBe('plain blob\n')
+  }
+  expect(await readFile(join(f.admin, 'index'))).toEqual(f.indexBefore)
+})
+
+it.each(['', '=', '=false', '=true'])(
+  'refuses promisor presence (%s), including a bare boolean, before object reads',
+  async (setting) => {
+    const f = await fixture()
+    const config = join(f.repo, '.git', 'config')
+    await writeFile(
+      config,
+      `${await readFile(config, 'utf8')}\n[remote "origin"]\n\tpromisor${setting}\n`
+    )
+    const calls = vi.spyOn(gitRunner, 'gitExecFileAsync')
+    const proof = await inspectMaterialGit(f.repo, f.manifest)
+    expect(
+      calls.mock.calls.some(
+        ([args]) =>
+          args.includes('--verify') || args.includes('ls-tree') || args.includes('checkout-index')
+      )
+    ).toBe(false)
+    expect(proof.code).toBe('E_MATERIAL_CHECKOUT_TRANSFORM_UNSUPPORTED')
+    expect(proof.digest).toBeNull()
+    expect(existsSync(f.target)).toBe(false)
+    expect(await readFile(join(f.admin, 'index'))).toEqual(f.indexBefore)
+  }
+)
+
+it('refuses a real split index without refreshing shared index and accepts its unsplit successor', async () => {
+  const f = await fixture(['linker.c'])
+  await f.git(`--git-dir=${f.admin}`, `--work-tree=${f.repo}`, 'update-index', '--split-index')
+  const index = await readFile(join(f.admin, 'index'))
+  const shared = (await readdir(f.admin)).filter((name) => name.startsWith('sharedindex.'))
+  expect(shared.length).toBeGreaterThan(0)
+  const old = new Date('2000-01-01T00:00:00Z')
+  for (const name of shared) {
+    await utimes(join(f.admin, name), old, old)
+  }
+  expect((await inspectMaterialGit(f.repo, f.manifest)).code).toBe(
+    'E_MATERIAL_CHECKOUT_TRANSFORM_UNSUPPORTED'
+  )
+  expect(await readFile(join(f.admin, 'index'))).toEqual(index)
+  for (const name of shared) {
+    expect((await stat(join(f.admin, name))).mtimeMs).toBe(old.getTime())
+  }
+  expect(existsSync(f.target)).toBe(false)
+  await f.git(`--git-dir=${f.admin}`, `--work-tree=${f.repo}`, 'update-index', '--no-split-index')
+  expect((await inspectMaterialGit(f.repo, f.manifest)).route).toBe('checkout-index')
 })
 
 it('compares physical and metadata generations between plan and restore', async () => {
@@ -241,4 +313,28 @@ it('refuses incomplete reciprocal admin, changed HEAD, staged index and locks', 
   expect((await inspectMaterialGit(f.repo, f.manifest)).code).toBe('E_MATERIAL_ADMIN_CONFLICT')
   await rm(join(f.admin, 'commondir'))
   expect((await inspectMaterialGit(f.repo, f.manifest)).route).toBeUndefined()
+})
+
+it('binds only local/worktree config while separately refusing unsafe effective global config', async () => {
+  const f = await fixture()
+  const initial = await inspectMaterialGit(f.repo, f.manifest)
+  expect(initial.route).toBe('checkout-index')
+  const global = join(f.root, 'second-global')
+  await writeFile(global, '[user]\n\tname = Different Host\n')
+  vi.stubEnv('GIT_CONFIG_GLOBAL', global)
+  expect((await inspectMaterialGit(f.repo, f.manifest)).adminDigest).toBe(initial.adminDigest)
+  await f.git('config', '--local', 'user.name', 'Local Change')
+  const local = await inspectMaterialGit(f.repo, f.manifest)
+  expect(local.adminDigest).not.toBe(initial.adminDigest)
+  await f.git('config', '--local', 'extensions.worktreeConfig', 'true')
+  const noWorktreeFile = await inspectMaterialGit(f.repo, f.manifest)
+  expect(noWorktreeFile.route).toBe('checkout-index')
+  await writeFile(join(f.admin, 'config.worktree'), '[user]\n\tname = Historical Host\n')
+  expect((await inspectMaterialGit(f.repo, f.manifest)).adminDigest).not.toBe(
+    noWorktreeFile.adminDigest
+  )
+  await writeFile(global, '[remote "origin"]\n\tpromisor\n')
+  expect((await inspectMaterialGit(f.repo, f.manifest)).code).toBe(
+    'E_MATERIAL_CHECKOUT_TRANSFORM_UNSUPPORTED'
+  )
 })

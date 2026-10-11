@@ -152,11 +152,13 @@ export async function executeMaterialRestoreRequest(
   let promise!: Promise<unknown>
   promise = Promise.resolve().then(async (): Promise<unknown> => {
     let effectPossible = false
+    let startedHere = false
     try {
       const begun = db.beginMutationReceipt({ ...identity, material: input.manifest })
       if (begun.disposition !== 'started') {
         return replay(begun.row)
       }
+      startedHere = true
       const result = await permit.run(() =>
         invoke({
           identity,
@@ -177,6 +179,22 @@ export async function executeMaterialRestoreRequest(
     } catch (error) {
       if (effectPossible) {
         throw unknown()
+      }
+      if (startedHere) {
+        try {
+          db.discardEffectFreeMaterialClaim({ ...identity, material: input.manifest })
+        } catch {
+          throw unknown()
+        }
+      }
+      if (!startedHere) {
+        try {
+          if (db.getMutationReceipt(callerFingerprint, requestId)) {
+            throw unknown()
+          }
+        } catch {
+          throw unknown()
+        }
       }
       throw error
     } finally {

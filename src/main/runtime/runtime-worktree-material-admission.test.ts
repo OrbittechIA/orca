@@ -1,4 +1,13 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import {
+  mkdtempSync,
+  rmSync,
+  readFileSync,
+  readdirSync,
+  mkdirSync,
+  symlinkSync,
+  unlinkSync
+} from 'node:fs'
+import { getAppEnvironment } from '../../shared/app-environment'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -47,6 +56,7 @@ const identity = {
 function harness(db: OrchestrationDb) {
   return {
     getExistingDb: () => db,
+    readPendingClaims: () => db.readPendingMaterialClaims(),
     captureCensus: (id: string) =>
       captureLocalWorktreeMaterialCensus(getDefaultPersistedState('/fixture/profile'), id)
   }
@@ -134,15 +144,15 @@ it('rechecks claims arriving during resolution before any effect; unrelated and 
   }
 })
 
-it('does not queue restore behind desktop IPC and creates no claim while ordinary admission is held', async () => {
+it('does not queue related restore behind IPC while allowing proven independent targets', async () => {
   const db = new OrchestrationDb(':memory:')
   try {
     const authority = harness(db)
-    const outer = await acquireMaterialAdmission(authority, { cwd: '/fixture/other' })
+    const outer = await acquireMaterialAdmission(authority, { cwd: manifest.path })
     expect(() => acquireMaterialMutation(authority, identity, manifest)).toThrow(
       'E_MATERIAL_ADMISSION_BUSY'
     )
-    const ipc = await acquireMaterialAdmission(authority, { cwd: '/fixture/other' })
+    const ipc = await acquireMaterialAdmission(authority, { cwd: manifest.path })
     ipc.release()
     outer.release()
     expect(db.getMutationReceipt('caller-a', identity.requestId)).toBeUndefined()
@@ -159,14 +169,17 @@ it('does not queue restore behind desktop IPC and creates no claim while ordinar
           )
         )
       ).toBe('restored')
-      await expect(acquireMaterialAdmission(authority, { cwd: '/fixture/other' })).rejects.toThrow(
+      const independent = await acquireMaterialAdmission(authority, { cwd: '/fixture/other' })
+      independent.revalidate()
+      independent.release()
+      await expect(acquireMaterialAdmission(authority, { cwd: manifest.path })).rejects.toThrow(
         'E_MATERIAL_ADMISSION_BUSY'
       )
       const remote = await acquireMaterialAdmission(authority, {
         cwd: '/remote',
         connectionId: 'ssh-fixture'
       })
-      expect(() => remote.revalidate({ cwd: '/fixture/other', executionHostId: 'local' })).toThrow(
+      expect(() => remote.revalidate({ cwd: manifest.path, executionHostId: 'local' })).toThrow(
         'E_MATERIAL_ADMISSION_BUSY'
       )
       remote.release()
@@ -228,6 +241,7 @@ it('remote metadata never overrides a local PTY execution route', async () => {
     }
     const authority = {
       getExistingDb: () => db,
+      readPendingClaims: () => db.readPendingMaterialClaims(),
       captureCensus: (id: string) => captureLocalWorktreeMaterialCensus(state, id)
     }
     await expect(
@@ -236,7 +250,7 @@ it('remote metadata never overrides a local PTY execution route', async () => {
         cwd: manifest.path,
         executionHostId: 'local'
       })
-    ).rejects.toThrow('E_MATERIAL_ADMISSION_UNVERIFIABLE')
+    ).rejects.toThrow('E_MATERIAL_TARGET_RESERVED')
   } finally {
     db.close()
   }
@@ -388,5 +402,169 @@ it('real desktop local create refuses reserved branch before prepared checkout, 
   } finally {
     db.close()
     vi.restoreAllMocks()
+  }
+})
+
+it('an opaque unrelated census cannot block a proven independent path, but cannot resolve aliases', async () => {
+  const db = new OrchestrationDb(':memory:')
+  try {
+    db.beginMutationReceipt({ ...identity, material: manifest })
+    const authority = { ...harness(db), captureCensus: () => null }
+    const effect = vi.fn(async () => 'independent')
+    await expect(withMaterialAdmission(authority, { cwd: '/fixture/other' }, effect)).resolves.toBe(
+      'independent'
+    )
+    await expect(withMaterialAdmission(authority, { cwd: manifest.path }, effect)).rejects.toThrow(
+      'E_MATERIAL_TARGET_RESERVED'
+    )
+    await expect(
+      withMaterialAdmission(authority, { selector: 'opaque', cwd: '/fixture/other' }, effect)
+    ).rejects.toThrow('E_MATERIAL_ADMISSION_UNVERIFIABLE')
+    expect(effect).toHaveBeenCalledOnce()
+  } finally {
+    db.close()
+  }
+})
+
+it('an independent hold coexists with restore; unresolved scope blocks mutation until binding', async () => {
+  const db = new OrchestrationDb(':memory:')
+  try {
+    const authority = harness(db)
+    const independent = await acquireMaterialAdmission(authority, { cwd: '/fixture/other' })
+    const permit = acquireMaterialMutation(authority, identity, manifest)
+    independent.revalidate()
+    permit.release()
+    independent.release()
+    const pending = await acquireMaterialAdmission(authority, { creatingWorktree: true })
+    expect(() => acquireMaterialMutation(authority, identity, manifest)).toThrow(
+      'E_MATERIAL_ADMISSION_BUSY'
+    )
+    pending.revalidate({ cwd: '/fixture/other' })
+    const bound = acquireMaterialMutation(authority, identity, manifest)
+    bound.release()
+    pending.release()
+  } finally {
+    db.close()
+  }
+})
+
+it('cold claim observation never opens SQLite, relay or repoints and leaves every database file intact', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'material-cold-reader-'))
+  roots.push(root)
+  const filename = join(root, 'orchestration.db')
+  const first = new OrchestrationDb(filename)
+  first.beginMutationReceipt({ ...identity, material: manifest })
+  first.close()
+  const files = () =>
+    Object.fromEntries(
+      readdirSync(root)
+        .sort()
+        .map((name) => [name, readFileSync(join(root, name))])
+    )
+  const before = files()
+  const path = vi.spyOn(getAppEnvironment(), 'getPath').mockReturnValue(root)
+  const runtime = new OrcaRuntimeService()
+  const opening = vi.spyOn(runtime, 'getOrchestrationDb')
+  const existing = vi.spyOn(runtime, 'getExistingOrchestrationDb')
+  try {
+    await expect(
+      acquireMaterialAdmission(runtime.materialAdmissionAuthority, { cwd: '/fixture/other' })
+    ).rejects.toThrow('cold_claim_reader_unavailable')
+    expect(opening).not.toHaveBeenCalled()
+    expect(existing).not.toHaveBeenCalled()
+    expect(files()).toEqual(before)
+  } finally {
+    path.mockRestore()
+    opening.mockRestore()
+    existing.mockRestore()
+  }
+})
+
+it('revalidation observes a writer even before its claim is inserted after a symlink changes', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'material-symlink-race-'))
+  roots.push(root)
+  const safe = join(root, 'safe')
+  const target = join(root, 'missing')
+  const alias = join(root, 'alias')
+  mkdirSync(safe)
+  symlinkSync(safe, alias, 'dir')
+  const db = new OrchestrationDb(':memory:')
+  const authority = harness(db)
+  const hold = await acquireMaterialAdmission(authority, { cwd: alias })
+  const permit = acquireMaterialMutation(authority, identity, {
+    ...manifest,
+    path: target,
+    worktreeId: `fixture::${target}`
+  })
+  try {
+    expect(db.readPendingMaterialClaims()).toEqual([])
+    unlinkSync(alias)
+    mkdirSync(target)
+    symlinkSync(target, alias, 'dir')
+    expect(() => hold.revalidate()).toThrow()
+  } finally {
+    hold.release()
+    permit.release()
+    db.close()
+  }
+})
+
+it('default terminal resolves the observed active workspace and isolates it from unrelated claims', async () => {
+  const f = createSqliteMaintenanceFixture()
+  const db = new OrchestrationDb(':memory:')
+  const runtime = new OrcaRuntimeService(f.store)
+  runtime.setOrchestrationDb(db)
+  const session = f.store.getWorkspaceSession()
+  const selected = vi
+    .spyOn(f.store, 'getWorkspaceSession')
+    .mockReturnValue({ ...session, activeWorktreeId: manifest.worktreeId })
+  const boundary = vi.spyOn(runtime, 'getAvailableAuthoritativeWindow').mockImplementation(() => {
+    throw new Error('ordinary_terminal_boundary')
+  })
+  try {
+    db.beginMutationReceipt({ ...identity, material: manifest })
+    await expect(runtime.createTerminal()).rejects.toThrow('E_MATERIAL_TARGET_RESERVED')
+    expect(boundary).not.toHaveBeenCalled()
+    selected.mockReturnValue({ ...session, activeWorktreeId: 'fixture::/fixture/other' })
+    await expect(runtime.createTerminal()).rejects.toThrow('ordinary_terminal_boundary')
+    expect(boundary).toHaveBeenCalledOnce()
+  } finally {
+    selected.mockRestore()
+    boundary.mockRestore()
+    db.close()
+  }
+})
+
+it('desktop admission refuses a changed default before its effectful resolver', async () => {
+  const f = createSqliteMaintenanceFixture()
+  const db = new OrchestrationDb(':memory:')
+  const runtime = new OrcaRuntimeService(f.store)
+  runtime.setOrchestrationDb(db)
+  const session = f.store.getWorkspaceSession()
+  const selected = vi
+    .spyOn(f.store, 'getWorkspaceSession')
+    .mockReturnValue({ ...session, activeWorktreeId: manifest.worktreeId })
+  const resolver = vi
+    .spyOn(runtime, 'resolveTerminalWorkspaceLaunchScope')
+    .mockRejectedValue(new Error('resolver_boundary'))
+  const hold = await acquireMaterialAdmission(runtime.materialAdmissionAuthority, {
+    creatingWorktree: true
+  })
+  try {
+    db.beginMutationReceipt({ ...identity, material: manifest })
+    await expect(runtime.admitDesktopMaterial(undefined, {}, undefined, hold)).rejects.toThrow(
+      'E_MATERIAL_TARGET_RESERVED'
+    )
+    expect(resolver).not.toHaveBeenCalled()
+    selected.mockReturnValue({ ...session, activeWorktreeId: 'fixture::/fixture/other' })
+    await expect(runtime.admitDesktopMaterial(undefined, {}, undefined, hold)).rejects.toThrow(
+      'resolver_boundary'
+    )
+    expect(resolver).toHaveBeenCalledOnce()
+  } finally {
+    hold.release()
+    selected.mockRestore()
+    resolver.mockRestore()
+    db.close()
   }
 })

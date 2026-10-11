@@ -71,7 +71,7 @@ export const ROOT_HELP_TEXT_PRIMARY = [
   '',
   'Worktrees:',
   '  worktree material-plan    Inspect exact historical material without changes',
-  '  worktree material-restore Check the durable restoration boundary (currently refuses)',
+  '  worktree material-restore Restore exact historical checkout after PLAN; UNKNOWN requires SHOW',
   '  worktree material-show    Inspect your request; never confirms writer or settlement',
   '  worktree list             List Orca-managed worktrees',
   '  worktree show             Show one worktree',

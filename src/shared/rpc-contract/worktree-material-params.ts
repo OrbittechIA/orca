@@ -83,6 +83,7 @@ export const MaterialRestoredReceipt = z
       .object({
         git: z.literal(true),
         hostMetadata: z.literal('complete'),
+        // Scope is managed PTYs and structured records, not all UID processes or custody.
         processes: z.literal('complete')
       })
       .strict(),

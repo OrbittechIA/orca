@@ -1,9 +1,10 @@
+import {
+  materialHistoryDigest,
+  type MaterialManifest,
+  type MaterialReceiptClaim
+} from '../../../../shared/worktree/material-types'
 import path from 'node:path'
 import { WorktreeMaterialRestore } from '../../../../shared/rpc-contract/worktree-material-params'
-import type {
-  MaterialManifest,
-  MaterialReceiptClaim
-} from '../../../../shared/worktree/material-types'
 import { OrchestrationError } from '../orchestration-error'
 import { ensureMutationReceiptCapacity } from '../mutation-receipt-capacity'
 import type { MutationReceiptRow } from '../types'
@@ -97,7 +98,7 @@ class OrchestrationDbCore {
                 (material.repo === claim.repo && material.branch === claim.branch))
           )
         ) {
-          throw new OrchestrationError('operation_unknown', 'E_MATERIAL_TARGET_RESERVED')
+          throw new Error('E_MATERIAL_TARGET_RESERVED')
         }
       }
       ensureMutationReceiptCapacity(this.db)
@@ -124,6 +125,47 @@ class OrchestrationDbCore {
       throw error
     } finally {
       if (material && typeof priorSync === 'number' && [0, 1, 2, 3].includes(priorSync)) {
+        this.db.pragma(`synchronous = ${priorSync}`)
+      }
+    }
+  }
+
+  assertPendingMaterialClaim(this: OrchestrationDb, params: MaterialReceiptClaim): void {
+    const row = this.getMutationReceipt(params.callerFingerprint, params.requestId)
+    if (
+      params.method !== 'worktree.materialRestore' ||
+      !row ||
+      row.state !== 'pending' ||
+      row.method !== params.method ||
+      row.payload_hash !== params.payloadHash ||
+      !row.receipt ||
+      Buffer.byteLength(row.receipt) > 32_768 ||
+      materialHistoryDigest(JSON.parse(row.receipt)) !==
+        materialHistoryDigest({ materialTarget: params.material })
+    ) {
+      throw new Error('E_MATERIAL_CLAIM_UNVERIFIABLE')
+    }
+  }
+
+  /** Only the executor that began this exact claim may release a proved effect-free failure. */
+  discardEffectFreeMaterialClaim(this: OrchestrationDb, params: MaterialReceiptClaim): void {
+    const priorSync = this.db.pragma('synchronous', { simple: true })
+    this.db.pragma('synchronous = FULL')
+    try {
+      this.db.exec('BEGIN IMMEDIATE')
+      this.assertPendingMaterialClaim(params)
+      this.discardPendingMutationReceipt(params.callerFingerprint, params.requestId)
+      if (this.getMutationReceipt(params.callerFingerprint, params.requestId)) {
+        throw new Error('E_MATERIAL_CLAIM_UNVERIFIABLE')
+      }
+      this.db.exec('COMMIT')
+    } catch (error) {
+      if (this.db.isTransaction) {
+        this.db.exec('ROLLBACK')
+      }
+      throw error
+    } finally {
+      if (typeof priorSync === 'number' && [0, 1, 2, 3].includes(priorSync)) {
         this.db.pragma(`synchronous = ${priorSync}`)
       }
     }

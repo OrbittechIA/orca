@@ -52,7 +52,7 @@ export const CORE_COMMAND_SPECS: CommandSpec[] = [
     usage: 'orca worktree material-restore --manifest <file> --request-id <uuid> [--json]',
     allowedFlags: [...GLOBAL_FLAGS, 'manifest', 'request-id'],
     notes: [
-      'Currently refuses before material effects: complete ownership census and restart admission are unproven.',
+      'Restores the missing checkout and publishes a new material instance after exact PLAN, census and durable claim checks. UNKNOWN outcomes require material-show; never repeat RESTORE.',
       'Never substitute ordinary create, force or prune. Inspect the same request with material-show.'
     ]
   },
