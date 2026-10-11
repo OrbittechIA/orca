@@ -1,4 +1,21 @@
-import { planWorktreeMaterial } from './runtime-worktree-material'
+import type { TerminalCreateOptions } from './orca-runtime-create-terminal-dependencies'
+import type { Worktree } from '../../shared/worktree/types'
+import { restoreMaterialGit } from './runtime-worktree-material-git'
+import { MaterialRestoredReceipt } from '../../shared/rpc-contract/worktree-material-params'
+import {
+  materialAdmissionContext,
+  withMaterialAdmission,
+  withMaterialRestoreAdmission,
+  type MaterialAdmissionAuthority
+} from './runtime-worktree-material-admission'
+import type { RuntimeManagedWorktreeCreateArgs } from './runtime-managed-worktree-create-types'
+import {
+  planWorktreeMaterial,
+  inspectWorktreeMaterial,
+  observeMaterialProcessAbsence,
+  materialAuthorityFence,
+  type MaterialAuthority
+} from './runtime-worktree-material'
 import type { MaterialManifest } from '../../shared/worktree/material-types'
 import { installRuntimeLinearCommandSurface } from './runtime-linear-command-surface'
 import { OrcaRuntimeWithMigrationCatalog } from './orca-runtime-migration-catalog'
@@ -27,15 +44,131 @@ class OrcaRuntimeService extends OrcaRuntimeWithMigrationCatalog {
     registerWorktreeChangeInvalidator((repoId) => this.invalidateWorktreeCatalog(repoId))
   }
 
+  readonly materialAdmissionAuthority: MaterialAdmissionAuthority = {
+    getExistingDb: () => this.getExistingOrchestrationDb(),
+    captureCensus: (id) => this.store?.captureLocalWorktreeMaterialCensus?.(id) ?? null
+  }
+
+  override createManagedWorktree(args: RuntimeManagedWorktreeCreateArgs) {
+    return withMaterialAdmission(this.materialAdmissionAuthority, { creatingWorktree: true }, () =>
+      super.createManagedWorktree(
+        Object.assign({}, args, { [materialAdmissionContext]: this.materialAdmissionAuthority })
+      )
+    )
+  }
+
+  override createTerminal(selector?: string, opts: TerminalCreateOptions = {}, created?: Worktree) {
+    return withMaterialAdmission(
+      this.materialAdmissionAuthority,
+      { selector, cwd: opts.cwd },
+      (hold) => super.createTerminal(selector, opts, created, hold)
+    )
+  }
+
+  private materialAuthority(manifest: MaterialManifest): MaterialAuthority {
+    return {
+      repos: this.store?.getRepos() ?? [],
+      census: this.store?.captureLocalWorktreeMaterialCensus?.(manifest.worktreeId) ?? null,
+      observePty: this.ptyController?.observeMaterialCensus?.bind(this.ptyController),
+      peekStructured: peekOpenedAgentSessionRecordStore,
+      historyReadback: this.store?.supportsMaterialHistoryReadback?.() === true
+    }
+  }
+
   planMaterial(manifest: MaterialManifest) {
-    const repos = this.store?.getRepos() ?? []
-    const matching = repos.filter((repo) => `id:${repo.id}` === manifest.repo)
-    const repo = matching.length === 1 ? matching[0] : undefined
-    const snapshot =
-      repo && manifest.executionHostId === 'local'
-        ? (this.store?.captureNativeLocalWorktreeMetadataScanExpectation?.(repo) ?? null)
-        : null
-    return planWorktreeMaterial({ repos, snapshot }, manifest)
+    return planWorktreeMaterial(this.materialAuthority(manifest), manifest)
+  }
+
+  restoreMaterial(manifest: MaterialManifest, requestId: string, markEffectPossible: () => void) {
+    return withMaterialRestoreAdmission(
+      this.materialAdmissionAuthority,
+      manifest,
+      requestId,
+      async () => {
+        const release = await this.holdWorktreeLifecycleExclusively(
+          manifest.worktreeId,
+          Date.now() + 30_000,
+          'local'
+        )
+        try {
+          const store = this.store
+          const ptyController = this.ptyController
+          const admitted = this.materialAuthority(manifest)
+          let fence = materialAuthorityFence(admitted, manifest)
+          const observed = await inspectWorktreeMaterial(admitted, manifest)
+          if (
+            !observed.plan.materializable ||
+            !observed.repo ||
+            !observed.git?.adminDigest ||
+            !observed.git.indexDigest ||
+            !observed.stillCurrent ||
+            !store?.runDurableMutation ||
+            !store.stageMaterialHistory ||
+            !store.publishMaterialIdentity
+          ) {
+            throw new Error(observed.plan.code)
+          }
+          let currentProcessProof = observed.stillCurrent
+          const assertMetadata = () => {
+            if (this.store !== store || this.ptyController !== ptyController) {
+              throw new Error('E_MATERIAL_CAS_CONFLICT')
+            }
+            return fence(this.materialAuthority(manifest))
+          }
+          const assertCurrent = async () => {
+            const proof = await observeMaterialProcessAbsence(assertMetadata(), manifest)
+            if (!proof?.()) {
+              throw new Error('E_MATERIAL_CENSUS_UNVERIFIABLE')
+            }
+            assertMetadata()
+            currentProcessProof = proof
+          }
+          const assertPublication = () => {
+            assertMetadata()
+            if (!currentProcessProof()) {
+              throw new Error('E_MATERIAL_CENSUS_UNVERIFIABLE')
+            }
+          }
+          await restoreMaterialGit(
+            observed.repo.path,
+            manifest,
+            observed.git,
+            markEffectPossible,
+            assertCurrent
+          )
+          const history = await store.runDurableMutation(
+            () => {
+              const history = store.stageMaterialHistory!(manifest, requestId)
+              fence = materialAuthorityFence(this.materialAuthority(manifest), manifest)
+              assertPublication()
+              return { value: history }
+            },
+            { revalidate: assertPublication }
+          )
+          await assertCurrent()
+          const instanceId = await store.runDurableMutation(
+            () => ({ value: store.publishMaterialIdentity!(history) }),
+            { materialHistory: history, revalidate: assertPublication }
+          )
+          return MaterialRestoredReceipt.parse({
+            schemaVersion: 1,
+            state: 'restored',
+            requestId,
+            manifest,
+            adminDigest: observed.git.adminDigest,
+            indexDigest: observed.git.indexDigest,
+            historyDigest: history.historyDigest,
+            historicalInstanceId: manifest.historicalInstanceId,
+            instanceId,
+            coverage: observed.plan.coverage,
+            retryAllowed: false,
+            writerConfirmed: false
+          })
+        } finally {
+          release()
+        }
+      }
+    )
   }
 
   materialReceiptDb() {

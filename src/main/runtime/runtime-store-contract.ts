@@ -1,8 +1,29 @@
+import type { Repo } from '../../shared/repo-types'
+import type { NativeLocalWorktreeMetadataScanExpectation } from '../persistence/tracking-repos/local-worktree-metadata-scan-expectation'
+import type { MaterialMetadataCensus } from '../persistence/tracking-repos/local-worktree-material-census'
+import type { MaterialPtyCensus } from '../providers/pty-provider-contract'
+import type { AgentSessionRecordStore } from './agent-session-record-store'
+export type MaterialAuthority = {
+  repos: Repo[]
+  snapshot?: NativeLocalWorktreeMetadataScanExpectation | null
+  census?: MaterialMetadataCensus | null
+  observePty?: (options: { deadlineMs: number }) => Promise<MaterialPtyCensus>
+  peekStructured?: () => Pick<
+    AgentSessionRecordStore,
+    'hostId' | 'readOnly' | 'listHeldSessionIds' | 'listRecords'
+  > | null
+  historyReadback?: boolean
+}
+
 import type { Store } from '../persistence'
 import type { GlobalSettings } from '../../shared/global-settings-types'
 import type { VoiceSettings } from '../../shared/speech-types'
 
 export type RuntimeStore = {
+  captureLocalWorktreeMaterialCensus?: Store['captureLocalWorktreeMaterialCensus']
+  stageMaterialHistory?: Store['stageMaterialHistory']
+  publishMaterialIdentity?: Store['publishMaterialIdentity']
+  supportsMaterialHistoryReadback?: Store['supportsMaterialHistoryReadback']
   getRepos: Store['getRepos']
   getRepo: Store['getRepo']
   addRepo: Store['addRepo']

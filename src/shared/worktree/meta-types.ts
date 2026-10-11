@@ -19,6 +19,12 @@ export type WorktreeMeta = {
   /** Retained before any material instance rotation; never projected to public worktree JSON. */
   materialHistory?: {
     schemaVersion: 1
+    worktreeId?: string
+    representations?: {
+      legacy: boolean
+      canonicalKeys: string[]
+      aliases: Record<string, string[]>
+    }
     requestId: string
     historicalInstanceId: string | null
     metadataDigest: string

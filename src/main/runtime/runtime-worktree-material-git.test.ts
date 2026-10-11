@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { gitExecFileAsync } from '../git/runner'
-import { inspectMaterialGit } from './runtime-worktree-material-git'
+import { inspectMaterialGit, restoreMaterialGit } from './runtime-worktree-material-git'
 import { planWorktreeMaterial } from './runtime-worktree-material'
 import { hashCanonical } from './rpc/orchestration-mutation-receipt'
 import type { MaterialManifest } from '../../shared/worktree/material-types'
@@ -15,7 +15,9 @@ const roots: string[] = []
 afterEach(async () => {
   vi.restoreAllMocks()
   vi.unstubAllEnvs()
-  for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true })
+  for (const root of roots.splice(0)) {
+    await rm(root, { recursive: true, force: true })
+  }
 })
 
 async function fixture() {
@@ -178,9 +180,17 @@ it('checkout-index plus exclusive .git link preserves historical admin, HEAD and
   const adminHead = await readFile(join(f.admin, 'HEAD'))
   const adminGitdir = await readFile(join(f.admin, 'gitdir'))
   const common = await readFile(join(f.admin, 'commondir'))
-  await mkdir(f.target)
-  await writeFile(join(f.target, '.git'), `gitdir: ${f.admin}\n`, { flag: 'wx' })
-  await f.git(`--git-dir=${f.admin}`, `--work-tree=${f.target}`, 'checkout-index', '--all')
+  const effect = vi.fn()
+  const current = vi.fn()
+  await restoreMaterialGit(
+    f.repo,
+    f.manifest,
+    await inspectMaterialGit(f.repo, f.manifest),
+    effect,
+    current
+  )
+  expect(effect).toHaveBeenCalledOnce()
+  expect(current).toHaveBeenCalledTimes(3)
   expect(await readFile(join(f.target, 'file.txt'), 'utf8')).toBe('original\n')
   expect(await readFile(join(f.admin, 'index'))).toEqual(f.indexBefore)
   expect(await readFile(join(f.admin, 'HEAD'))).toEqual(adminHead)
@@ -198,7 +208,9 @@ it('binds historical index/admin proof before reporting a checkout-index candida
     complete: true
   })
   await writeFile(join(f.admin, 'index'), 'invalid index')
-  expect((await inspectMaterialGit(f.repo, f.manifest)).code).toBe('E_MATERIAL_ADMIN_CONFLICT')
+  expect((await inspectMaterialGit(f.repo, f.manifest)).code).toBe(
+    'E_MATERIAL_CHECKOUT_TRANSFORM_UNSUPPORTED'
+  )
   expect(existsSync(f.target)).toBe(false)
 })
 

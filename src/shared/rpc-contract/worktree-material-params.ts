@@ -6,7 +6,7 @@ const Locator = z
   .string()
   .min(1)
   .max(4096)
-  .regex(/^[^\x00-\x1f]+$/)
+  .refine((value) => [...value].every((char) => char.charCodeAt(0) >= 32))
 export const MaterialRequestId = z.string().uuid()
 export const WorktreeMaterialManifest = z
   .object({
@@ -26,7 +26,7 @@ export const WorktreeMaterialManifest = z
       .string()
       .min(1)
       .max(1024)
-      .regex(/^[^\x00-\x20]+$/),
+      .refine((value) => [...value].every((char) => char.charCodeAt(0) > 32)),
     head: Sha,
     tree: Sha,
     linkedIssue: z.number().int().positive().nullable(),
@@ -54,3 +54,49 @@ export const WorktreeMaterialRestore = z
   })
   .strict()
 export const WorktreeMaterialShow = z.object({ requestId: MaterialRequestId }).strict()
+
+export const MaterialHistoryAssertionSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    executionHostId: z.literal('local'),
+    worktreeId: Locator,
+    historicalInstanceId: MaterialRequestId.nullable(),
+    requestId: MaterialRequestId,
+    metadataDigest: Digest,
+    historyDigest: Digest
+  })
+  .strict()
+
+/** Historical material evidence only. It carries no session, lease or settlement authority. */
+export const MaterialRestoredReceipt = z
+  .object({
+    schemaVersion: z.literal(1),
+    state: z.literal('restored'),
+    requestId: MaterialRequestId,
+    manifest: WorktreeMaterialRestore.shape.manifest,
+    adminDigest: Digest,
+    indexDigest: Digest,
+    historyDigest: Digest,
+    historicalInstanceId: MaterialRequestId,
+    instanceId: MaterialRequestId,
+    coverage: z
+      .object({
+        git: z.literal(true),
+        hostMetadata: z.literal('complete'),
+        processes: z.literal('complete')
+      })
+      .strict(),
+    retryAllowed: z.literal(false),
+    writerConfirmed: z.literal(false),
+    mutation: z.object({ requestId: MaterialRequestId, replayed: z.boolean() }).strict().optional()
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (
+      value.historicalInstanceId !== value.manifest.historicalInstanceId ||
+      value.instanceId === value.historicalInstanceId ||
+      (value.mutation && value.mutation.requestId !== value.requestId)
+    ) {
+      ctx.addIssue({ code: 'custom', message: 'E_MATERIAL_RECEIPT_CONFLICT' })
+    }
+  })

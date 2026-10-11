@@ -121,7 +121,12 @@ export type { PtyProcessInfo, PtySpawnResult }
 
 type PtyProbeOptions = { signal?: AbortSignal }
 
+export type MaterialPtyCensus =
+  | { state: 'unverifiable'; reason: string }
+  | { state: 'complete'; processes: readonly PtyProcessInfo[]; stillCurrent: () => boolean }
+
 export type IPtyProvider = {
+  observeMaterialCensus?: (options: { deadlineMs: number }) => Promise<MaterialPtyCensus>
   requestHostRpc?: (
     method: string,
     params: unknown,

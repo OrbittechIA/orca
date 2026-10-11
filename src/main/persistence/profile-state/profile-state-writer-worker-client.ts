@@ -1,3 +1,4 @@
+import type { MaterialHistoryAssertion } from '../../../shared/worktree/material-types'
 import type { ProfileStateDomainReplacement } from '../loading-store/profile-state-authority'
 import { ProfileStateWriterConnection } from './profile-state-writer-connection'
 export { resolveProfileStateWriterWorkerPath } from './profile-state-writer-worker-path'
@@ -8,6 +9,17 @@ export {
 export type { ProfileStateWriterInitialization } from './profile-state-writer-protocol'
 
 export class ProfileStateWriteWorkerClient extends ProfileStateWriterConnection {
+  assertMaterialHistory(expected: MaterialHistoryAssertion): Promise<void> {
+    const expectedRevision = this.acknowledgedRevision
+    return this.dispatch({ command: 'assert-material-history', expected, expectedRevision }).then(
+      (response) => {
+        if (response.revision !== expectedRevision || response.exportedRevision !== undefined) {
+          throw new Error('E_MATERIAL_HISTORY_ACK_CONFLICT')
+        }
+      }
+    )
+  }
+
   assertWritable(): void {
     this.assertDispatchable()
   }

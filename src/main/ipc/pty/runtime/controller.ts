@@ -30,6 +30,7 @@ import {
 import { recordUnconfirmedExplicitSshStop } from './undelivered-ssh-kill'
 import { supportsForegroundProcessEvidenceFromRuntimeController } from './foreground-process-evidence-capability'
 import {
+  observeMaterialCensusFromRuntimeController,
   listProcessesFromRuntimeController,
   listProcessesWithHostScopeFromRuntimeController
 } from './inventory-operations'
@@ -73,6 +74,7 @@ export function installPtyRuntimeController(deps: PtyRuntimeControllerDeps): voi
     clearBuffer: (ptyId) => clearBufferFromRuntimeController(deps, ptyId),
     resetInputModes: (ptyId) => resetInputModesFromRuntimeController(deps, ptyId),
     hasPty: (ptyId) => hasPtyFromRuntimeController(deps, ptyId),
+    observeMaterialCensus: observeMaterialCensusFromRuntimeController,
     listProcesses: (connectionId, opts) =>
       listProcessesFromRuntimeController(deps, connectionId, opts),
     listProcessesWithHostScope: (opts) =>

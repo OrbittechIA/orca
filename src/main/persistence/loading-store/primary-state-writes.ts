@@ -1,3 +1,4 @@
+import type { MaterialHistoryAssertion } from '../../../shared/worktree/material-types'
 import { waitForPromiseWithSignal } from '../../../shared/abort-signal-reason'
 import {
   parseCodexResetCreditAttemptLedger,
@@ -26,6 +27,13 @@ export class PrimaryStateWriteOperations {
     this[primaryStateWriteOperationsContext] = { runtime, serialization }
   }
 
+  supportsMaterialHistoryReadback(): boolean {
+    return (
+      typeof this[primaryStateWriteOperationsContext].runtime.profileStateAuthority
+        ?.assertMaterialHistory === 'function'
+    )
+  }
+
   flushOrThrow(): void {
     const context = this[primaryStateWriteOperationsContext]
     const { runtime } = context
@@ -52,7 +60,10 @@ export class PrimaryStateWriteOperations {
   }
 
   /** Expected refusals return persist: false; thrown callbacks stop saving to protect partial state. */
-  runDurableMutation<T>(mutate: () => DurableProfileStateMutation<T>): Promise<T> {
+  runDurableMutation<T>(
+    mutate: () => DurableProfileStateMutation<T>,
+    admission?: { materialHistory?: MaterialHistoryAssertion; revalidate?: () => void }
+  ): Promise<T> {
     const { runtime } = this[primaryStateWriteOperationsContext]
     if (runtime.writesFrozen || runtime.quitFlushStarted || runtime.profileMaintenancePending) {
       return Promise.reject(new Error('Cannot mutate finalized profile persistence'))
@@ -61,6 +72,13 @@ export class PrimaryStateWriteOperations {
       if (runtime.profileStateAuthority?.asynchronous) {
         runtime.profileStateAuthority.assertWritable()
       }
+      if (admission?.materialHistory) {
+        if (!runtime.profileStateAuthority?.assertMaterialHistory) {
+          throw new Error('E_MATERIAL_HISTORY_READBACK_UNSUPPORTED')
+        }
+        await runtime.profileStateAuthority.assertMaterialHistory(admission.materialHistory)
+      }
+      admission?.revalidate?.()
       let mutation: DurableProfileStateMutation<T>
       try {
         mutation = this.runAdmittedMutationCallback('mutate', mutate)

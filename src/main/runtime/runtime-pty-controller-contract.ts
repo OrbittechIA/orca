@@ -1,3 +1,4 @@
+import type { MaterialPtyCensus } from '../providers/pty-provider-contract'
 import type {
   AgentSessionClaimedSpawnResult,
   AgentSessionExecutionClaim,
@@ -135,6 +136,7 @@ export type RuntimePtyController = {
   resize?(ptyId: string, cols: number, rows: number): boolean
   // Why: exact-id mobile polls should not enumerate every local and SSH PTY.
   hasPty?(ptyId: string): boolean | null
+  observeMaterialCensus?: (options: { deadlineMs: number }) => Promise<MaterialPtyCensus>
   listProcesses?(
     connectionId?: string | null,
     opts?: { deadlineMs?: number; includeForegroundProcessEvidence?: boolean }

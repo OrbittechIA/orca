@@ -1,3 +1,4 @@
+import type { MaterialHistoryAssertion } from '../../../shared/worktree/material-types'
 import type { AutomationRun } from '../../../shared/automations-types'
 import type {
   AsyncProfileStateAuthority,
@@ -38,6 +39,10 @@ export class ProfileStateWorkerAuthority implements AsyncProfileStateAuthority {
 
   readSerializedState(): never {
     throw new Error('Live profile state requires its admitted startup snapshot')
+  }
+
+  assertMaterialHistory(expected: MaterialHistoryAssertion): Promise<void> {
+    return this.writer.assertMaterialHistory(expected)
   }
 
   assertWritable(): void {

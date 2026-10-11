@@ -1,3 +1,7 @@
+import {
+  acquireMaterialAdmission,
+  type MaterialAdmissionHold
+} from '../../runtime-worktree-material-admission'
 import { refuse } from '../../../../shared/agent-session-wire-refusals'
 import type {
   StructuredAgentSessionLaunchAuthority,
@@ -43,6 +47,7 @@ import {
 } from './structured-agent-session-precommit-refusal'
 
 export type PreparedStructuredAgentSessionCreate = {
+  materialAdmission?: MaterialAdmissionHold
   host: StructuredAgentSessionHost
   attachParams: AgentSessionAttachParams
   hostLaunchDirectory?: string
@@ -102,12 +107,21 @@ export async function prepareStructuredAgentSessionCreateForWorktree(args: {
   // record the authority admitted cannot be removed or replaced (removal takes the exclusive
   // side) while the create is in flight. A scoped create knows its workspace before resolving
   // and holds it first; a generic create holds the workspace it resolved.
+  const materialAdmission = await acquireMaterialAdmission(
+    args.runtime.materialAdmissionAuthority,
+    { selector: args.worktree }
+  )
   const expectedWorktreeTarget = args.expectedWorktreeTarget ?? null
   let releaseWorktreeLifecycle = expectedWorktreeTarget
-    ? await args.runtime.holdWorktreeLifecycle(
-        expectedWorktreeTarget.worktreeId,
-        expectedWorktreeTarget.executionHostId
-      )
+    ? await args.runtime
+        .holdWorktreeLifecycle(
+          expectedWorktreeTarget.worktreeId,
+          expectedWorktreeTarget.executionHostId
+        )
+        .catch((error) => {
+          materialAdmission.release()
+          throw error
+        })
     : (): void => {}
   try {
     // Adoption replay may need the record loaded from disk before source discovery can be skipped.
@@ -136,6 +150,10 @@ export async function prepareStructuredAgentSessionCreateForWorktree(args: {
         resolved.location.executionHostId
       )
     }
+    materialAdmission.revalidate({
+      selector: resolved.location.workspaceId,
+      executionHostId: resolved.location.executionHostId
+    })
     const resolvedWithOrigin = {
       ...resolved,
       ...(args.launchOrigin ? { launchOrigin: args.launchOrigin } : {}),
@@ -173,11 +191,16 @@ export async function prepareStructuredAgentSessionCreateForWorktree(args: {
         workspaceId: resolved.location.workspaceId,
         agent: resolved.agent
       },
-      releaseWorktreeLifecycle,
+      materialAdmission,
+      releaseWorktreeLifecycle: () => {
+        releaseWorktreeLifecycle()
+        materialAdmission.release()
+      },
       expectedWorktreeTarget
     }
   } catch (error) {
     releaseWorktreeLifecycle()
+    materialAdmission.release()
     throw error
   }
 }
@@ -191,6 +214,13 @@ export async function commitStructuredAgentSessionCreate(args: {
 }): Promise<AgentSessionMutationResult<AgentSessionAttachResult>> {
   const { prepared } = args
   try {
+    if (!prepared.materialAdmission) {
+      throw new Error('E_MATERIAL_ADMISSION_AUTHORITY_UNAVAILABLE')
+    }
+    prepared.materialAdmission.revalidate({
+      selector: prepared.attachParams.location.workspaceId,
+      executionHostId: prepared.attachParams.location.executionHostId
+    })
     // Still under the lifecycle hold, so nothing can replace the record between this check and
     // the attach: the workspace must be the exact one the authority admitted — path, instance,
     // identity, host, creator — or the provider child is never started.
@@ -210,6 +240,10 @@ export async function commitStructuredAgentSessionCreate(args: {
         }
       }
     }
+    prepared.materialAdmission.revalidate({
+      selector: prepared.attachParams.location.workspaceId,
+      executionHostId: prepared.attachParams.location.executionHostId
+    })
     return await commitPreparedStructuredAgentSessionCreate(args)
   } finally {
     prepared.releaseWorktreeLifecycle?.()

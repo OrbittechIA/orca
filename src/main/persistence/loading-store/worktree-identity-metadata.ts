@@ -54,7 +54,8 @@ export function pruneUnreferencedWorktreeIdentityMeta(
   for (const identityKey of identityKeys) {
     if (
       Object.hasOwn(state.worktreeMetaByIdentity ?? {}, identityKey) &&
-      !referenced.has(identityKey)
+      !referenced.has(identityKey) &&
+      !state.worktreeMetaByIdentity?.[identityKey]?.materialHistory
     ) {
       delete state.worktreeMetaByIdentity?.[identityKey]
       changed = true
@@ -237,7 +238,11 @@ export function setWorktreeMetaForHost(
   })
   state.worktreeMetaByIdentity ??= {}
   state.worktreeIdentityAliases ??= {}
-  if (existingIdentityKey && existingIdentityKey !== identityKey) {
+  if (
+    existingIdentityKey &&
+    existingIdentityKey !== identityKey &&
+    !existingIdentityMeta?.materialHistory
+  ) {
     delete state.worktreeMetaByIdentity[existingIdentityKey]
   }
   state.worktreeMetaByIdentity[identityKey] = updated

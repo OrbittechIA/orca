@@ -55,6 +55,12 @@ async function execute(request: ProfileStateWriterRequest): Promise<ProfileState
         request.runPayloads.map((payload): unknown => JSON.parse(payload))
       )
       break
+    case 'assert-material-history':
+      if (request.expectedRevision !== authority.revision) {
+        throw new Error('E_MATERIAL_HISTORY_REVISION_CONFLICT')
+      }
+      authority.assertMaterialHistory(request.expected)
+      break
     case 'assert-revision':
       authority.assertCurrentRevision()
       break

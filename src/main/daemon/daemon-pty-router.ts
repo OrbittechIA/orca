@@ -1,3 +1,5 @@
+import type { MaterialPtyCensus } from '../providers/pty-provider-contract'
+import { agentSessionClaimKey } from '../../shared/claimed-agent-pty-owner-snapshot'
 import { reconcileDaemonRouterSessions } from './daemon-router-session-reconciliation'
 import type { DaemonPtyAdapter } from './daemon-pty-adapter'
 import { DaemonPtyAdapterSubscriptionFanout } from './daemon-pty-adapter-subscription-fanout'
@@ -19,6 +21,7 @@ import type { WriteSettlement } from '../../shared/pty-write-settlement'
 import type { TerminalOscColorQueryReplyColors } from '../../shared/terminal-osc-color-reply'
 
 export class DaemonPtyRouter implements IPtyProvider {
+  private materialSpawnEpoch = 0
   private current: DaemonPtyAdapter
   private legacy: DaemonPtyAdapter[]
   private sessionAdapters = new Map<string, DaemonPtyAdapter>()
@@ -48,6 +51,7 @@ export class DaemonPtyRouter implements IPtyProvider {
       throw new Error('Terminal daemon is decommissioning')
     }
     // Why counted: an idle-retirement census must not race a spawn it cannot yet see.
+    this.materialSpawnEpoch++
     this.retirement.spawnInFlight++
     try {
       if (opts.attachOnly && opts.sessionId) {
@@ -231,6 +235,36 @@ export class DaemonPtyRouter implements IPtyProvider {
 
   async revive(state: string): Promise<void> {
     await this.current.revive(state)
+  }
+
+  async observeMaterialCensus(options: { deadlineMs: number }): Promise<MaterialPtyCensus> {
+    const adapters = this.allAdapters()
+    const epoch = this.materialSpawnEpoch
+    const unknown: MaterialPtyCensus = { state: 'unverifiable', reason: 'router_census_unproven' }
+    if (this.retirement.spawnInFlight || !adapters.length) {
+      return unknown
+    }
+    const results = await Promise.all(adapters.map((a) => a.observeMaterialCensus(options)))
+    const complete = results.filter((result) => result.state === 'complete')
+    const stillCurrent = () =>
+      this.retirement.spawnInFlight === 0 &&
+      epoch === this.materialSpawnEpoch &&
+      this.allAdapters().length === adapters.length &&
+      this.allAdapters().every((adapter, index) => adapter === adapters[index]) &&
+      complete.length === results.length &&
+      complete.every((result) => result.stillCurrent())
+    const processes = complete.flatMap((result) => result.processes)
+    const claims = processes.flatMap(
+      (row) => row.agentSessionOwners?.map((owner) => agentSessionClaimKey(owner.claim)) ?? []
+    )
+    if (
+      !stillCurrent() ||
+      new Set(processes.map((row) => row.id)).size !== processes.length ||
+      new Set(claims).size !== claims.length
+    ) {
+      return unknown
+    }
+    return { state: 'complete', processes, stillCurrent }
   }
 
   async listProcesses(opts?: { deadlineMs?: number }): Promise<PtyProcessInfo[]> {

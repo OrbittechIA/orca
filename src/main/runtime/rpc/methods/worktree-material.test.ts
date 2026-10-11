@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 const paths: string[] = []
 afterEach(() => {
-  for (const folder of paths.splice(0)) rmSync(folder, { recursive: true, force: true })
+  for (const folder of paths.splice(0)) {
+    rmSync(folder, { recursive: true, force: true })
+  }
 })
 import { WORKTREE_MATERIAL_METHODS } from './worktree-material'
 import { WorktreeMaterialPlan } from '../../../../shared/rpc-contract/worktree-material-params'
@@ -18,8 +20,9 @@ import {
 it('adds only the new durable mutation, preserving old mixed-version methods', () => {
   expect(isDurableMutation('worktree.materialRestore', {})).toBe(true)
   expect(isOrchestrationMutation('worktree.materialRestore', {})).toBe(false)
-  for (const method of ['worktree.materialPlan', 'worktree.materialShow', 'worktree.create'])
+  for (const method of ['worktree.materialPlan', 'worktree.materialShow', 'worktree.create']) {
     expect(isDurableMutation(method, {})).toBe(false)
+  }
   expect(WORKTREE_MATERIAL_METHODS.every((method) => method.permission === 'workspace')).toBe(true)
 })
 
@@ -97,6 +100,45 @@ function request(requestId: string, method = 'worktree.materialRestore'): RpcReq
   }
 }
 
+const tuple = {
+  schemaVersion: 1 as const,
+  repo: 'id:fixture',
+  canonicalSource: 'example.org/team/repo',
+  executionHostId: 'local',
+  worktreeId: 'fixture::/fixture/absent',
+  path: '/fixture/absent',
+  branch: 'old',
+  head: 'a'.repeat(40),
+  tree: 'b'.repeat(40),
+  linkedIssue: 413,
+  linkedReview: 411,
+  historicalInstanceId: '11111111-1111-4111-8111-111111111111',
+  runId: 'fixture',
+  capsuleSHA256: 'c'.repeat(64),
+  expectedMetadataDigest: 'd'.repeat(64),
+  expectedCatalogDigest: 'e'.repeat(64),
+  expectedPlanDigest: 'f'.repeat(64)
+}
+function payload(requestId: string, manifest = tuple) {
+  return { requestId, manifest }
+}
+function receipt(requestId: string, manifest = tuple) {
+  return {
+    schemaVersion: 1,
+    state: 'restored',
+    requestId,
+    manifest,
+    historicalInstanceId: manifest.historicalInstanceId,
+    instanceId: '22222222-2222-4222-8222-222222222222',
+    adminDigest: '1'.repeat(64),
+    indexDigest: '2'.repeat(64),
+    historyDigest: '3'.repeat(64),
+    coverage: { git: true, hostMetadata: 'complete', processes: 'complete' },
+    retryAllowed: false,
+    writerConfirmed: false
+  }
+}
+
 it('real SQLite claims once across concurrent calls and replays after reopen; isolates caller and payload', async () => {
   const root = mkdtempSync(join(tmpdir(), 'orca-material-ledger-'))
   paths.push(root)
@@ -110,12 +152,12 @@ it('real SQLite claims once across concurrent calls and replays after reopen; is
         release = resolve
       })
   )
-  const initial = first.executor.run(request(id), { exact: 'tuple' }, invoke, 'caller-a')
+  const initial = first.executor.run(request(id), payload(id), invoke, 'caller-a')
   await Promise.resolve()
-  const concurrent = first.executor.run(request(id), { exact: 'tuple' }, invoke, 'caller-a')
+  const concurrent = first.executor.run(request(id), payload(id), invoke, 'caller-a')
   expect(first.db.getMutationReceipt('caller-a', id)?.state).toBe('pending')
-  release?.({ state: 'blocked', code: 'E_MATERIAL_STALE_ADMIN_UNSUPPORTED', wouldWrite: false })
-  expect(await initial).toMatchObject({ state: 'blocked', mutation: { replayed: false } })
+  release?.(receipt(id))
+  expect(await initial).toMatchObject({ state: 'restored', mutation: { replayed: false } })
   expect(await concurrent).toMatchObject({ mutation: { replayed: true } })
   expect(invoke).toHaveBeenCalledTimes(1)
   first.db.close()
@@ -123,11 +165,16 @@ it('real SQLite claims once across concurrent calls and replays after reopen; is
   try {
     const noEffect = vi.fn()
     expect(
-      await reopened.executor.run(request(id), { exact: 'tuple' }, noEffect, 'caller-a')
+      await reopened.executor.run(request(id), payload(id), noEffect, 'caller-a')
     ).toMatchObject({ mutation: { replayed: true } })
     expect(noEffect).not.toHaveBeenCalled()
     await expect(
-      reopened.executor.run(request(id), { exact: 'changed' }, noEffect, 'caller-a')
+      reopened.executor.run(
+        request(id),
+        payload(id, { ...tuple, head: 'e'.repeat(40) }),
+        noEffect,
+        'caller-a'
+      )
     ).rejects.toMatchObject({ code: 'request_mismatch' })
     const dispatcher = new RpcDispatcher({
       runtime: reopened.runtime,
@@ -168,7 +215,9 @@ it('retains UNKNOWN after possible material effects and restart, but preserves o
     mutation?.markEffectPossible()
     throw new Error('synthetic timeout after possible effect')
   }
-  await expect(first.executor.run(request(id), {}, interrupted, 'caller')).rejects.toMatchObject({
+  await expect(
+    first.executor.run(request(id), payload(id), interrupted, 'caller')
+  ).rejects.toMatchObject({
     code: 'operation_unknown'
   })
   expect(first.db.getMutationReceipt('caller', id)?.state).toBe('pending')
@@ -176,7 +225,9 @@ it('retains UNKNOWN after possible material effects and restart, but preserves o
   const reopened = ledger(filename)
   try {
     const noRetry = vi.fn()
-    await expect(reopened.executor.run(request(id), {}, noRetry, 'caller')).rejects.toMatchObject({
+    await expect(
+      reopened.executor.run(request(id), payload(id), noRetry, 'caller')
+    ).rejects.toMatchObject({
       code: 'operation_unknown'
     })
     expect(noRetry).not.toHaveBeenCalled()
@@ -190,15 +241,22 @@ it('retains UNKNOWN after possible material effects and restart, but preserves o
     expect(reopened.db.getMutationReceipt('caller', 'legacy')).toBeUndefined()
     await expect(
       reopened.executor.run(
-        request('before'),
-        {},
+        request('cccccccc-cccc-4ccc-8ccc-cccccccccccc'),
+        payload('cccccccc-cccc-4ccc-8ccc-cccccccccccc', {
+          ...tuple,
+          path: '/fixture/second',
+          worktreeId: 'fixture::/fixture/second',
+          branch: 'second'
+        }),
         () => {
           throw new Error('before effect')
         },
         'caller'
       )
     ).rejects.toThrow('before effect')
-    expect(reopened.db.getMutationReceipt('caller', 'before')).toBeUndefined()
+    expect(
+      reopened.db.getMutationReceipt('caller', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc')?.state
+    ).toBe('pending')
   } finally {
     reopened.db.close()
   }
@@ -210,7 +268,6 @@ import {
   readPersistedStateJson
 } from '../../../persistence-test-harness'
 import { Store } from '../../../persistence/loading-store/store'
-import { retainMaterialHistory } from '../../runtime-worktree-material'
 import { hashCanonical } from '../../rpc/orchestration-mutation-receipt'
 import { mergeWorktree } from '../../../ipc/worktree-metadata-merge'
 import type { WorktreeMeta } from '../../../../shared/worktree/meta-types'
@@ -250,13 +307,21 @@ it('retains full metadata durably before synthetic instance rotation; public pro
     first.setWorktreeMeta(id, old)
     const actual = structuredClone(first.getWorktreeMeta(id))
     expect(actual).toBeDefined()
-    if (!actual) throw new Error('fixture metadata absent')
-    const retained = retainMaterialHistory(
-      actual,
-      hashCanonical(actual),
-      'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
-    )
-    first.setWorktreeMeta(id, retained)
+    if (!actual) {
+      throw new Error('fixture metadata absent')
+    }
+    await first.runDurableMutation(() => ({
+      value: first.stageMaterialHistory(
+        {
+          ...tuple,
+          worktreeId: id,
+          path: `${root}/historical`,
+          historicalInstanceId: actual.instanceId!,
+          expectedMetadataDigest: hashCanonical(actual)
+        },
+        'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+      )
+    }))
     await first.flushPendingOrThrowAsync({ fullCheckpoint: true })
     const persisted: {
       repos?: { id: string }[]
@@ -336,6 +401,14 @@ it.each(['mkdir', 'checkout', 'complete'])(
     const admin = (await readFile(join(target, '.git'), 'utf8')).trim().slice(8)
     const index = await readFile(join(admin, 'index'))
     const head = await git('rev-parse', 'historical')
+    const exact = {
+      ...tuple,
+      path: target,
+      worktreeId: `fixture::${target}`,
+      branch: 'historical',
+      head,
+      tree: await git('rev-parse', 'historical^{tree}')
+    }
     await rm(target, { recursive: true })
     const filename = join(root, 'receipt.sqlite')
     const first = ledger(filename)
@@ -346,37 +419,35 @@ it.each(['mkdir', 'checkout', 'complete'])(
       expect(mutation?.identity.requestId).toBe(id)
       mutation?.markEffectPossible()
       await mkdir(target)
-      if (phase === 'mkdir') throw new Error('synthetic crash after mkdir')
+      if (phase === 'mkdir') {
+        throw new Error('synthetic crash after mkdir')
+      }
       // Existing restoreMissingWorktreeGitFile accepts EEXIST; this fixture requires exclusive creation.
       await writeFile(join(target, '.git'), `gitdir: ${admin}\n`, { flag: 'wx' })
       gitWrites += 1
       await git(`--git-dir=${admin}`, `--work-tree=${target}`, 'checkout-index', '--all')
       expect(await readFile(join(admin, 'index'))).toEqual(index)
       expect(await git('rev-parse', 'historical')).toBe(head)
-      if (phase === 'checkout') throw new Error('synthetic crash after materialization')
+      if (phase === 'checkout') {
+        throw new Error('synthetic crash after materialization')
+      }
       expect(await readFile(join(target, 'file.txt'), 'utf8')).toBe('original\n')
-      return { fixtureMaterialized: true, writerConfirmed: false }
+      return receipt(id, exact)
     }
-    if (phase === 'complete')
-      await expect(
-        first.executor.run(request(id), { head }, materialize, 'caller')
-      ).resolves.toMatchObject({ fixtureMaterialized: true })
-    else
-      await expect(
-        first.executor.run(request(id), { head }, materialize, 'caller')
-      ).rejects.toMatchObject({ code: 'operation_unknown' })
+    const check = expect(first.executor.run(request(id), payload(id, exact), materialize, 'caller'))
+    await (phase === 'complete'
+      ? check.resolves.toMatchObject({ state: 'restored' })
+      : check.rejects.toMatchObject({ code: 'operation_unknown' }))
     first.db.close()
     const reopened = ledger(filename)
     try {
       const noRetry = vi.fn()
-      if (phase === 'complete')
-        await expect(
-          reopened.executor.run(request(id), { head }, noRetry, 'caller')
-        ).resolves.toMatchObject({ mutation: { replayed: true } })
-      else
-        await expect(
-          reopened.executor.run(request(id), { head }, noRetry, 'caller')
-        ).rejects.toMatchObject({ code: 'operation_unknown' })
+      const replay = expect(
+        reopened.executor.run(request(id), payload(id, exact), noRetry, 'caller')
+      )
+      await (phase === 'complete'
+        ? replay.resolves.toMatchObject({ mutation: { replayed: true } })
+        : replay.rejects.toMatchObject({ code: 'operation_unknown' }))
       expect(noRetry).not.toHaveBeenCalled()
       expect(gitWrites).toBe(phase === 'mkdir' ? 0 : 1)
     } finally {
@@ -396,9 +467,9 @@ it('concurrent material callers both receive UNKNOWN after the same possible eff
         reject = fail
       })
     })
-    const first = harness.executor.run(request(id), {}, invoke, 'caller')
+    const first = harness.executor.run(request(id), payload(id), invoke, 'caller')
     await Promise.resolve()
-    const second = harness.executor.run(request(id), {}, invoke, 'caller')
+    const second = harness.executor.run(request(id), payload(id), invoke, 'caller')
     const firstCheck = expect(first).rejects.toMatchObject({ code: 'operation_unknown' })
     const secondCheck = expect(second).rejects.toMatchObject({ code: 'operation_unknown' })
     reject?.(new Error('synthetic effect timeout'))
