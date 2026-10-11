@@ -7,6 +7,7 @@ import { terminalDocumentDouble } from './document-terminal-double.test-support'
 import { handleMsg } from './host-message-router'
 import { viewportToMouseReportCell } from './mouse-report-cell'
 import { handleDragMove } from './selection-overlay'
+import { enterSelect } from './selection-range'
 import { TERMINAL_DOCUMENT_MARKUP } from '../terminal-webview-html/document-markup'
 import { viewportToCell } from './viewport-cell'
 import { computeFitScale } from './viewport-transform'
@@ -50,6 +51,7 @@ afterEach(() => {
     stopTerminalDocument(started.pop()!)
   }
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 /** A started document over a grid, with the page's seams the case names. */
@@ -163,5 +165,43 @@ describe("the document's frame on the page", () => {
     expect(edge(680)).toBe(1)
     expect(edge(400)).toBe(0)
     expect(edge(120)).toBe(-1)
+  })
+
+  it('keeps backward scrollback selection absolute and cancels its active edge scroll', () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const posted: Record<string, unknown>[] = []
+    const scope = startedWithGrid({
+      viewportRect: () => ({ left: 0, top: 100, width: 412, height: 600 }),
+      postToHost: (message) => posted.push(message)
+    })
+    const term = Object.assign(scope.term!, {
+      buffer: { active: { ...scope.term!.buffer.active, viewportY: 20 } }
+    })
+    const select = vi.spyOn(term, 'select')
+    const clear = vi.spyOn(term, 'clearSelection')
+    const refresh = vi.spyOn(term, 'refresh')
+    const scroll = vi.spyOn(term, 'scrollLines')
+    enterSelect(scope, 8, 25)
+    scope.sel!.activeHandle = 'end'
+    handleDragMove(scope, 'end', 30, 145)
+    expect(select).toHaveBeenLastCalledWith(4, 23, 115)
+    expect(scope.handleStart!.style.top).toBe('45px')
+    expect(scope.handleEnd!.style.top).toBe('90px')
+    handleDragMove(scope, 'end', 30, 680)
+    expect(scope.edgeScrollDir).toBe(1)
+    expect(scope.edgeScrollTimer).not.toBeNull()
+    handleMsg(scope, { type: 'cancel-select' })
+    expect(scope.sel).toBeNull()
+    expect(scope.selMode).toBe('navigate')
+    expect(scope.edgeScrollDir).toBe(0)
+    expect(scope.edgeScrollTimer).toBeNull()
+    expect(scope.selectionOverlay!.classList.contains('active')).toBe(false)
+    expect(clear).toHaveBeenCalledOnce()
+    expect(refresh).toHaveBeenLastCalledWith(0, 39)
+    expect(posted.at(-1)).toEqual({ type: 'set-select-mode', enabled: false })
+    const selections = select.mock.calls.length
+    vi.advanceTimersByTime(120)
+    expect(select).toHaveBeenCalledTimes(selections)
+    expect(scroll).not.toHaveBeenCalled()
   })
 })

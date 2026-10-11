@@ -4,7 +4,10 @@ import {
   canAccessWorkItemStartStructuredSession,
   requireStructuredHost as requireHost
 } from './structured-agent-session-gate'
-import { supportsStructuredAgentSessions } from './structured-agent-session-policy'
+import {
+  clientReadsStructuredSessionAgent,
+  supportsStructuredAgentSessions
+} from './structured-agent-session-policy'
 // `agentSession.subscribeStatus` — every structured session's projected status on one stream.
 //
 // Session lists read turn state from here instead of replaying transcripts: one stream per client
@@ -12,7 +15,6 @@ import { supportsStructuredAgentSessions } from './structured-agent-session-poli
 
 import { defineStreamingMethod, type RpcContext } from '../core'
 import { structuredAgentSessionStatusSubscriptionId } from './structured-agent-session-subscription-id'
-import { clientReadsStructuredSessionAgent } from './structured-agent-session-policy'
 
 /** Ties a stream to both ends that can close it — the runtime's subscription registry and the
  *  transport abort — so either one runs `onClose` exactly once. */

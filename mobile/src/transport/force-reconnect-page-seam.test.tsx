@@ -1,19 +1,14 @@
-import { act, create } from 'react-test-renderer'
+import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BRIDGE_PROTOCOL_VERSION } from '../mobile-web-shell/bridge/bridge-envelope'
 import type { ForceReconnect, RpcClientContextValue } from './rpc-client-context-contract'
-
-const page = vi.hoisted(() => ({ read: (): RpcClientContextValue | null => null }))
-
-// The page bundle resolves `./client-context` to its `.web` sibling. Forwarded lazily rather than
-// re-exported, because the sibling imports these hooks back and an awaited mock of it deadlocks.
-vi.mock('./client-context', () => ({ useRpcClientContext: () => page.read() }))
+import { BRIDGE_PAGE_CLIENT_ID } from '../mobile-web-shell/bridge/bridge-page-client-identity'
+import { createFakeBridgePortPair } from '../mobile-web-shell/bridge/bridge-port-pair-test-harness'
+import { useRpcClientContext as useSharedRpcClientContext } from './rpc-client-context'
 
 import { createShellPageClient } from '../mobile-web-shell/bridge/page-bootstrap'
-import { RpcClientProvider, useRpcClientContext } from './client-context.web'
-import { useForceReconnect } from './host-client-hooks'
-
-page.read = useRpcClientContext
+import { RpcClientProvider, useRpcClientContext, usePageBridgeClient } from './client-context.web'
+import { useForceReconnect, useHostClient } from './host-client-hooks'
 
 const INIT = {
   v: BRIDGE_PROTOCOL_VERSION,
@@ -62,5 +57,60 @@ describe('useForceReconnect on the page', () => {
       )
     })
     expect(read.value).toBeNull()
+  })
+
+  it('carries the page client and state through real shared hooks without taking ownership', async () => {
+    const pair = createFakeBridgePortPair()
+    await pair.flush()
+    const close = vi.spyOn(pair.client, 'close')
+    const reads: {
+      page: RpcClientContextValue | null
+      shared: RpcClientContextValue | null
+      host: ReturnType<typeof useHostClient> | null
+      mounts: number
+    } = { page: null, shared: null, host: null, mounts: 0 }
+    function Probe(): null {
+      reads.page = useRpcClientContext()
+      reads.shared = useSharedRpcClientContext()
+      reads.host = useHostClient('host-a')
+      expect(usePageBridgeClient()).toBe(pair.client)
+      expect(useForceReconnect()).toBeNull()
+      reads.mounts += 1
+      return null
+    }
+    const mounted: { renderer: ReactTestRenderer | null } = { renderer: null }
+    await act(async () => {
+      mounted.renderer = create(
+        <RpcClientProvider client={pair.client}>
+          <Probe />
+        </RpcClientProvider>
+      )
+    })
+    const renderer = mounted.renderer
+    if (!renderer) {
+      throw new Error('page provider did not mount')
+    }
+    try {
+      expect(reads.shared).toBe(reads.page)
+      expect(reads.host?.client).toBe(pair.client)
+      expect(reads.host?.clientId).toBe(BRIDGE_PAGE_CLIENT_ID)
+      expect(reads.host?.state).toBe('connected')
+      await act(async () => {
+        pair.rpc.pushState('reconnecting')
+        await pair.flush()
+      })
+      expect(reads.host?.state).toBe('reconnecting')
+      await act(async () => renderer.unmount())
+      const mounts = reads.mounts
+      pair.rpc.pushState('connected')
+      await pair.flush()
+      expect(reads.mounts).toBe(mounts)
+      expect(pair.client.getState()).toBe('connected')
+      expect(close).not.toHaveBeenCalled()
+    } finally {
+      await act(async () => renderer.unmount())
+      pair.client.close()
+      pair.host.dispose()
+    }
   })
 })
