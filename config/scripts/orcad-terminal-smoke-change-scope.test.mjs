@@ -96,7 +96,7 @@ it('only skips the unchanged smoke after a successful diff and dependency analys
     (candidate) => candidate.name === 'Boot orcad and round-trip a terminal'
   )
   expect(step.env).toEqual({
-    BASE_SHA: '${{ github.event.pull_request.base.sha }}',
+    BASE_SHA: '${{ env.ORCA_SOURCE_BASE }}',
     ORCA_BACKGROUND_LAUNCH: '1'
   })
   // See the localization gate: HEAD^1 removes the merge-base computation, so a shallow checkout

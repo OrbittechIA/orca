@@ -13,6 +13,8 @@ import type { RuntimeClientTarget } from '@/runtime/runtime-client-target'
 
 export type StructuredPromptDeliveryResult = {
   delivered: boolean
+  deliveryUnknown?: true
+  retryClientMessageId?: string
   failureNotified: boolean
   /** Not sent, and waiting in the new chat's composer, which now owns the text. */
   inComposer?: true
@@ -30,6 +32,7 @@ export type StructuredLaunchPromptOptions = {
   prompt?: string
   promptDelivery?: 'auto-submit' | 'submit-after-ready' | 'draft'
   onPromptDelivered?: () => void
+  launchOrigin?: 'work-item-start'
 }
 
 type LaunchReceipt = { sessionId: string; fence: number }
@@ -39,6 +42,8 @@ type LaunchReceipt = { sessionId: string; fence: number }
  *  as sending, so nothing typed meanwhile goes out ahead of it. */
 export type StagedStructuredLaunchPrompt = {
   sessionId: string
+  clientMessageId: string | null
+  workItemStart?: true
   text: string
   slot: StructuredAgentSessionReservedSend | null
   /** Its sender keeps the text if it comes back (notes), instead of the chat's composer. */
@@ -56,16 +61,18 @@ const staged = new Map<string, Set<StagedStructuredLaunchPrompt>>()
 export function stageStructuredLaunchPrompt(
   sessionId: string,
   text: string,
-  options: { callerKeepsText?: true } = {}
+  options: { callerKeepsText?: true; clientMessageId?: string; workItemStart?: true } = {}
 ): StagedStructuredLaunchPrompt {
   let discard = (): void => {}
   const whenDiscarded = new Promise<void>((resolve) => {
     discard = resolve
   })
+  const slot = reserveStructuredAgentSessionSend({ sessionId, text, ...options })
   const prompt: StagedStructuredLaunchPrompt = {
     sessionId,
     text,
-    slot: reserveStructuredAgentSessionSend({ sessionId, text, ...options }),
+    slot,
+    clientMessageId: slot?.clientMessageId ?? null,
     ...options,
     whenDiscarded,
     discard
@@ -154,13 +161,30 @@ function sendStagedPrompt(
     noteStructuredAgentSessionFence(prompt.sessionId, receipt.fence)
     const sent =
       prompt.slot?.send(target) ??
-      sendStructuredAgentSessionMessage({ sessionId: prompt.sessionId, target, text: prompt.text })
+      (prompt.workItemStart
+        ? null
+        : sendStructuredAgentSessionMessage({
+            sessionId: prompt.sessionId,
+            target,
+            text: prompt.text
+          }))
+    if (!sent && prompt.workItemStart) {
+      unstage(prompt)
+      return { delivered: false, inComposer: false, deliveryUnknown: true as const }
+    }
     if (!sent) {
       // Another send of the chat holds its slot: the launch text waits in the composer instead.
       unstage(prompt)
       return { delivered: false, inComposer: handBackStagedPrompt(prompt), busy: true }
     }
     try {
+      if (prompt.workItemStart) {
+        const result = await sent.workItemStartOutcome
+        return {
+          ...(result ?? { delivered: false, deliveryUnknown: true as const }),
+          inComposer: false
+        }
+      }
       const outcome = await sent.outcome
       return {
         delivered: outcome === 'recorded',
@@ -190,13 +214,12 @@ export function settleStructuredAgentLaunchPrompt(args: {
   const settled = args.launchResult.then(
     async (receipt) => {
       if (!prompt || prompt.discarded) {
-        return { delivered: false, failureNotified: true }
+        return args.options.launchOrigin === 'work-item-start'
+          ? { delivered: false, failureNotified: false, deliveryUnknown: true as const }
+          : { delivered: false, failureNotified: true }
       }
-      const { delivered, inComposer, unconfirmed, busy } = await sendStagedPrompt(
-        prompt,
-        receipt,
-        args.target
-      )
+      const { delivered, inComposer, unconfirmed, busy, deliveryUnknown, retryClientMessageId } =
+        await sendStagedPrompt(prompt, receipt, args.target)
       if (delivered) {
         args.options.onPromptDelivered?.()
       }
@@ -205,7 +228,9 @@ export function settleStructuredAgentLaunchPrompt(args: {
         failureNotified: false,
         ...(inComposer ? { inComposer: true as const } : {}),
         ...(unconfirmed ? { unconfirmed } : {}),
-        ...(busy ? { busy } : {})
+        ...(busy ? { busy } : {}),
+        ...(deliveryUnknown ? { deliveryUnknown } : {}),
+        ...(retryClientMessageId ? { retryClientMessageId } : {})
       }
     },
     (error: unknown) => {

@@ -1,3 +1,8 @@
+import { getStructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-registry'
+import {
+  canAccessWorkItemStartStructuredSession,
+  isWorkItemStartStructuredSession
+} from './structured-agent-session-gate'
 import { isDeepStrictEqual } from 'node:util'
 import { SESSION_TABS_AUTHORITATIVE_INVENTORY_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
 import type { RuntimeMobileSessionTabsResult } from '../../../../shared/runtime-types'
@@ -28,11 +33,36 @@ function clientUnderstandsAuthoritativeInventory(context: RpcContext): boolean {
 export function projectSessionTabsForClient(
   snapshot: RuntimeMobileSessionTabsResult,
   clientKind: 'mobile' | 'runtime' | undefined,
-  clientCapabilities: Parameters<typeof projectSessionTabAgentStatus>[2]
+  clientCapabilities: Parameters<typeof projectSessionTabAgentStatus>[2],
+  sessionVisibility?: Parameters<typeof projectSessionTabAgentStatus>[4]
 ): RuntimeMobileSessionTabsResult {
   return projectSessionTabBrowserPlacements(
-    projectSessionTabAgentStatus(snapshot, clientKind, clientCapabilities),
+    projectSessionTabAgentStatus(
+      snapshot,
+      clientKind,
+      clientCapabilities,
+      undefined,
+      sessionVisibility
+    ),
     clientCapabilities
+  )
+}
+
+export function projectSessionTabsForContext(
+  snapshot: RuntimeMobileSessionTabsResult,
+  context: Pick<
+    RpcContext,
+    'runtime' | 'clientKind' | 'clientCapabilities' | 'localDesktopAuthority' | 'pairedDeviceId'
+  >
+): RuntimeMobileSessionTabsResult {
+  return projectSessionTabsForClient(
+    snapshot,
+    context.clientKind,
+    context.clientCapabilities,
+    (sessionId, visibleByDefault) =>
+      isWorkItemStartStructuredSession(getStructuredAgentSessionHost(), sessionId)
+        ? canAccessWorkItemStartStructuredSession(context, sessionId)
+        : visibleByDefault
   )
 }
 
@@ -42,7 +72,7 @@ function projectInventory(
 ): SessionTabsInventory {
   return {
     snapshots: inventory.snapshots.map((snapshot) =>
-      projectSessionTabsForClient(snapshot, context.clientKind, context.clientCapabilities)
+      projectSessionTabsForContext(snapshot, context)
     ),
     ...(inventory.authoritative && clientUnderstandsAuthoritativeInventory(context)
       ? { authoritative: true as const }
@@ -111,11 +141,7 @@ export async function subscribeSessionTabsInventory(
   const withProofDelta = createSessionTabsRetirementProofDelta(context.clientCapabilities)
   const projectChange = (snapshot: SessionTabsChange): SessionTabsChange =>
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: projection rewrites only tabs and groups; the change fields it was handed pass through.
-    projectSessionTabsForClient(
-      snapshot,
-      context.clientKind,
-      context.clientCapabilities
-    ) as SessionTabsChange
+    projectSessionTabsForContext(snapshot, context) as SessionTabsChange
   const withoutNavigationIntent = (snapshot: SessionTabsChange): SessionTabsChange => {
     if (snapshot.navigationIntent === undefined) {
       return snapshot

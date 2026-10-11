@@ -26,6 +26,10 @@ import type {
   AgentSessionLaunchEnv,
   AgentSessionRecord
 } from '../../../shared/agent-session-record'
+import type {
+  StructuredAgentSessionLaunchAuthority,
+  StructuredAgentSessionLaunchOrigin
+} from '../../../shared/structured-agent-session-create'
 import {
   AgentSessionRefusalError,
   agentSessionRefusalFromReference,
@@ -67,6 +71,10 @@ export type AgentSessionAttachParams = {
    *  attach fingerprint: which tab shows the chat is not which conversation it attaches to. */
   surfaceTabId?: string
   launchArgs?: string[]
+  /** Host-admitted origin; direct attach wire schemas never accept it. */
+  launchOrigin?: StructuredAgentSessionLaunchOrigin
+  /** Host-derived only; binds a scoped launch to its authenticated caller. */
+  launchAuthority?: StructuredAgentSessionLaunchAuthority
   /** Omitted only for create-by-intent; the adapter proves the durable handle. In the wire's
    *  form, because the attach fingerprint covers it as the client sent it. */
   providerHandle?: AgentSessionWireProviderHandle
@@ -109,6 +117,8 @@ export function attachFingerprintFields(params: AgentSessionAttachParams): Recor
     agent: params.agent,
     accountHome: params.accountHome,
     runtimeKind: params.runtimeKind,
+    launchOrigin: params.launchOrigin,
+    launchAuthority: params.launchAuthority,
     providerHandle: params.providerHandle,
     // Which conversation this attaches to, so an adopting create and a blank one never share an
     // identity. The transcript path is excluded: it is where the host found that conversation this
@@ -317,6 +327,8 @@ export function reserveRequestFor(input: {
     location: params.location,
     provider: params.provider,
     accountHome: params.accountHome,
+    ...(params.launchOrigin ? { launchOrigin: params.launchOrigin } : {}),
+    ...(params.launchAuthority ? { launchAuthority: params.launchAuthority } : {}),
     ...(params.options ? { options: params.options } : {}),
     ...(params.envelope.expectedRuntimeFence === null && params.surfaceTabId
       ? { surfaceTabId: params.surfaceTabId }

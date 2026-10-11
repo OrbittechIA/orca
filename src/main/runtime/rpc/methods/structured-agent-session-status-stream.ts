@@ -1,10 +1,16 @@
+import {
+  isWorkItemStartStructuredSession,
+  requireWorkItemStartStatusHost,
+  canAccessWorkItemStartStructuredSession,
+  requireStructuredHost as requireHost
+} from './structured-agent-session-gate'
+import { supportsStructuredAgentSessions } from './structured-agent-session-policy'
 // `agentSession.subscribeStatus` — every structured session's projected status on one stream.
 //
 // Session lists read turn state from here instead of replaying transcripts: one stream per client
 // covers every session, and unlike a transcript subscription it retains none of them.
 
 import { defineStreamingMethod, type RpcContext } from '../core'
-import { requireStructuredHost as requireHost } from './structured-agent-session-gate'
 import { structuredAgentSessionStatusSubscriptionId } from './structured-agent-session-subscription-id'
 import { clientReadsStructuredSessionAgent } from './structured-agent-session-policy'
 
@@ -48,31 +54,41 @@ export const STRUCTURED_AGENT_SESSION_STATUS_METHODS = [
     permission: 'workspace',
     params: null,
     handler: async (_params, ctx, emit) => {
-      const host = requireHost(ctx)
+      // Com o ajuste global ligado, o host genérico; sem ele, o host que existe apenas
+      // para o Work Item Start. E em ambos os casos o fluxo é FILTRADO: uma sessão
+      // escopada só aparece para quem pode alcançá-la.
+      const globallyEnabled = supportsStructuredAgentSessions(ctx)
+      const host = globallyEnabled ? requireHost(ctx) : requireWorkItemStartStatusHost(ctx)
       const subscriptionId = structuredAgentSessionStatusSubscriptionId(ctx)
       let dispose = (): void => {}
       const stream = bindStructuredAgentSessionStream(ctx, subscriptionId, () => dispose())
       if (stream.isClosed()) {
         return
       }
-      dispose = host.subscribeStatus({
-        id: subscriptionId,
-        emit: (event) => {
-          if (event.type === 'snapshot') {
-            emit({
-              ...event,
-              sessions: event.sessions.filter((session) =>
-                clientReadsStructuredSessionAgent(ctx, session.agent)
-              )
-            })
-          } else if (
-            event.type !== 'status' ||
-            clientReadsStructuredSessionAgent(ctx, event.session.agent)
-          ) {
-            emit(event)
+      dispose = host.subscribeStatus(
+        {
+          id: subscriptionId,
+          emit: (event) => {
+            if (event.type === 'snapshot') {
+              emit({
+                ...event,
+                sessions: event.sessions.filter((session) =>
+                  clientReadsStructuredSessionAgent(ctx, session.agent)
+                )
+              })
+            } else if (
+              event.type !== 'status' ||
+              clientReadsStructuredSessionAgent(ctx, event.session.agent)
+            ) {
+              emit(event)
+            }
           }
-        }
-      })
+        },
+        (sessionId) =>
+          isWorkItemStartStructuredSession(host, sessionId)
+            ? canAccessWorkItemStartStructuredSession(ctx, sessionId)
+            : globallyEnabled
+      )
       if (stream.isClosed()) {
         dispose()
       }

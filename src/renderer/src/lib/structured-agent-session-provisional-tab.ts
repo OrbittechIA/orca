@@ -112,7 +112,7 @@ export function beginStructuredAgentSessionProvisionalLaunch(
 ): StructuredAgentSessionProvisionalLaunch | null {
   const worktreeId = args.target?.worktreeId ?? args.plan.worktreeId
   const owner = worktreeId ? structuredLaunchOwner(args.plan, worktreeId, args.target) : null
-  if (!owner || !worktreeId) {
+  if (args.plan.launchOrigin === 'work-item-start' || !owner || !worktreeId) {
     // No host to ask: the launch path refuses it with its own message.
     return beginLocalProvisionalLaunch(args)
   }

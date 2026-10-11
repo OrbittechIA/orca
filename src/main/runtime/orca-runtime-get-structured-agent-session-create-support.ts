@@ -1,4 +1,9 @@
 // @ts-nocheck -- mechanically split from OrcaRuntimeService; behavior is covered by AST equivalence and characterization tests.
+import {
+  structuredAgentSessionCreateWorktreeTarget,
+  structuredAgentSessionCreateWorktreeTargetsEqual,
+  type StructuredAgentSessionCreateIntentInput
+} from './structured-agent-session-create-worktree-target'
 import { agentSessionRefusalError } from '../../shared/agent-session-wire-refusals'
 import { OrcaRuntimeWithGetWorktreePs } from './orca-runtime-get-worktree-ps'
 import { getStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
@@ -16,12 +21,7 @@ import { resolveStructuredLaunchSeedOptions } from '../../shared/native-chat-ses
 import { hasPersistedStructuredAgentSessionStore as hasPersistedStructuredAgentSessionStoreOnDisk } from './structured-agent-session-runtime'
 import { ensureStructuredAgentSessionHostUnlessRefused } from './structured-agent-session-host-refusal'
 import { getProfileUserDataPath } from '../orca-profiles/profile-storage-paths'
-import { parseWslUncPath } from '../../shared/wsl-paths'
-import {
-  isFloatingWorkspaceId,
-  isFloatingWorkspaceSelector
-} from '../../shared/floating-workspace-worktree'
-import { parseWorkspaceKey } from '../../shared/workspace-scope'
+import { isFloatingWorkspaceSelector } from '../../shared/floating-workspace-worktree'
 import {
   isLegacyAgentSessionAccountHome,
   type AgentSessionAccountHome
@@ -30,6 +30,7 @@ import {
   isAgentSessionHandleProvider,
   type StructuredAgentId
 } from '../../shared/agent-session-provider-handle'
+import { structuredAgentSessionExecutionLocation } from './structured-agent-session-execution-location'
 import { agentSessionWireProviderHandle } from '../../shared/agent-session-provider-handle-encoding'
 
 export class OrcaRuntimeWithGetStructuredAgentSessionCreateSupport extends OrcaRuntimeWithGetWorktreePs {
@@ -44,6 +45,23 @@ export class OrcaRuntimeWithGetStructuredAgentSessionCreateSupport extends OrcaR
       runtime: this,
       getSettings: () => this.requireStore().getSettings()
     })
+  }
+
+  async getWorkItemStartPreCreateSupport(repoSelector: string, agent: StructuredAgentId) {
+    const target = await this.resolveWorkItemStartPreCreateTarget(repoSelector)
+    return resolveHostStructuredAgentCreateSupport({
+      agent,
+      worktreeSelector: repoSelector,
+      workspacePath: target.workspacePath,
+      location: target.location,
+      runtime: this,
+      getSettings: () => this.requireStore().getSettings()
+    })
+  }
+
+  async resolveStructuredAgentSessionCreateWorktreeTarget(worktreeSelector: string) {
+    const target = await this.resolveRuntimeFileTarget(worktreeSelector)
+    return structuredAgentSessionCreateWorktreeTarget(target.worktree)
   }
 
   /** Where a launch of `agent` finds its account, resolved on this host by the agent's own
@@ -107,32 +125,12 @@ export class OrcaRuntimeWithGetStructuredAgentSessionCreateSupport extends OrcaR
   protected async resolveStructuredAgentSessionLocation(worktreeSelector: string) {
     const target = await this.resolveRuntimeFileTarget(worktreeSelector)
     const repo = this.store?.getRepo(target.worktree.repoId)
-    const folderScope = parseWorkspaceKey(target.worktree.id)
-    // The floating workspace is a plain directory with no repo git options, which is exactly what
-    // `folder` denotes here — it describes how Orca manages the place, not whether git is in it.
-    const folderWorkspace =
-      folderScope?.type === 'folder' || isFloatingWorkspaceId(target.worktree.id)
-    // WSL routing describes *this* machine; no remote or runtime host may inherit
-    // it. Both branches key on executionHostId: the target no longer carries a
-    // connectionId, which used to spell remote, unresolved and local alike.
     const isLocalHost = target.executionHostId === LOCAL_EXECUTION_HOST_ID
     const configuredWslDistro =
       repo && isLocalHost
         ? (getLocalProjectWorktreeGitOptions(this.requireStore(), repo).wslDistro ?? null)
         : null
-    // Folder workspaces have no repo Git options, so a WSL UNC path is the only
-    // durable signal that native Windows structured Codex cannot safely use it.
-    const wslDistro =
-      configuredWslDistro ??
-      (folderWorkspace && isLocalHost
-        ? (parseWslUncPath(target.worktree.path)?.distro ?? null)
-        : null)
-    return {
-      executionHostId: target.executionHostId,
-      wslDistro,
-      workspaceId: target.worktree.id,
-      workspaceKind: folderWorkspace ? ('folder' as const) : ('git-worktree' as const)
-    }
+    return structuredAgentSessionExecutionLocation({ target, configuredWslDistro })
   }
 
   /** Where a structured chat here would run, when that is a directory on this machine. */
@@ -144,13 +142,20 @@ export class OrcaRuntimeWithGetStructuredAgentSessionCreateSupport extends OrcaR
     return (await this.resolveRuntimeFileTarget(worktreeSelector)).worktree.path
   }
 
-  async resolveStructuredAgentSessionCreateIntent(input: {
-    envelope: { sessionId: string; clientOperationId: string }
-    worktree: string
-    agent: StructuredAgentId
-    callerKey?: string
-    resumeFrom?: { providerSessionId: string }
-  }): Promise<AgentSessionAttachParams & { hostLaunchDirectory?: string }> {
+  async resolveStructuredAgentSessionCreateIntent(
+    input: StructuredAgentSessionCreateIntentInput
+  ): Promise<AgentSessionAttachParams & { hostLaunchDirectory?: string }> {
+    if (
+      input.expectedWorktreeTarget &&
+      !structuredAgentSessionCreateWorktreeTargetsEqual(
+        input.expectedWorktreeTarget,
+        await this.resolveStructuredAgentSessionCreateWorktreeTarget(input.worktree)
+      )
+    ) {
+      throw agentSessionRefusalError('structured_agent_session_unsupported', {
+        reason: 'hostUnsupported'
+      })
+    }
     const hostLaunchDirectory = isFloatingWorkspaceSelector(input.worktree)
       ? (await this.resolveRuntimeFileTarget(input.worktree)).worktree.path
       : undefined
@@ -191,13 +196,7 @@ export class OrcaRuntimeWithGetStructuredAgentSessionCreateSupport extends OrcaR
   }
 
   protected async resolveStructuredAgentSessionIntent(
-    input: {
-      envelope: { sessionId: string; clientOperationId: string }
-      worktree: string
-      agent: StructuredAgentId
-      callerKey?: string
-      resumeFrom?: { providerSessionId: string }
-    },
+    input: StructuredAgentSessionCreateIntentInput,
     resolveAccountHome: (context: {
       launchEnv: NodeJS.ProcessEnv
       location: {

@@ -160,7 +160,8 @@ describe('ready-for-review required check reuse', () => {
     expect(workflow.jobs.verify.needs).toEqual([
       'code_paths',
       'preflight',
-      ...PR_CHECK_JOBS.filter((job) => job !== 'static_analysis' && job !== 'typecheck')
+      ...PR_CHECK_JOBS.filter((job) => job !== 'static_analysis' && job !== 'typecheck'),
+      'native_smoke'
     ])
   })
 

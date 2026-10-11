@@ -30,7 +30,8 @@ import {
   AGENT_SESSION_CONVERSATION_OUTLINE_RUNTIME_CAPABILITY,
   AGENT_SESSION_STATUS_FEED_RUNTIME_CAPABILITY,
   STRUCTURED_AGENT_SESSION_CLIENT_LAUNCH_MODE_CAPABILITY,
-  STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY
+  STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
+  WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY
 } from '../../../src/shared/protocol-version'
 import { resolveBaselineReleaseRef } from './release-checkout'
 import {
@@ -121,6 +122,76 @@ describe('cross-version structured agent sessions', () => {
     },
     SUITE_TIMEOUT_MS
   )
+
+  describe('a host predating scoped Work Item Start', () => {
+    it('rejects Start fields in its actual schema before any host or runtime work', async () => {
+      expect(baseline.capabilities).not.toContain(
+        WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY
+      )
+      expect(baseline.methodNames).toEqual(
+        expect.arrayContaining(['agentSession.createSupport', 'agentSession.create'])
+      )
+      resetOperationIds()
+      const hostCalls = structuredHostStub(SESSION, WORKSPACE)
+      const runtimeCalls = {
+        ensureStructuredAgentSessionHost: vi.fn(),
+        getStructuredAgentSessionCreateSupport: vi.fn(),
+        getWorkItemStartPreCreateSupport: vi.fn(),
+        resolveStructuredAgentSessionCreateIntent: vi.fn(),
+        holdWorktreeLifecycle: vi.fn(),
+        publishStructuredAgentSessionTab: vi.fn()
+      }
+      const fields = {
+        worktree: `id:${WORKSPACE}`,
+        agent: 'codex',
+        launchOrigin: 'work-item-start'
+      }
+      const requests = [
+        { method: 'agentSession.createSupport', params: fields },
+        {
+          method: 'agentSession.createSupport',
+          params: { repo: 'id:source-repo', agent: 'codex', launchOrigin: 'work-item-start' }
+        },
+        {
+          method: 'agentSession.create',
+          params: {
+            ...fields,
+            envelope: envelope({ method: 'agentSession.create', fields, fence: null })
+          }
+        }
+      ]
+      await baseline.installStructuredHost(installableHost(hostCalls))
+      try {
+        for (const { method, params } of requests) {
+          const replies = await callBuild(
+            baseline,
+            method,
+            params,
+            {
+              clientKind: 'runtime',
+              clientCapabilities: [
+                STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
+                STRUCTURED_AGENT_SESSION_CLIENT_LAUNCH_MODE_CAPABILITY
+              ]
+            },
+            runtimeStub(runtimeCalls)
+          )
+          expect(replies, `${baseline.label}: ${method} must reject before dispatch`).toHaveLength(
+            1
+          )
+          expect(replies[0]).toMatchObject({ ok: false, error: { code: 'invalid_argument' } })
+        }
+        for (const [name, call] of Object.entries({ ...hostCalls, ...runtimeCalls })) {
+          expect(
+            call,
+            `${baseline.label}: ${name} ran after refusing scoped Start fields`
+          ).not.toHaveBeenCalled()
+        }
+      } finally {
+        await baseline.installStructuredHost(null)
+      }
+    })
+  })
 
   describe('a client that never asked for structured sessions', () => {
     let hostCalls: Record<string, ReturnType<typeof vi.fn>>

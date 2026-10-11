@@ -8,7 +8,8 @@ import type { AgentSessionAgentsResult } from '../../../../shared/agent-session-
 import { AGENT_SESSION_AGENTS_METHOD } from '../../../../shared/agent-session-registered-agents'
 import { STRUCTURED_AGENT_RUNTIME_REGISTRATIONS } from '../../structured-agent-runtime-registrations'
 import { defineMethod } from '../core'
-import { requireStructuredCapability } from './structured-agent-session-gate'
+import { supportsStructuredSessions } from './structured-agent-session-gate'
+import { agentSessionRefusalError } from '../../../../shared/agent-session-wire-refusals'
 import { AgentsParams } from './structured-agent-session-schemas'
 import { clientReadsStructuredSessionAgent } from './structured-agent-session-policy'
 
@@ -20,7 +21,11 @@ export const STRUCTURED_AGENT_SESSION_AGENTS_METHODS = [
     // Read from the registrations the host is built from, as createSupport is: the answer is
     // fixed for this build, so it never waits on, or fails with, installing the host.
     handler: async (_params, ctx): Promise<AgentSessionAgentsResult> => {
-      requireStructuredCapability(ctx)
+      if (!supportsStructuredSessions(ctx)) {
+        throw agentSessionRefusalError('structured_agent_session_unsupported', {
+          reason: 'clientCapabilityMissing'
+        })
+      }
       return {
         agents: STRUCTURED_AGENT_RUNTIME_REGISTRATIONS.filter(({ definition }) =>
           clientReadsStructuredSessionAgent(ctx, definition.agent)

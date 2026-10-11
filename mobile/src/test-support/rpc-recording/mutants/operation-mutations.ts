@@ -172,8 +172,8 @@ export const OPERATION_MUTATIONS = {
   // Publishes the settings envelope as the refreshed workspace runtime settings.
   'workspace-submit-envelope': {
     file: 'use-new-workspace-create-submit.ts',
-    before: 'latestRuntimeSettings = settings.value as NewWorktreeRuntimeSettings',
-    after: 'latestRuntimeSettings = settingsReply.result as NewWorktreeRuntimeSettings'
+    before: 'settings.value',
+    after: 'settingsReply.result'
   },
   // Reads settings eagerly, so a null result throws before the sibling's refusal is checked.
   'new-tab-deferred-settings-read': {
@@ -311,8 +311,8 @@ export const OPERATION_MUTATIONS = {
   // Publishes the settings envelope as the refreshed task runtime settings.
   'task-workspace-envelope': {
     file: 'use-mobile-tasks-workspace-create-actions.tsx',
-    before: 'latestRuntimeTaskSettings = (settingsResult.value ?? {}) as RuntimeTaskSettings',
-    after: 'latestRuntimeTaskSettings = (settingsReply.result ?? {}) as RuntimeTaskSettings'
+    before: 'settingsResult.value',
+    after: 'settingsReply.result'
   }
 } as const satisfies Record<string, Omit<OperationMutation, 'name'>>
 

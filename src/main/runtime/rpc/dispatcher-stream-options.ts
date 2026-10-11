@@ -15,6 +15,7 @@ export type RpcDispatchStreamingOptions = {
   /** What the transport proved the caller may do; absent means this host's owner. */
   callerScope?: RpcCallerScope
   clientKind?: 'mobile' | 'runtime'
+  localDesktopAuthority?: true
   clientCapabilities?: readonly RuntimeCapability[]
   updateClientCapabilities?: (capabilities: readonly RuntimeCapability[]) => void
   pairing?: PairingRpcContext

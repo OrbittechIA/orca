@@ -10,6 +10,7 @@ export function structuredStatusLegacyEvent(
 ): EnrichedAgentHookEventPayload {
   return {
     paneKey: row.paneKey,
+    ...(row.structuredSessionId ? { structuredSessionId: row.structuredSessionId } : {}),
     tabId: row.tabId,
     worktreeId: row.worktreeId,
     connectionId: row.connectionId,

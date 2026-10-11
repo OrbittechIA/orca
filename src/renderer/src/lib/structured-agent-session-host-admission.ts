@@ -48,15 +48,18 @@ export type HostCreateSupport =
 export async function askHostCreateSupport(
   target: RuntimeClientTarget,
   worktree: string,
-  agent: TuiAgent
+  agent: TuiAgent,
+  start?: { sessionId: string; launchOrigin: 'work-item-start' }
 ): Promise<HostCreateSupport> {
   for (let attempt = 0; ; attempt += 1) {
     try {
-      const support = await callStructuredAgentSession<{
-        supported: boolean
-        reason?: string
-        seedOptions?: unknown
-      }>(target, 'agentSession.createSupport', { worktree, agent })
+      const support = await boundedSupportProbe(
+        callStructuredAgentSession<{
+          supported: boolean
+          reason?: string
+          seedOptions?: unknown
+        }>(target, 'agentSession.createSupport', { worktree, agent, ...start })
+      )
       if (support.supported !== true) {
         return { kind: 'declined' }
       }
@@ -107,4 +110,17 @@ export async function admitStructuredLaunchOnHost(
   } finally {
     clearTimeout(timer)
   }
+}
+
+export const CREATE_SUPPORT_PROBE_TIMEOUT_MS = 10_000
+
+function boundedSupportProbe<T>(probe: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const expiry = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(Object.assign(new Error('runtime_timeout'), { code: 'runtime_timeout' })),
+      CREATE_SUPPORT_PROBE_TIMEOUT_MS
+    )
+  })
+  return Promise.race([probe, expiry]).finally(() => clearTimeout(timer))
 }

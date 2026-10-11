@@ -30,6 +30,20 @@ describe('codexStructuredPermissionPolicyForSettings', () => {
     }
   })
 
+  // Yolo wins over contradicting approval/sandbox overrides in any order: those tokens never
+  // reach app-server, and the posture is sent as the thread's explicit policy.
+  it('keeps Yolo final regardless of configured approval or sandbox overrides', () => {
+    for (const codex of [
+      '--dangerously-bypass-approvals-and-sandbox -c approval_policy=on-request --sandbox workspace-write',
+      '-c approval_policy=on-request --sandbox workspace-write --dangerously-bypass-approvals-and-sandbox'
+    ]) {
+      expect(
+        codexStructuredPermissionPolicyForSettings({ agentDefaultArgs: { codex } }),
+        codex
+      ).toEqual(BYPASS)
+    }
+  })
+
   it('keeps quoted mentions and operands after -- in Manual', () => {
     for (const codex of [
       '--config "note=--dangerously-bypass-approvals-and-sandbox only as text"',

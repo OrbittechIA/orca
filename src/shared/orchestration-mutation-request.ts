@@ -1,5 +1,36 @@
 // Shared shape for `orchestration request-show`, the read-only answer to
 // "did my mutation take effect?" when the response was lost in transit.
+import type { AgentProviderSessionMetadata } from './agent-session-resume'
+import type { AgentType } from './native-chat-types'
+
+export type MutationCurrentBindingSnapshot = {
+  terminal: string
+  ptyId: string
+  processIncarnation: string
+  generation: number
+  paneKey: string
+  connectionId: string | null
+  launchTokenHash: string
+  provider: AgentType
+  providerSession: AgentProviderSessionMetadata
+  observedAt: number
+}
+
+export type MutationCurrentBinding = {
+  state: 'observed' | 'mismatch' | 'unverifiable'
+  reason: string
+  snapshot?: MutationCurrentBindingSnapshot
+}
+
+export type OrchestrationMutationRequestLookupResult = {
+  lookup: { version: 1; outcome: 'matched' | 'zero' | 'multiple' }
+  match?: OrchestrationMutationRequestShowResult
+  interpretation: string
+}
+
+export type OrchestrationMutationRequestResult =
+  | OrchestrationMutationRequestShowResult
+  | OrchestrationMutationRequestLookupResult
 
 export const MUTATION_REQUEST_STATES = ['completed', 'pending', 'absent'] as const
 
@@ -12,6 +43,8 @@ export type OrchestrationMutationRequestShowResult = {
   createdAt?: string
   updatedAt?: string
   receipt?: unknown
+  payloadHash?: string
+  currentBinding?: MutationCurrentBinding
   // Why: `absent` is genuinely ambiguous, so the honest reading ships with the row
   // instead of being re-derived (and softened) by every caller.
   interpretation: string

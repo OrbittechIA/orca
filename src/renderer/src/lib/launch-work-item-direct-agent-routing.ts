@@ -5,8 +5,11 @@ import { isTuiAgentEnabled, pickTuiAgent } from '../../../shared/tui-agent-selec
 import { buildDirectWorkItemAgentStartupPlan } from '@/lib/launch-work-item-direct-agent'
 import type { AgentSessionLaunchPlan } from '@/lib/agent-session-launch-plan'
 import { resolveSourceControlLaunchPlatform } from '@/lib/source-control-launch-platform'
-import { beginStructuredAgentSessionProvisionalLaunch } from '@/lib/structured-agent-session-provisional-tab'
 import type { DeclinedStructuredLaunchTerminalOptions } from '@/lib/structured-agent-session-launch-admission'
+import {
+  beginStructuredAgentSessionProvisionalLaunch,
+  type StructuredAgentSessionProvisionalLaunch
+} from '@/lib/structured-agent-session-provisional-tab'
 
 export function buildDirectWorkItemStartup(args: {
   agent: TuiAgent | null
@@ -85,6 +88,7 @@ export function beginDirectWorkItemStructuredLaunch(args: {
   completed: boolean
   structuredLaunch: boolean
   primaryTabId: string | null
+  launch?: StructuredAgentSessionProvisionalLaunch
 } {
   const { plan } = args
   const notLaunched = (structuredLaunch: boolean) => ({
@@ -107,6 +111,7 @@ export function beginDirectWorkItemStructuredLaunch(args: {
   return {
     completed: true,
     structuredLaunch: true,
-    primaryTabId: launch.tab?.id ?? args.primaryTabId
+    primaryTabId: launch.tab?.id ?? args.primaryTabId,
+    launch
   }
 }

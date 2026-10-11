@@ -15,6 +15,9 @@ import { join, resolve } from 'node:path'
 import { copyPrivateTree } from './space-sharing-copy.mjs'
 import { spawnProcess } from './script-child-process.mjs'
 import { preparePrAppImageTools } from './package-linux-formats-appimage.mjs'
+import { readBuildProvenanceLiteral } from './build-provenance.mjs'
+import { verifyBundledBuildProvenance } from './verify-build-provenance.mjs'
+import { writeAppContentSidecar } from './write-candidate-manifest.mjs'
 
 const require = createRequire(import.meta.url)
 const formats = ['AppImage', 'deb', 'rpm']
@@ -62,6 +65,7 @@ function runElectronBuilder(args, environment) {
 export async function packageLinuxFormats({
   preparedDirectory = resolve('dist/linux-unpacked'),
   outputDirectory = resolve('dist'),
+  sourceDirectory = resolve(import.meta.dirname, '../..'),
   prepareAppImageTools = preparePrAppImageTools,
   runBuilder = runElectronBuilder
 } = {}) {
@@ -69,6 +73,10 @@ export async function packageLinuxFormats({
   if (readFileSync(marker, 'utf8') !== 'AppImage') {
     throw new Error('Expected a fresh Linux directory build with its AppImage package marker')
   }
+  const expectedLiteral =
+    process.env.ORCA_BUILD_UNCERTIFIED === '1'
+      ? null
+      : readBuildProvenanceLiteral({ cwd: sourceDirectory })
   const startedAt = performance.now()
   mkdirSync(outputDirectory, { recursive: true })
   const staging = mkdtempSync(join(outputDirectory, '.linux-package-formats-'))
@@ -81,6 +89,24 @@ export async function packageLinuxFormats({
         mkdirSync(join(staging, format))
         // Preserve packaged modes; only the format metadata may be rewritten by electron-builder.
         copyPrivateTree(preparedDirectory, appDirectory, { unprotect: () => {} })
+        // --prepackaged skips afterPack, so bind each format to its copied, verified app content.
+        const asarPath = join(appDirectory, 'resources/app.asar')
+        mkdirSync(formatOutput)
+        if (expectedLiteral !== null) {
+          verifyBundledBuildProvenance({
+            bundlePath: `${asarPath}:out/main/index.js`,
+            bundle: require('@electron/asar')
+              .extractFile(asarPath, 'out/main/index.js')
+              .toString('utf8'),
+            expectedLiteral
+          })
+          writeAppContentSidecar({
+            distDir: formatOutput,
+            electronPlatform: 'linux',
+            arch: 'x64',
+            asarPath
+          })
+        }
         console.log(
           `[linux-package] ${format} copied in ${Math.round(performance.now() - startedFormatAt)}ms`
         )

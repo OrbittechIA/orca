@@ -7,6 +7,7 @@ import { bindDeferredRpcOperation, defineRpcOperation } from '../transport/rpc-o
 import { rpcResultVariant } from '../transport/rpc-operation-result-reader'
 import {
   agentLaunchCreateReceiptSchema,
+  workItemStartAdmissionSchema,
   worktreeCreateReceiptSchema,
   worktreeHostedBaseSchema
 } from './workspace-create-reply-schema'
@@ -99,5 +100,19 @@ export const worktreeCreateCapabilityRead = bindDeferredRpcOperation(
     acceptance: 'success-result-or-skip',
     barrier: 'after-caller-barrier',
     read: rpcResultVariant('runtime-status', taskRuntimeStatusSchema)
+  })
+)
+
+/**
+ * status.get read for a strict Work Item Start's admission. Its own policy: a refused or unreadable
+ * status is a host that never answered, which stops the Start before `worktree.create`.
+ */
+export const workItemStartAdmissionRead = bindDeferredRpcOperation(
+  defineRpcOperation({
+    name: 'status.work-item-start-admission-or-skip',
+    method: 'status.get',
+    acceptance: 'success-result-or-skip',
+    barrier: 'after-caller-barrier',
+    read: rpcResultVariant('runtime-status', workItemStartAdmissionSchema)
   })
 )

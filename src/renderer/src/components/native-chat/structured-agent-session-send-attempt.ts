@@ -71,6 +71,7 @@ async function knownFence(target: RuntimeClientTarget, sessionId: string): Promi
 export type StructuredAgentSessionSendAttempt =
   | {
       kind: 'answered'
+      answer: StructuredAgentSessionSendAnswer
       evidence: StructuredAgentSessionSendEvidence
       /** The host's row, when its answer carried one. */
       submission: AgentJournalSubmission | null
@@ -78,7 +79,11 @@ export type StructuredAgentSessionSendAttempt =
       thrownRefusal: AgentSessionWriteFailure | null
     }
   /** It failed before its request went out, so nothing was sent: why, in the composer's words. */
-  | { kind: 'not-sent'; parts: AgentSessionWriteNoticePart[] }
+  | {
+      kind: 'not-sent'
+      parts: AgentSessionWriteNoticePart[]
+      answer?: StructuredAgentSessionSendAnswer
+    }
 
 const NOT_SENT = agentSessionWriteNotDoneParts('composer-send')
 
@@ -97,6 +102,18 @@ function notSentParts(error: unknown): AgentSessionWriteNoticePart[] {
     : ['unreachable', ...NOT_SENT]
 }
 
+function notSent(error: unknown): StructuredAgentSessionSendAttempt {
+  return {
+    kind: 'not-sent',
+    parts: notSentParts(error),
+    answer: {
+      kind: 'thrown',
+      error,
+      rpcCode: error instanceof RuntimeRpcCallError ? error.code : undefined
+    }
+  }
+}
+
 /** Null when the send was abandoned (a Stop, its deadline, the journal settling it) meanwhile. */
 export async function attemptStructuredAgentSessionSend(args: {
   entry: StructuredAgentSessionPendingSend
@@ -113,7 +130,7 @@ export async function attemptStructuredAgentSessionSend(args: {
     }
     fence = await knownFence(target, entry.sessionId)
   } catch (error) {
-    return args.abandoned() ? null : { kind: 'not-sent', parts: notSentParts(error) }
+    return args.abandoned() ? null : notSent(error)
   }
   if (args.abandoned()) {
     return null
@@ -144,7 +161,7 @@ export async function attemptStructuredAgentSessionSend(args: {
     // This window answers it before forwarding anything (the server was re-paired, as a managed
     // server's update does), so the request never went out.
     if (error instanceof RuntimeRpcCallError && error.code === RUNTIME_ENVIRONMENT_CHANGED) {
-      return args.abandoned() ? null : { kind: 'not-sent', parts: notSentParts(error) }
+      return args.abandoned() ? null : notSent(error)
     }
     answer = {
       kind: 'thrown',
@@ -158,6 +175,7 @@ export async function attemptStructuredAgentSessionSend(args: {
   const value = answer.kind === 'result' && answer.result.ok ? answer.result.value : null
   return {
     kind: 'answered',
+    answer,
     evidence: structuredAgentSessionSendEvidence(answer),
     submission: value && 'submission' in value ? value.submission : null,
     thrownRefusal:

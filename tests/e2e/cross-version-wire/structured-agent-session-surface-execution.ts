@@ -16,7 +16,11 @@ export function runtimeStub(overrides: Record<string, unknown> = {}): unknown {
   const subscriptions = new RuntimeSubscriptionRegistry()
   return {
     getRuntimeId: () => 'runtime-1',
-    getClientSettings: () => ({ experimentalStructuredNativeChat: true }),
+    getClientSettings: () => ({
+      experimentalStructuredNativeChat: true,
+      experimentalNativeChat: true
+    }),
+    holdWorktreeLifecycle: async () => () => undefined,
     ensureStructuredAgentSessionHost: async () => undefined,
     getStructuredAgentSessionCreateSupport: async () => ({ supported: true }),
     structuredAgentSessionLaunchSeedOptions: () => undefined,

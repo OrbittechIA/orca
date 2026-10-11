@@ -20,8 +20,7 @@ import { defineMethod } from '../core'
 import {
   ensureStructuredHostInstalled,
   requireStructuredCapability,
-  requireStructuredAgentAudience,
-  requireStructuredHost
+  requireStructuredSessionHost
 } from './structured-agent-session-gate'
 import { OptionsParams } from './structured-agent-session-schemas'
 
@@ -32,12 +31,12 @@ export const STRUCTURED_AGENT_SESSION_REVEAL_METHODS = [
     params: OptionsParams,
     handler: async (params, ctx) => {
       requireStructuredCapability(ctx)
-      await ensureStructuredHostInstalled(ctx)
+      await ensureStructuredHostInstalled(ctx, { sessionId: params.sessionId })
       let revealed: StructuredAgentSessionReveal
       try {
-        const host = requireStructuredHost(ctx)
-        requireStructuredAgentAudience(ctx, host.sessionAgent(params.sessionId) ?? '')
-        revealed = await host.revealSession(params.sessionId)
+        revealed = await requireStructuredSessionHost(ctx, params.sessionId).revealSession(
+          params.sessionId
+        )
       } catch (error) {
         // The host raises its refusal as the code itself; anything else is a genuine fault and
         // must not be laundered into a tidy "no such chat".

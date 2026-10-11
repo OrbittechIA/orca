@@ -96,6 +96,8 @@ export async function launchHeadlessPairedRuntimeHost(
   options: {
     agentBrowserSocketParent?: string
     executablePath?: string
+    extraEnv?: Record<string, string>
+    pathPrefixDir?: string
     /** Bind a stable loopback port so `restartServeProcess` can reclaim it. */
     pinnedServePort?: boolean
     userDataParent?: string
@@ -124,9 +126,16 @@ export async function launchHeadlessPairedRuntimeHost(
         ORCA_E2E_ENFORCE_SINGLE_INSTANCE_LOCK: '1',
         ORCA_E2E_HEADLESS: '1'
       },
-      extraEnv: {},
+      extraEnv: options.extraEnv ?? {},
       userDataDir
     })
+    if (options.pathPrefixDir) {
+      const pathKey =
+        Object.keys(isolation.env).find((key) => key.toLowerCase() === 'path') ?? 'PATH'
+      isolation.env[pathKey] = [options.pathPrefixDir, isolation.env[pathKey] ?? ''].join(
+        path.delimiter
+      )
+    }
     if (agentBrowserSocketDir) {
       isolation.env.AGENT_BROWSER_SOCKET_DIR = agentBrowserSocketDir
     }

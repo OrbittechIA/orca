@@ -3,8 +3,57 @@ import type { MutationReceiptRow } from '../../types'
 import { OrchestrationError } from '../../orchestration-error'
 import { ensureMutationReceiptCapacity } from '../../mutation-receipt-capacity'
 import type { OrchestrationDb } from '../orchestration-db'
+import type { z } from 'zod'
+import type { MutationPromptLocator } from '../../../../../shared/rpc-contract/orchestration-runs-mutation-request-show-params'
 
 // ── Durable mutation receipts ──
+
+export function getLocalMutationCallerFingerprint(this: OrchestrationDb): string | undefined {
+  const row = this.db
+    .prepare('SELECT caller_fingerprint FROM mutation_caller_identities WHERE transport = ?')
+    .get('local_authenticated_transport')
+  return row && typeof row.caller_fingerprint === 'string' ? row.caller_fingerprint : undefined
+}
+
+export function findMutationReceipts(
+  this: OrchestrationDb,
+  callerFingerprint: string,
+  method: string,
+  payloadHash: string,
+  prompt: z.infer<typeof MutationPromptLocator> = {}
+): MutationReceiptRow[] {
+  const receipt = 'CASE WHEN json_valid(receipt) THEN receipt ELSE NULL END'
+  const rows = this.db
+    .prepare(
+      `SELECT request_id FROM mutation_receipts
+       WHERE caller_fingerprint = ? AND method = ? AND payload_hash = ?
+         AND (? IS NULL OR json_extract(${receipt}, '$.send.handle') = ?)
+         AND (? IS NULL OR json_extract(${receipt}, '$.send.prompt.processIncarnation') = ?)
+         AND (? IS NULL OR json_extract(${receipt}, '$.send.prompt.generation') = ?)
+         AND (? IS NULL OR json_extract(${receipt}, '$.send.prompt.provider') = ?)
+       LIMIT 2`
+    )
+    .all(
+      callerFingerprint,
+      method,
+      payloadHash,
+      prompt.terminal ?? null,
+      prompt.terminal ?? null,
+      prompt.processIncarnation ?? null,
+      prompt.processIncarnation ?? null,
+      prompt.generation ?? null,
+      prompt.generation ?? null,
+      prompt.provider ?? null,
+      prompt.provider ?? null
+    )
+  return rows.flatMap((row) => {
+    if (typeof row.request_id !== 'string') {
+      return []
+    }
+    const match = this.getMutationReceipt(callerFingerprint, row.request_id)
+    return match ? [match] : []
+  })
+}
 
 export function getOrCreateLocalMutationCallerFingerprint(this: OrchestrationDb): string {
   if (this.localMutationCallerFingerprint) {
@@ -171,6 +220,8 @@ export function getMutationReceipt(
 }
 
 export type MutationReceiptStoreMethods = {
+  getLocalMutationCallerFingerprint: typeof getLocalMutationCallerFingerprint
+  findMutationReceipts: typeof findMutationReceipts
   getOrCreateLocalMutationCallerFingerprint: typeof getOrCreateLocalMutationCallerFingerprint
   beginMutationReceipt: typeof beginMutationReceipt
   completeMutationReceipt: typeof completeMutationReceipt
@@ -181,6 +232,8 @@ export type MutationReceiptStoreMethods = {
 
 export function attachMutationReceiptStore(ctor: { prototype: object }): void {
   Object.assign(ctor.prototype, {
+    getLocalMutationCallerFingerprint,
+    findMutationReceipts,
     getOrCreateLocalMutationCallerFingerprint,
     beginMutationReceipt,
     completeMutationReceipt,

@@ -12,10 +12,7 @@ import type { StructuredAgentSessionStatusObserverOptions } from './structured-a
 // republishes them.
 
 import type { AgentSessionRecord } from '../../../shared/agent-session-record'
-import type {
-  AgentSessionStatusEvent,
-  AgentSessionStatusSummary
-} from '../../../shared/agent-session-wire'
+import type { AgentSessionStatusSummary } from '../../../shared/agent-session-wire'
 import type { AgentChildWorkEvidence } from '../../../shared/agent-status-child-work-evidence'
 import type { AgentChildWorkView } from '../../../shared/agent-status-child-work-view'
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
@@ -27,6 +24,10 @@ import {
   type StructuredAgentSessionJournalProjection
 } from './structured-agent-session-status-journal-projection'
 import { structuredStatusSummariesEqual } from './structured-agent-session-status-summary-equality'
+import {
+  StructuredAgentSessionStatusSubscribers,
+  type StructuredAgentSessionStatusSubscriber
+} from './structured-agent-session-status-subscribers'
 import type { StructuredAgentSessionLogger } from './structured-agent-session-logger'
 import {
   StructuredAgentSessionStatusOwnership,
@@ -37,10 +38,8 @@ export type { StructuredAgentSessionStatusSink } from './structured-agent-sessio
 
 export type { StructuredAgentSessionStatusState } from './structured-agent-session-status-journal-projection'
 
-export type StructuredAgentSessionStatusSubscriber = {
-  id: string
-  emit: (event: AgentSessionStatusEvent) => void
-}
+export { scopeStatusEvent } from './structured-agent-session-status-subscribers'
+export type { StructuredAgentSessionStatusSubscriber } from './structured-agent-session-status-subscribers'
 
 type StatusFeedSession = {
   journal: AgentSessionJournal
@@ -74,7 +73,7 @@ export class StructuredAgentSessionStatusFeed {
   private readonly ownership = new StructuredAgentSessionStatusOwnership(() =>
     this.deps.statusSink?.()
   )
-  private readonly subscribers = new Map<string, StructuredAgentSessionStatusSubscriber>()
+  private readonly subscribers = new StructuredAgentSessionStatusSubscribers()
   // Never evicted: chats are named only while in here, and AI Vault reads closed ones' names here.
   private readonly published = new Map<
     string,
@@ -94,19 +93,17 @@ export class StructuredAgentSessionStatusFeed {
     this.deps.logger.warn(message, { scope, sessionId, error })
   }
 
-  /** Opens with every session this host has projected, live ones re-read, then only changes. */
-  subscribe(subscriber: StructuredAgentSessionStatusSubscriber): () => void {
-    // Re-project before registering: a change found here has to reach the subscribers that
-    // already read the old value, and the arriving one carries it in its snapshot instead.
-    for (const [sessionId] of this.deps.sessions) {
-      this.publish(sessionId, undefined, { replay: true })
-    }
-    this.subscribers.set(subscriber.id, subscriber)
-    this.emit(subscriber, {
-      type: 'snapshot',
-      sessions: [...this.published.values()].map(({ summary }) => summary)
+  subscribe(
+    subscriber: StructuredAgentSessionStatusSubscriber,
+    includeSession?: (sessionId: string) => boolean
+  ): () => void {
+    return this.subscribers.subscribe(subscriber, includeSession, () => {
+      // Existing subscribers receive re-projections; the arriving one gets them in its snapshot.
+      for (const [sessionId] of this.deps.sessions) {
+        this.publish(sessionId, undefined, { replay: true })
+      }
+      return [...this.published.values()].map(({ summary }) => summary)
     })
-    return () => this.unsubscribe(subscriber.id)
   }
 
   /** The host stopped holding the session: ownership leaves the retained projection, and the
@@ -137,20 +134,11 @@ export class StructuredAgentSessionStatusFeed {
       summary: retained,
       firstInputSubmissionKey: publication?.firstInputSubmissionKey ?? null
     })
-    this.broadcast({ type: 'status', session: retained })
+    this.subscribers.broadcast({ type: 'status', session: retained })
   }
 
   unsubscribe(id: string): void {
-    const subscriber = this.subscribers.get(id)
-    if (!subscriber) {
-      return
-    }
-    this.subscribers.delete(id)
-    try {
-      subscriber.emit({ type: 'end' })
-    } catch {
-      // The transport is already gone; teardown must remain idempotent.
-    }
+    this.subscribers.unsubscribe(id)
   }
 
   /** Revoke live execution authority while retaining the last projection for reload history. A
@@ -173,7 +161,7 @@ export class StructuredAgentSessionStatusFeed {
       firstInputSubmissionKey: publication?.firstInputSubmissionKey ?? null
     })
     this.sink(retained)
-    this.broadcast({
+    this.subscribers.broadcast({
       type: 'status',
       session: retained
     })
@@ -194,7 +182,7 @@ export class StructuredAgentSessionStatusFeed {
     const { conversationName: _previous, ...rest } = publication.summary
     const summary = name ? { ...rest, conversationName: name } : rest
     this.published.set(sessionId, { ...publication, summary })
-    this.broadcast({ type: 'status', session: summary })
+    this.subscribers.broadcast({ type: 'status', session: summary })
   }
 
   /** The summary last published for the session, as every status subscriber last saw it. */
@@ -248,7 +236,7 @@ export class StructuredAgentSessionStatusFeed {
     })
     if (summaryChanged) {
       this.sink(summary, session.params.location)
-      this.broadcast({ type: 'status', session: summary })
+      this.subscribers.broadcast({ type: 'status', session: summary })
     }
     if (summary.hostExecutionPhase === 'ready' && previous?.hostExecutionPhase !== 'ready') {
       this.deps.onAgentStarted?.(sessionId)
@@ -355,22 +343,6 @@ export class StructuredAgentSessionStatusFeed {
       this.ownership.publish(summary, location)
     } catch (error) {
       this.logFailure('status-sink-publish', 'status sink publish failed', summary.sessionId, error)
-    }
-  }
-
-  private broadcast(event: AgentSessionStatusEvent): void {
-    // A Map skips entries deleted mid-iteration, so a failing subscriber can drop itself here.
-    for (const subscriber of this.subscribers.values()) {
-      this.emit(subscriber, event)
-    }
-  }
-
-  /** A dead transport must not poison every later publication. */
-  private emit(subscriber: StructuredAgentSessionStatusSubscriber, event: AgentSessionStatusEvent) {
-    try {
-      subscriber.emit(event)
-    } catch {
-      this.subscribers.delete(subscriber.id)
     }
   }
 }

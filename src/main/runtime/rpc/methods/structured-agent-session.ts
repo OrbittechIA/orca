@@ -1,3 +1,4 @@
+import { STRUCTURED_AGENT_SESSION_CREATE_METHODS } from './structured-agent-session-create-methods'
 // `agentSession.*` — the structured session RPC surface.
 //
 // Every method here is gated on the client advertising
@@ -6,7 +7,6 @@
 // inventory may expose only a metadata placeholder for an incapable mobile client.
 
 import { agentSessionRefusalError } from '../../../../shared/agent-session-wire-refusals'
-import { agentSessionFingerprintConflict } from '../../../../shared/agent-session-mutation-envelope'
 import type { z } from 'zod'
 import {
   projectBackgroundTaskEvent,
@@ -21,25 +21,17 @@ import {
   ensureStructuredHostInstalled as ensureHostInstalled,
   requireInstalledStructuredHost as requireInstalledHost,
   requireStructuredCapability,
-  requireStructuredAgentAudience,
   requireStructuredCleanupHost,
-  requireStructuredCreateSupportAdmission,
   requireStructuredHost as requireHost,
   requireStructuredSessionHost as requireSessionHost,
   structuredCallerFor as callerFor
 } from './structured-agent-session-gate'
 import type { AgentSessionAttachParams } from '../../../native-chat/agent-session-wire/structured-agent-session-attach'
-import {
-  commitStructuredAgentSessionCreate,
-  prepareStructuredAgentSessionCreateForWorktree,
-  structuredAgentSessionCreateIntentFingerprint
-} from './structured-agent-session-create'
 import { STRUCTURED_AGENT_SESSION_HOLD_METHODS } from './structured-agent-session-hold'
 import { STRUCTURED_AGENT_SESSION_PROMPT_RESPONSE_METHODS } from './structured-agent-session-prompt-response'
 import { STRUCTURED_AGENT_SESSION_REVEAL_METHODS } from './structured-agent-session-reveal'
 import { STRUCTURED_AGENT_SESSION_QUEUED_METHODS } from './structured-agent-session-queued-methods'
 import { STRUCTURED_AGENT_SESSION_RESTART_RESUME_METHODS } from './structured-agent-session-restart-resume'
-import { resolveUncommittedStructuredCreate } from './structured-agent-session-precommit-refusal'
 import {
   bindStructuredAgentSessionStream,
   STRUCTURED_AGENT_SESSION_STATUS_METHODS
@@ -56,8 +48,6 @@ import {
   AttachParams,
   CancelParams,
   ConversationCommandParams,
-  CreateParams,
-  CreateSupportParams,
   HistoryParams,
   OptionsParams,
   RewindParams,
@@ -73,7 +63,10 @@ import { sendStructuredAgentSessionForClient } from './structured-agent-session-
  * host the same question directly: only it knows which agents and locations it runs, and a client
  * cannot forge that answer.
  */
-async function resolveClientSuppliedAttach(params: z.infer<typeof AttachParams>, ctx: RpcContext) {
+export async function resolveClientSuppliedAttach(
+  params: z.infer<typeof AttachParams>,
+  ctx: RpcContext
+) {
   await ensureHostInstalled(ctx, params.agent)
   const host = requireHost(ctx, params.agent)
   if (!host.supportsCreate(params.location, params.agent)) {
@@ -105,7 +98,7 @@ export const STRUCTURED_AGENT_SESSION_METHODS = [
     params: RewindParams,
     handler: async (params, ctx) => {
       requireStructuredCapability(ctx)
-      await ensureHostInstalled(ctx)
+      await ensureHostInstalled(ctx, { sessionId: params.envelope.sessionId })
       return requireSessionHost(ctx, params.envelope.sessionId).rewind(callerFor(ctx), params)
     }
   }),
@@ -115,79 +108,13 @@ export const STRUCTURED_AGENT_SESSION_METHODS = [
     params: ConversationCommandParams,
     handler: async (params, ctx) => {
       requireStructuredCapability(ctx)
-      await ensureHostInstalled(ctx)
+      await ensureHostInstalled(ctx, { sessionId: params.envelope.sessionId })
       const host = requireSessionHost(ctx, params.envelope.sessionId)
       await host.revealSession(params.envelope.sessionId)
       return host.conversationCommand(callerFor(ctx), { ...params, userSend: true })
     }
   }),
-  defineMethod({
-    name: 'agentSession.createSupport',
-    permission: 'workspace',
-    params: CreateSupportParams,
-    handler: async (params, ctx) => {
-      requireStructuredCreateSupportAdmission(ctx, params.agent)
-      const support = await ctx.runtime.getStructuredAgentSessionCreateSupport(
-        params.worktree,
-        params.agent
-      )
-      // Optional: older clients ignore it, and a client seeds its picker with what create will use.
-      const seedOptions = support.supported
-        ? ctx.runtime.structuredAgentSessionLaunchSeedOptions(params.agent)
-        : undefined
-      return seedOptions ? { ...support, seedOptions } : support
-    }
-  }),
-  defineMethod({
-    name: 'agentSession.create',
-    permission: 'workspace',
-    params: CreateParams,
-    handler: async (params, ctx) => {
-      requireStructuredAgentAudience(ctx, params.agent)
-      if (params.envelope.expectedRuntimeFence !== null) {
-        throw agentSessionRefusalError('agent_session_operation_invalid', {
-          reason: 'requestMalformed'
-        })
-      }
-      // Everything up to `attach` is pre-commit, and answers with a refusal rather than a throw so
-      // a client can tell "nothing was created" from "the outcome is unknown".
-      const prepared = await resolveUncommittedStructuredCreate(async () => {
-        if ('worktree' in params) {
-          const conflict = agentSessionFingerprintConflict(
-            params.envelope,
-            structuredAgentSessionCreateIntentFingerprint(params)
-          )
-          if (conflict) {
-            return { refusal: conflict }
-          }
-          return prepareStructuredAgentSessionCreateForWorktree({
-            runtime: ctx.runtime,
-            ensureHost: async () => {
-              await ensureHostInstalled(ctx)
-              return requireHost(ctx)
-            },
-            envelope: params.envelope,
-            worktree: params.worktree,
-            agent: params.agent,
-            caller: callerFor(ctx),
-            ...(params.resumeFrom ? { resumeFrom: params.resumeFrom } : {}),
-            ...(params.tabId ? { tabId: params.tabId } : {})
-          })
-        }
-        const { host, attachParams } = await resolveClientSuppliedAttach(params, ctx)
-        return { host, attachParams, tab: null }
-      })
-      if ('refusal' in prepared) {
-        return { ok: false, refusal: prepared.refusal }
-      }
-      return commitStructuredAgentSessionCreate({
-        runtime: ctx.runtime,
-        caller: callerFor(ctx),
-        prepared,
-        activate: true
-      })
-    }
-  }),
+  ...STRUCTURED_AGENT_SESSION_CREATE_METHODS,
   defineMethod({
     name: 'agentSession.ensure',
     permission: 'workspace',
@@ -204,7 +131,8 @@ export const STRUCTURED_AGENT_SESSION_METHODS = [
     name: 'agentSession.cancel',
     permission: 'workspace',
     params: CancelParams,
-    handler: async (params, ctx) => requireStructuredCleanupHost(ctx).cancel(callerFor(ctx), params)
+    handler: async (params, ctx) =>
+      requireStructuredCleanupHost(ctx, params.envelope.sessionId).cancel(callerFor(ctx), params)
   }),
   ...STRUCTURED_AGENT_SESSION_QUEUED_METHODS,
   defineMethod({
@@ -214,7 +142,7 @@ export const STRUCTURED_AGENT_SESSION_METHODS = [
     permission: 'workspace',
     params: OptionsParams,
     handler: async (params, ctx) => {
-      const host = requireStructuredCleanupHost(ctx)
+      const host = requireStructuredCleanupHost(ctx, params.sessionId)
       // Terminal-disposal closes use this RPC without the session-tabs retirement RPC.
       if (typeof host.setSessionTabVisibility === 'function') {
         await host.setSessionTabVisibility(params.sessionId, false)
@@ -276,7 +204,7 @@ export const STRUCTURED_AGENT_SESSION_METHODS = [
     permission: 'workspace',
     params: UnsubscribeParams,
     handler: async (params, ctx) => {
-      requireStructuredCleanupHost(ctx)
+      requireStructuredCleanupHost(ctx, params.sessionId)
       const base = subscriptionBaseFor(ctx, params.sessionId)
       if (params.subscriptionId) {
         ctx.runtime.cleanupSubscription(`${base}:${params.subscriptionId}`)
