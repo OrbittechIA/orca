@@ -4,11 +4,22 @@ import {
   type OrchestrationMutationRequestResult
 } from '../../../../../../shared/orchestration-mutation-request'
 import { defineMethod } from '../../../core'
-import { RequestShowParams } from '../../../../../../shared/rpc-contract/orchestration-runs-mutation-request-show-params'
+import {
+  CanonicalPromptPayloadHash,
+  MutationPromptLocator,
+  RequestShowParams
+} from '../../../../../../shared/rpc-contract/orchestration-runs-mutation-request-show-params'
 import type { MutationReceiptRow } from '../../../../orchestration/types'
 import type { OrcaRuntimeService } from '../../../../orca-runtime'
-import type { z } from 'zod'
+import { z } from 'zod'
 import { readMutationRequestCurrentBinding } from './mutation-request-current-binding'
+
+const HistoricalPromptReceipt = z.object({
+  send: z.object({
+    handle: z.string().min(1),
+    prompt: MutationPromptLocator.extend({ processIncarnation: z.string().min(1) })
+  })
+})
 
 export const ORCHESTRATION_MUTATION_REQUEST_METHODS = [
   defineMethod({
@@ -29,21 +40,52 @@ export const ORCHESTRATION_MUTATION_REQUEST_METHODS = [
         authenticatedCallerFingerprint ?? db.getLocalMutationCallerFingerprint()
       if (!params.request) {
         const rows =
-          callerFingerprint && params.method && params.payloadHash
-            ? db.findMutationReceipts(
-                callerFingerprint,
-                params.method,
-                params.payloadHash,
-                params.prompt
-              )
-            : []
-        const row = rows.length === 1 ? rows[0] : undefined
+          !callerFingerprint || !params.method
+            ? []
+            : params.payloadBaseHash
+              ? db.findMutationReceiptsByBaseHash(
+                  callerFingerprint,
+                  params.method,
+                  params.payloadBaseHash,
+                  params.prompt
+                )
+              : params.payloadHash
+                ? db.findMutationReceipts(
+                    callerFingerprint,
+                    params.method,
+                    params.payloadHash,
+                    params.prompt
+                  )
+                : []
+        const candidate = rows.length === 1 ? rows[0] : undefined
+        const row =
+          candidate &&
+          (!params.payloadBaseHash ||
+            ('historicalLocatorsUnambiguous' in candidate &&
+              candidate.historicalLocatorsUnambiguous === true &&
+              isCanonicalHistoricalCandidate(candidate, params)))
+            ? candidate
+            : undefined
+        const outcome = row
+          ? ('matched' as const)
+          : rows.length > 1
+            ? ('multiple' as const)
+            : ('zero' as const)
+        const lookup = {
+          version: 1 as const,
+          outcome,
+          ...(params.payloadBaseHash ? { payloadBaseHash: params.payloadBaseHash } : {})
+        }
         return {
-          lookup: { version: 1, outcome: row ? 'matched' : rows.length ? 'multiple' : 'zero' },
+          lookup,
           ...(row ? { match: projectReceipt(runtime, row, params) } : {}),
           interpretation: row
-            ? 'One receipt matches this caller and complete canonical payload binding. A receipt is not current ownership or settlement.'
-            : 'Zero or multiple receipts match under this caller. The outcome remains ambiguous; this is not proof that nothing happened.'
+            ? params.payloadBaseHash
+              ? 'One historical receipt matches this caller, base hash and recorded terminal/incarnation. Its stored full hash is not current ownership, settlement or recovery authorization.'
+              : 'One receipt matches this caller and complete canonical payload binding. A receipt is not current ownership or settlement.'
+            : params.payloadBaseHash
+              ? 'Zero or multiple candidate receipts remain under this caller and historical filters. Unknown history keeps the outcome ambiguous; this is not proof that nothing happened.'
+              : 'Zero or multiple receipts match under this caller. The outcome remains ambiguous; this is not proof that nothing happened.'
         }
       }
       const row = callerFingerprint
@@ -71,6 +113,25 @@ export const ORCHESTRATION_MUTATION_REQUEST_METHODS = [
     }
   })
 ]
+
+function isCanonicalHistoricalCandidate(
+  row: MutationReceiptRow,
+  params: z.infer<typeof RequestShowParams>
+): boolean {
+  const receipt = HistoricalPromptReceipt.safeParse(
+    row.receipt ? parseReceipt(row.receipt) : undefined
+  )
+  return Boolean(
+    CanonicalPromptPayloadHash.length(129).safeParse(row.payload_hash).success &&
+    receipt.success &&
+    receipt.data.send.handle === params.prompt?.terminal &&
+    receipt.data.send.prompt.processIncarnation === params.prompt?.processIncarnation &&
+    (params.prompt?.generation === undefined ||
+      receipt.data.send.prompt.generation === params.prompt.generation) &&
+    (params.prompt?.provider === undefined ||
+      receipt.data.send.prompt.provider === params.prompt.provider)
+  )
+}
 
 function projectReceipt(
   runtime: OrcaRuntimeService,

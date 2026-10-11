@@ -4,7 +4,7 @@
 // a Stop naming no turn. Against any other host, one that accepts sends first included, it stays
 // exactly what it was: a running turn only, named.
 
-import { act, renderHook } from '@testing-library/react'
+import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
   AgentJournalRenderItem,
@@ -133,7 +133,10 @@ function cancels(): unknown[] {
     .map(([, , params]) => params)
 }
 
-afterEach(() => {
+afterEach(async () => {
+  await act(async () => {
+    cleanup()
+  })
   setLocalRuntimeCapabilitiesForTests(null)
 })
 
@@ -155,6 +158,42 @@ describe('Stop against a host that stops the conversation', () => {
       AGENT_SESSION_ACCEPTED_SEND_RUNTIME_CAPABILITY,
       AGENT_SESSION_CONVERSATION_STOP_RUNTIME_CAPABILITY
     ])
+  })
+
+  it('disposes a view with a pending Stop without sending another cancel', async () => {
+    outbox = [entry('sending')]
+    const pending: ((value: unknown) => void)[] = []
+    mocks.call.mockImplementation((_target, method) =>
+      method === 'agentSession.cancel'
+        ? new Promise((resolve) => pending.push(resolve))
+        : Promise.resolve(null)
+    )
+    const { result } = render()
+    let stop: Promise<unknown> = Promise.resolve()
+    await act(async () => {
+      stop = result.current.stop()
+    })
+    expect(result.current.stopPressed).toBe(true)
+    expect(pending).toHaveLength(1)
+    const callsBeforeDispose = mocks.call.mock.calls.length
+
+    await act(async () => {
+      cleanup()
+      for (const resolve of pending) {
+        resolve({ ok: true, value: { cancelled: true } })
+      }
+      await stop
+    })
+    expect(mocks.call.mock.calls.slice(callsBeforeDispose)).toEqual([
+      [
+        { kind: 'local' },
+        'agentSession.release',
+        expect.objectContaining({ sessionId: 'session-1' })
+      ]
+    ])
+    expect(cancels()).toHaveLength(1)
+    expect(mocks.stopSends).toHaveBeenCalledOnce()
+    expect(document.body.childElementCount).toBe(0)
   })
 
   it.each(Object.entries(IN_FLIGHT))(

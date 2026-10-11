@@ -1,4 +1,5 @@
 import type { CommandHandler } from '../../dispatch'
+import { z } from 'zod'
 import { printResult } from '../../format'
 import { getOptionalNumberFlag, getOptionalStringFlag } from '../../flags'
 import { RuntimeClientError } from '../../runtime-client'
@@ -6,7 +7,38 @@ import type {
   OrchestrationMutationRequestResult,
   OrchestrationMutationRequestShowResult
 } from '../../../shared/orchestration-mutation-request'
-import { RequestShowParams } from '../../../shared/rpc-contract/orchestration-runs-mutation-request-show-params'
+import {
+  CanonicalPromptPayloadBaseHash,
+  CanonicalPromptPayloadHash,
+  MutationPromptLocator,
+  RequestShowParams
+} from '../../../shared/rpc-contract/orchestration-runs-mutation-request-show-params'
+
+const HistoricalBaseLookupEvidence = z.object({
+  lookup: z.object({
+    version: z.literal(1),
+    outcome: z.enum(['matched', 'zero', 'multiple']),
+    payloadBaseHash: CanonicalPromptPayloadBaseHash
+  }),
+  interpretation: z.string().min(1),
+  match: z
+    .object({
+      requestId: z.string().min(1),
+      state: z.enum(['pending', 'completed']),
+      method: z.literal('terminal.send'),
+      payloadHash: CanonicalPromptPayloadHash.length(129),
+      createdAt: z.string().min(1),
+      updatedAt: z.string().min(1),
+      receipt: z.object({
+        send: z.object({
+          handle: z.string().min(1),
+          prompt: MutationPromptLocator.extend({ processIncarnation: z.string().min(1) })
+        })
+      }),
+      interpretation: z.string().min(1)
+    })
+    .optional()
+})
 
 export const ORCHESTRATION_REQUEST_SHOW_HANDLER: Record<string, CommandHandler> = {
   'orchestration request-show': async ({ flags, client, json }) => {
@@ -20,6 +52,7 @@ export const ORCHESTRATION_REQUEST_SHOW_HANDLER: Record<string, CommandHandler> 
       request: getOptionalStringFlag(flags, 'request'),
       method: getOptionalStringFlag(flags, 'method'),
       payloadHash: getOptionalStringFlag(flags, 'payload-hash'),
+      payloadBaseHash: getOptionalStringFlag(flags, 'payload-base-hash'),
       ...(Object.values(prompt).some((value) => value !== undefined) ? { prompt } : {}),
       currentTerminal: getOptionalStringFlag(flags, 'current-terminal'),
       providerSessionId: getOptionalStringFlag(flags, 'provider-session')
@@ -51,6 +84,12 @@ export const ORCHESTRATION_REQUEST_SHOW_HANDLER: Record<string, CommandHandler> 
         throw error
       })
     const result = response.result
+    if (parsed.data.payloadBaseHash && !hasHistoricalBaseEvidence(result, parsed.data)) {
+      throw new RuntimeClientError(
+        'incompatible_runtime',
+        'This server does not provide the requested historical base-hash receipt evidence. No recovery was performed.'
+      )
+    }
     const bindingResult = 'lookup' in result ? result.match : result
     if (
       (!parsed.data.request &&
@@ -70,6 +109,30 @@ export const ORCHESTRATION_REQUEST_SHOW_HANDLER: Record<string, CommandHandler> 
         : renderRequest(value)
     )
   }
+}
+
+function hasHistoricalBaseEvidence(
+  value: unknown,
+  params: z.infer<typeof RequestShowParams>
+): boolean {
+  const parsed = HistoricalBaseLookupEvidence.safeParse(value)
+  if (!parsed.success || parsed.data.lookup.payloadBaseHash !== params.payloadBaseHash) {
+    return false
+  }
+  const { lookup, match } = parsed.data
+  if (lookup.outcome !== 'matched') {
+    return match === undefined
+  }
+  return Boolean(
+    match &&
+    match.payloadHash.startsWith(`${params.payloadBaseHash}:`) &&
+    match.receipt.send.handle === params.prompt?.terminal &&
+    match.receipt.send.prompt.processIncarnation === params.prompt?.processIncarnation &&
+    (params.prompt?.generation === undefined ||
+      match.receipt.send.prompt.generation === params.prompt.generation) &&
+    (params.prompt?.provider === undefined ||
+      match.receipt.send.prompt.provider === params.prompt.provider)
+  )
 }
 
 function renderRequest(value: OrchestrationMutationRequestShowResult): string {

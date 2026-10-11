@@ -4,7 +4,10 @@ import { OrchestrationError } from '../../orchestration-error'
 import { ensureMutationReceiptCapacity } from '../../mutation-receipt-capacity'
 import type { OrchestrationDb } from '../orchestration-db'
 import type { z } from 'zod'
-import type { MutationPromptLocator } from '../../../../../shared/rpc-contract/orchestration-runs-mutation-request-show-params'
+import {
+  CanonicalPromptPayloadBaseHash,
+  type MutationPromptLocator
+} from '../../../../../shared/rpc-contract/orchestration-runs-mutation-request-show-params'
 
 // ── Durable mutation receipts ──
 
@@ -52,6 +55,69 @@ export function findMutationReceipts(
     }
     const match = this.getMutationReceipt(callerFingerprint, row.request_id)
     return match ? [match] : []
+  })
+}
+
+export function findMutationReceiptsByBaseHash(
+  this: OrchestrationDb,
+  callerFingerprint: string,
+  method: string,
+  payloadBaseHash: string,
+  prompt: z.infer<typeof MutationPromptLocator> = {}
+): (MutationReceiptRow & { historicalLocatorsUnambiguous: boolean })[] {
+  if (
+    !CanonicalPromptPayloadBaseHash.safeParse(payloadBaseHash).success ||
+    !prompt.terminal ||
+    !prompt.processIncarnation
+  ) {
+    return []
+  }
+  const receipt =
+    'CASE WHEN json_valid(receipt) AND locators_unambiguous THEN receipt ELSE NULL END'
+  const rows = this.db
+    .prepare(
+      `WITH correlated AS (
+         SELECT request_id, receipt, NOT EXISTS (
+           SELECT 1 FROM json_tree(CASE WHEN json_valid(receipt) THEN receipt ELSE NULL END)
+           GROUP BY parent, key HAVING COUNT(*) > 1
+         ) AS locators_unambiguous FROM mutation_receipts
+         WHERE caller_fingerprint = ? AND method = ? AND substr(payload_hash, 1, 65) = ?
+       ) SELECT request_id, locators_unambiguous FROM correlated
+       WHERE (json_type(${receipt}, '$.send.handle') IS NOT 'text'
+           OR json_extract(${receipt}, '$.send.handle') = '' OR json_extract(${receipt}, '$.send.handle') = ?)
+         AND (json_type(${receipt}, '$.send.prompt.processIncarnation') IS NOT 'text'
+           OR json_extract(${receipt}, '$.send.prompt.processIncarnation') = ''
+           OR json_extract(${receipt}, '$.send.prompt.processIncarnation') = ?)
+         AND (? IS NULL OR COALESCE(json_type(${receipt}, '$.send.prompt.generation'), '') NOT IN ('integer', 'real')
+           OR json_extract(${receipt}, '$.send.prompt.generation') < 0
+           OR json_extract(${receipt}, '$.send.prompt.generation') > 9007199254740991
+           OR json_extract(${receipt}, '$.send.prompt.generation') != CAST(json_extract(${receipt}, '$.send.prompt.generation') AS INTEGER)
+           OR json_extract(${receipt}, '$.send.prompt.generation') = ?)
+         AND (? IS NULL OR json_type(${receipt}, '$.send.prompt.provider') IS NOT 'text'
+           OR json_extract(${receipt}, '$.send.prompt.provider') NOT IN ('claude', 'codex', 'unsupported', 'old-host')
+           OR json_extract(${receipt}, '$.send.prompt.provider') = ?)
+       LIMIT 2`
+    )
+    .all(
+      callerFingerprint,
+      method,
+      `${payloadBaseHash}:`,
+      prompt.terminal,
+      prompt.processIncarnation,
+      prompt.generation ?? null,
+      prompt.generation ?? null,
+      prompt.provider ?? null,
+      prompt.provider ?? null
+    )
+  return rows.map((row) => {
+    if (typeof row.request_id !== 'string') {
+      throw new Error('Historical mutation receipt identity is unverifiable.')
+    }
+    const match = this.getMutationReceipt(callerFingerprint, row.request_id)
+    if (!match) {
+      throw new Error('Historical mutation receipt is unavailable.')
+    }
+    return { ...match, historicalLocatorsUnambiguous: row.locators_unambiguous === 1 }
   })
 }
 
@@ -222,6 +288,7 @@ export function getMutationReceipt(
 export type MutationReceiptStoreMethods = {
   getLocalMutationCallerFingerprint: typeof getLocalMutationCallerFingerprint
   findMutationReceipts: typeof findMutationReceipts
+  findMutationReceiptsByBaseHash: typeof findMutationReceiptsByBaseHash
   getOrCreateLocalMutationCallerFingerprint: typeof getOrCreateLocalMutationCallerFingerprint
   beginMutationReceipt: typeof beginMutationReceipt
   completeMutationReceipt: typeof completeMutationReceipt
@@ -234,6 +301,7 @@ export function attachMutationReceiptStore(ctor: { prototype: object }): void {
   Object.assign(ctor.prototype, {
     getLocalMutationCallerFingerprint,
     findMutationReceipts,
+    findMutationReceiptsByBaseHash,
     getOrCreateLocalMutationCallerFingerprint,
     beginMutationReceipt,
     completeMutationReceipt,
