@@ -13,6 +13,8 @@ export type AgentSessionRecordIdentity = Pick<
   | 'options'
   | 'launchArgs'
   | 'launchDirectory'
+  | 'launchOrigin'
+  | 'launchAuthority'
 >
 
 export function agentSessionRecordIdentityFields(
@@ -25,6 +27,8 @@ export function agentSessionRecordIdentityFields(
     location: identity.location,
     provider: identity.provider,
     accountHome: identity.accountHome,
+    ...(identity.launchOrigin ? { launchOrigin: identity.launchOrigin } : {}),
+    ...(identity.launchAuthority ? { launchAuthority: { ...identity.launchAuthority } } : {}),
     ...(identity.options ? { options: { ...identity.options } } : {}),
     ...(identity.launchArgs ? { launchArgs: [...identity.launchArgs] } : {}),
     // A /clear continues in the same tab, so it stays in the folder the chat ran in.

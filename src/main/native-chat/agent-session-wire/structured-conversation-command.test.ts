@@ -169,6 +169,62 @@ async function clearCommits(params = commandParams('clear'), who = caller) {
 }
 
 describe('same-conversation clear', () => {
+  it('keeps scoped Start authority on the same record through clear and restart', async () => {
+    const sessionId = 'session-scoped-clear'
+    const launchAuthority = { kind: 'paired-device' as const, deviceId: 'clear-owner' }
+    const scopedEnvelope = { ...hostTestAttachParams(null).envelope, sessionId }
+    expect(
+      await host.attach(
+        caller,
+        hostTestAttachParams(null, {
+          envelope: scopedEnvelope,
+          launchOrigin: 'work-item-start',
+          launchAuthority
+        })
+      )
+    ).toMatchObject({ ok: true })
+    await host.setSessionTabVisibility(sessionId, true)
+    const source = store.getRecord(sessionId)!
+    const tabId = store.getSessionTabId(sessionId)
+    const before = await host.journalSnapshot(sessionId)
+    const starts = vi.mocked(adapter.acquire).mock.calls.length
+    const command = 'clear' as const
+    const result = await host.conversationCommand(caller, {
+      command,
+      envelope: {
+        sessionId,
+        clientOperationId: hostTestOperationId(),
+        expectedRuntimeFence: source.lease.runtimeFence,
+        payloadFingerprint: computeAgentSessionPayloadFingerprint({
+          method: 'agentSession.conversationCommand',
+          sessionId,
+          fields: { command }
+        })
+      }
+    })
+    expect(result).toMatchObject({ ok: true, value: { command, state: 'completed' } })
+    if (!result.ok) {
+      throw new Error('scoped clear refused')
+    }
+    expect(result.value.replacementSessionId).toBeUndefined()
+    expect(store.getRecord(sessionId)).toMatchObject({
+      sessionId,
+      launchOrigin: 'work-item-start',
+      launchAuthority
+    })
+    expect(store.listRecords()).toHaveLength(2)
+    expect(store.getSessionTabId(sessionId)).toBe(tabId)
+    expect((await host.journalSnapshot(sessionId)).cursor.epoch).toBe(before.cursor.epoch)
+    expect(adapter.acquire).toHaveBeenCalledTimes(starts)
+    await restartHost()
+    expect(store.getRecord(sessionId)).toMatchObject({
+      sessionId,
+      launchOrigin: 'work-item-start',
+      launchAuthority
+    })
+    expect(store.getSessionTabId(sessionId)).toBe(tabId)
+    expect(adapter.acquire).toHaveBeenCalledTimes(starts)
+  })
   it('keeps the record, journal, tab, options and earlier messages while starting nothing', async () => {
     const source = store.getRecord(HOST_TEST_SESSION)!
     const tab = store.getSessionTabId(HOST_TEST_SESSION)

@@ -613,6 +613,26 @@ describe('which flag names the caller, declared on every spec', () => {
     )
   )('$command passes a --$flag target through unfenced', async ({ command, flag }) => {
     asSessionWithInheritedPane()
+    if (command === 'request-show') {
+      const payloadHash = `${'a'.repeat(64)}:${'b'.repeat(64)}`
+      callMock.mockResolvedValue({
+        result: {
+          lookup: { version: 1, outcome: 'zero' },
+          interpretation: 'ambiguous'
+        }
+      })
+      await invoke(
+        command,
+        flagMap({ method: 'terminal.send', 'payload-hash': payloadHash, [flag]: 'term_sibling' })
+      )
+      expect(callMock).toHaveBeenCalledExactlyOnceWith('orchestration.requestShow', {
+        method: 'terminal.send',
+        payloadHash,
+        prompt: { terminal: 'term_sibling' }
+      })
+      expect(getTerminalHandleMock).not.toHaveBeenCalled()
+      return
+    }
     await invoke(command, flagMap({ ...EVERY_REQUIRED_FLAG, [flag]: 'term_sibling' })).catch(
       (error: unknown) => {
         expect(error).not.toMatchObject({ code: 'consumer_fenced' })

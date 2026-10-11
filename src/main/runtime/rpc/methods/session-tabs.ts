@@ -9,7 +9,7 @@ import {
 import { SESSION_TAB_CLOSE_METHODS } from './session-tab-close-methods'
 import {
   listSessionTabsInventory,
-  projectSessionTabsForClient,
+  projectSessionTabsForContext,
   subscribeSessionTabsInventory
 } from './session-tabs-inventory'
 import { SESSION_TAB_MARKDOWN_METHODS } from './session-tab-markdown-methods'
@@ -25,12 +25,12 @@ export const SESSION_TAB_METHODS = [
     name: 'session.tabs.list',
     permission: 'workspace',
     params: WorktreeTabSelector,
-    handler: async (params, { runtime, pairedDeviceId, clientKind, clientCapabilities }) => {
-      await restoreStructuredTabsIfSupported({ runtime, clientKind, clientCapabilities })
-      return projectSessionTabsForClient(
+    handler: async (params, context) => {
+      const { runtime, pairedDeviceId } = context
+      await restoreStructuredTabsIfSupported(context)
+      return projectSessionTabsForContext(
         await runtime.listMobileSessionTabs(params.worktree, pairedDeviceId),
-        clientKind,
-        clientCapabilities
+        context
       )
     }
   }),
@@ -98,11 +98,9 @@ export const SESSION_TAB_METHODS = [
     name: 'session.tabs.subscribe',
     permission: 'workspace',
     params: WorktreeTabSelector,
-    handler: async (
-      params,
-      { runtime, connectionId, requestId, pairedDeviceId, clientKind, clientCapabilities, signal },
-      emit
-    ) => {
+    handler: async (params, context, emit) => {
+      const { runtime, connectionId, requestId, pairedDeviceId, clientCapabilities, signal } =
+        context
       let subscriptionId: string | null = null
       let released = false
       let endOnRelease = true
@@ -146,7 +144,7 @@ export const SESSION_TAB_METHODS = [
         register(explicitWorktreeId)
       }
       try {
-        await restoreStructuredTabsIfSupported({ runtime, clientKind, clientCapabilities })
+        await restoreStructuredTabsIfSupported(context)
         if (released) {
           return
         }
@@ -164,7 +162,7 @@ export const SESSION_TAB_METHODS = [
         const withProofDelta = createSessionTabsRetirementProofDelta(clientCapabilities)
         emit({
           type: 'snapshot',
-          ...withProofDelta(projectSessionTabsForClient(initial, clientKind, clientCapabilities))
+          ...withProofDelta(projectSessionTabsForContext(initial, context))
         })
         if (released) {
           return
@@ -173,9 +171,7 @@ export const SESSION_TAB_METHODS = [
           if (snapshot.worktree === subscribedWorktree) {
             emit({
               type: 'updated',
-              ...withProofDelta(
-                projectSessionTabsForClient(snapshot, clientKind, clientCapabilities)
-              )
+              ...withProofDelta(projectSessionTabsForContext(snapshot, context))
             })
           }
         }, pairedDeviceId)

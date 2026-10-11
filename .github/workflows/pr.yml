@@ -8,13 +8,23 @@ on:
       - synchronize
       - reopened
       - ready_for_review
+  workflow_dispatch:
+    inputs:
+      candidate_commit:
+        description: Full source commit to certify on official v1.4.224
+        required: true
+        type: string
 
 concurrency:
-  group: pr-checks-${{ github.event.pull_request.number }}
+  group: pr-checks-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 permissions:
   contents: read
+
+env:
+  ORCA_BACKGROUND_LAUNCH: '1'
+  ORCA_SOURCE_BASE: ${{ github.event_name == 'workflow_dispatch' && '2bb20586ebc39d605e16d95f57420e20a16e7485' || github.event.pull_request.base.sha }}
 
 jobs:
   # Why: a README/docs-only PR used to start the full matrix (test shards,
@@ -60,6 +70,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.candidate_commit || '' }}
           # Why depth 50 and not 0: every diff below resolves to HEAD^1, so only the merge commit
           # and a little slack are needed. Fetching all 8127 refs' commit graph cost ~20s here and
           # is charged to the start of all 22 jobs, since they all need this one.
@@ -81,9 +92,30 @@ jobs:
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
+      - name: Verify candidate source identity
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          CANDIDATE_COMMIT: ${{ inputs.candidate_commit }}
+          EVENT_COMMIT: ${{ github.sha }}
+          WORKFLOW_COMMIT: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$CANDIDATE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo '::error::candidate_commit must be a full lowercase commit SHA'
+            exit 1
+          fi
+          SOURCE_COMMIT="$(git rev-parse HEAD)"
+          SOURCE_TREE="$(git rev-parse HEAD^{tree})"
+          test "$SOURCE_COMMIT" = "$CANDIDATE_COMMIT" || { echo '::error::Checkout differs from candidate_commit'; exit 1; }
+          test "$EVENT_COMMIT" = "$CANDIDATE_COMMIT" || { echo '::error::Dispatch ref differs from candidate_commit'; exit 1; }
+          test "$WORKFLOW_COMMIT" = "$CANDIDATE_COMMIT" || { echo '::error::Workflow differs from candidate_commit'; exit 1; }
+          test "$(git rev-parse "${ORCA_SOURCE_BASE}^{tree}")" = f7e0d5d058475cf246f53f3d68086a1ab101d45f || { echo '::error::Official224 base tree differs'; exit 1; }
+          git merge-base --is-ancestor "$ORCA_SOURCE_BASE" HEAD || { echo '::error::Candidate does not descend from official224'; exit 1; }
+          printf 'Source %s; tree %s; base %s; workflow %s\n' "$SOURCE_COMMIT" "$SOURCE_TREE" "$ORCA_SOURCE_BASE" "$WORKFLOW_COMMIT" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Reject new root-level files and folders
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ env.ORCA_SOURCE_BASE }}
         run: |
           DIFF_BASE="$(node config/scripts/git-pull-request-diff-base.mjs "$BASE_SHA")"
           node .github/scripts/check-root-directory-entries.mjs "$DIFF_BASE" HEAD
@@ -104,7 +136,7 @@ jobs:
       - name: Classify changed paths
         id: filter
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ env.ORCA_SOURCE_BASE }}
         run: |
           set -euo pipefail
           # Why HEAD^1 and not --merge-base: HEAD is the pull request merge commit, so its first
@@ -116,6 +148,10 @@ jobs:
           CHANGED="$(git diff --name-only --no-renames --diff-filter=ACDMR "$DIFF_BASE" HEAD)"
           echo "Changed paths:"
           printf '%s\n' "$CHANGED"
+          # Dispatch uses the existing global-force path to require the complete matrix.
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            CHANGED="${CHANGED}"$'\n'package.json
+          fi
           printf '%s\n' "$CHANGED" | node config/scripts/pr-code-change-scope.mjs | tee -a "$GITHUB_OUTPUT"
 
       # Reuse the path-detector checkout instead of queuing another runner.
@@ -124,7 +160,7 @@ jobs:
         if: github.event.pull_request.draft != true && steps.filter.outputs.should_run == 'true'
         run: |
           set -euo pipefail
-          BASE="${{ github.event.pull_request.base.sha }}"
+          BASE="$ORCA_SOURCE_BASE"
           DIFF_BASE="$(node config/scripts/git-pull-request-diff-base.mjs "$BASE")"
           CHANGED="$(git diff --name-only --diff-filter=AMCR "$DIFF_BASE" HEAD)"
           # Source routes are executable contracts so a test can prove exact
@@ -170,6 +206,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.candidate_commit || '' }}
           # Why depth 50: the gates below diff against HEAD^1, so no merge base is computed and
           # the payload base SHA need not be in the graph.
           # Why no blob:none here, unlike code_paths: this job checks out all 30,226 files, and
@@ -254,11 +291,11 @@ jobs:
           PREFLIGHT_PRIOR_SUCCESS: ${{ job.status == 'success' }}
         run: |
           if [ "$PREFLIGHT_PHASE_SELECTED" != true ] || [ "$PREFLIGHT_PRIOR_SUCCESS" != true ]; then exit 0; fi
-          pnpm run check:code-quality:changed -- "${{ github.event.pull_request.base.sha }}"
+          pnpm run check:code-quality:changed -- "$ORCA_SOURCE_BASE"
 
       - name: Enforce React Doctor on changed lines
         if: needs.code_paths.outputs.static_analysis == 'true'
-        run: pnpm run check:react-doctor:changed -- "${{ github.event.pull_request.base.sha }}"
+        run: pnpm run check:react-doctor:changed -- "$ORCA_SOURCE_BASE"
 
       - wait: changed-code-quality
 
@@ -279,7 +316,7 @@ jobs:
       - name: Check VM runtime rollback compatibility
         if: needs.code_paths.outputs.static_analysis == 'true'
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ env.ORCA_SOURCE_BASE }}
         run: |
           DIFF_BASE="$(node config/scripts/git-pull-request-diff-base.mjs "$BASE_SHA")"
           if git diff --quiet "$DIFF_BASE" HEAD -- \
@@ -323,7 +360,7 @@ jobs:
         env:
           PREFLIGHT_PHASE_SELECTED: ${{ needs.code_paths.outputs.static_analysis == 'true' }}
           PREFLIGHT_PRIOR_SUCCESS: ${{ job.status == 'success' }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ env.ORCA_SOURCE_BASE }}
         run: |
           if [ "$PREFLIGHT_PHASE_SELECTED" != true ] || [ "$PREFLIGHT_PRIOR_SUCCESS" != true ]; then exit 0; fi
           # Detection failures run the full check; renames retain the removed input path.
@@ -341,7 +378,7 @@ jobs:
       - name: Boot orcad and round-trip a terminal
         if: needs.code_paths.outputs.static_analysis == 'true'
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ env.ORCA_SOURCE_BASE }}
           ORCA_BACKGROUND_LAUNCH: '1'
         run: |
           # Detection failures run the smoke; renames retain the removed input path.
@@ -421,7 +458,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: config/*.tsbuildinfo
-          key: tsbuildinfo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'config/tsconfig*.json') }}-${{ github.event.pull_request.base.sha }}
+          key: tsbuildinfo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'config/tsconfig*.json') }}-${{ env.ORCA_SOURCE_BASE }}
           restore-keys: |
             tsbuildinfo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'config/tsconfig*.json') }}-
 
@@ -433,9 +470,9 @@ jobs:
         env:
           PREFLIGHT_PHASE_SELECTED: ${{ needs.code_paths.outputs.typecheck == 'true' }}
           PREFLIGHT_PRIOR_SUCCESS: ${{ job.status == 'success' }}
-          ORCA_UNIT_SELECTION_MODE: ${{ vars.ORCA_UNIT_SELECTION_MODE || 'shadow' }}
+          ORCA_UNIT_SELECTION_MODE: ${{ github.event_name == 'workflow_dispatch' && 'shadow' || vars.ORCA_UNIT_SELECTION_MODE || 'shadow' }}
           # Five shards use fewer runner minutes; the repository variable can still request ten.
-          ORCA_UNIT_FULL_SHARD_COUNT: ${{ vars.ORCA_UNIT_FULL_SHARD_COUNT || '5' }}
+          ORCA_UNIT_FULL_SHARD_COUNT: ${{ github.event_name == 'workflow_dispatch' && '5' || vars.ORCA_UNIT_FULL_SHARD_COUNT || '5' }}
         run: |
           if [ "$PREFLIGHT_PHASE_SELECTED" != true ] || [ "$PREFLIGHT_PRIOR_SUCCESS" != true ]; then exit 0; fi
           node config/scripts/ci-unit-plan.mjs
@@ -466,6 +503,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.candidate_commit || '' }}
           persist-credentials: false
 
       - uses: ./.github/actions/install-node-dependencies
@@ -544,6 +582,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.candidate_commit || '' }}
           persist-credentials: false
 
       - uses: ./.github/actions/install-node-dependencies
@@ -641,6 +680,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.candidate_commit || '' }}
           persist-credentials: false
 
       # The generator uses Node built-ins and installs its own upstream toolchain.
@@ -685,6 +725,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.candidate_commit || '' }}
           persist-credentials: false
 
       # Why fish: shell-ready.test.ts gates its live fish test on the binary being
@@ -801,9 +842,23 @@ jobs:
       needs.preflight.result == 'success'
     uses: ./.github/workflows/unit-tests.yml
     with:
+      ref: ${{ inputs.candidate_commit || '' }}
       node_versions: '["24"]'
       runner: ubuntu-24.04-arm
       shards: ${{ needs.preflight.outputs.shards }}
+
+  native_smoke:
+    name: native smoke
+    needs: [code_paths, preflight]
+    if: >-
+      !cancelled() &&
+      github.event_name == 'workflow_dispatch' &&
+      needs.code_paths.result == 'success' &&
+      needs.preflight.result == 'success'
+    uses: ./.github/workflows/node-server-tests.yml
+    with:
+      ref: ${{ inputs.candidate_commit }}
+      build_template: false
 
   # Why a sibling and not part of the test workflow: it is advisory, so it must not delay the
   # gate. Inside unit-tests.yml a caller's `needs: test` waited for it, holding verify ~36s
@@ -829,6 +884,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.candidate_commit || '' }}
           persist-credentials: false
 
       # Why no native-runtime: the provider drives the prebuilt agent-browser binary
@@ -868,6 +924,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.candidate_commit || '' }}
           persist-credentials: false
 
       # Why no native-runtime: the builder is esbuild and the render check is a browser. Nothing
@@ -935,6 +992,8 @@ jobs:
 
   cross-version-wire:
     name: cross-version wire compatibility
+    env:
+      ORCA_CROSS_VERSION_BASELINE_REF: ${{ github.event_name == 'workflow_dispatch' && '2bb20586ebc39d605e16d95f57420e20a16e7485' || '' }}
     needs: [code_paths, preflight]
     if: >-
       !cancelled() &&
@@ -951,6 +1010,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.candidate_commit || '' }}
           # Why blob:none: full history is needed for the merge-base diff, but historical
           # file contents are not. Blobs are ~89% of this repo's pack, and Git fetches the
           # few this job actually reads on demand.
@@ -962,6 +1022,36 @@ jobs:
         with:
           native-runtime: node
 
+      # Forks may have older release tags than the upstream compatibility fixtures.
+      - name: Fetch pinned upstream compatibility releases
+        run: |
+          releases=(
+            'v1.4.184:2307f2ebbe1c1e737c0b12d920bb0a208332db2c'
+            'v1.4.190:6e4f817101daa18d82824b69243d9079baa9c416'
+            'v1.4.199:28957d6004dd191b6f0baff493a9fd3d37405d9d'
+            'v1.4.205:11aba8bdc5e492d3ba01fc7fe333495ace74128f'
+            'v1.4.211:5534462b50c660888487a2108700d4cf284270db'
+            'v1.4.212:d937d22f498505c017634be9bf0540c9fa42e665'
+            'v1.4.214:7468e9cccb35a8494f76dc95a37627121113ee80'
+            'v1.4.218:75ea50273328d9bd5465170d10a098711d61b5a4'
+            'v1.4.219:e705cac04a1db7e7e2184746e912142d34ca838b'
+            'v1.4.220:a7927b28ce45cbb044add478d957abe36c99ccd8'
+            'v1.4.221:9dd8812384db85d0b4ede2d1e37f9d73bdb4ea8c'
+            'v1.4.222:4bb6f2072b07c1f0664b809551f77754700570e4'
+            'v1.4.224:2bb20586ebc39d605e16d95f57420e20a16e7485'
+          )
+          refs=()
+          for release in "${releases[@]}"; do
+            tag="${release%%:*}"
+            refs+=("refs/tags/$tag:refs/tags/$tag")
+          done
+          git fetch --atomic --no-tags --no-recurse-submodules --filter=blob:none \
+            https://github.com/stablyai/orca.git "${refs[@]}"
+          for release in "${releases[@]}"; do
+            tag="${release%%:*}"
+            test "$(git rev-parse "$tag^{commit}")" = "${release#*:}"
+          done
+
       # R1: an upgrade from the newest release must adopt its live terminal daemon.
       - name: Daemon protocol crossing against newest release
         run: pnpm run check:daemon-protocol-crossing
@@ -970,7 +1060,7 @@ jobs:
       # The label is read from the event payload, so push again after applying it.
       - name: Runtime launcher change does not bump daemon protocol
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ env.ORCA_SOURCE_BASE }}
           ORCA_ALLOW_RUNTIME_LAUNCHER_PROTOCOL_BUMP: ${{ contains(github.event.pull_request.labels.*.name, 'allow-runtime-launcher-protocol-bump') }}
         run: |
           DIFF_BASE="$(node config/scripts/git-pull-request-diff-base.mjs "$BASE_SHA")"
@@ -996,12 +1086,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.candidate_commit || '' }}
           persist-credentials: false
 
       - uses: ./.github/actions/install-node-dependencies
 
       - name: Build relay companions
         run: pnpm run build:relay
+
+      - name: Stage legacy process helpers on Node 24
+        run: node config/scripts/legacy-process-host-node18-staging.mjs --stage-directory "${{ runner.temp }}/orca-legacy-process-host-node18"
 
       - name: Setup Node 18 runtime
         uses: actions/setup-node@v6
@@ -1013,7 +1107,7 @@ jobs:
 
       # The process-host package declares engines >=18; load its staged public output on Node 18.
       - name: Smoke process-host package
-        run: node config/scripts/smoke-process-host-node18.mjs
+        run: node config/scripts/smoke-process-host-node18.mjs --stage-directory "${{ runner.temp }}/orca-legacy-process-host-node18"
 
   package:
     name: package
@@ -1027,6 +1121,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.candidate_commit || '' }}
           persist-credentials: false
 
       - name: Cache electron-builder downloads
@@ -1192,6 +1287,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.candidate_commit || '' }}
           persist-credentials: false
 
       - name: Cache electron-builder downloads
@@ -1249,6 +1345,7 @@ jobs:
           config/scripts/windows-process-tree-gyp-path.test.mjs
           config/scripts/windows-process-tree-gyp-rebuild.test.mjs
           config/scripts/package-electron-runtime-contract.test.mjs
+          config/scripts/electron-builder-config.test.mjs
           config/scripts/electron-builder-runtime-resources.test.mjs
           src/main/browser/browser-client-page-renderer-lifecycle.electron.test.ts
           src/main/browser/browser-route-tcp-egress.electron.test.ts
@@ -1258,9 +1355,9 @@ jobs:
           src/main/persistence/profile-state/profile-state-writer-stall.electron.test.ts
           src/main/providers/windows-conpty-wide-char-duplication.node-pty.test.ts
           src/main/providers/pty-repaint-wide-char-buffer.node-pty.test.ts
-          src/shared/__tests__/process-host/windows-command-line.win32.test.ts
-          src/shared/__tests__/process-host/windows-cmd-shim-resolution.test.ts
-          src/shared/__tests__/process-host/windows-cmd-shim-resolution.win32.test.ts
+          src/shared/child-process/windows-command-line.win32.test.ts
+          src/shared/child-process/windows-cmd-shim-resolution.test.ts
+          src/shared/child-process/windows-cmd-shim-resolution.win32.test.ts
           src/main/agent-hooks/windows-hook-payload-delivery.test.ts
           src/main/jcode/hook-gate-script.test.ts
           src/main/agent-hooks/windows-direct-cmd-hook-command.test.ts
@@ -1373,7 +1470,7 @@ jobs:
     with:
       # The synthetic pull-request merge ref can disappear while this reusable
       # workflow is queued. The head SHA is immutable and works for every PR.
-      ref: ${{ github.event.pull_request.head.sha }}
+      ref: ${{ inputs.candidate_commit || github.event.pull_request.head.sha }}
       test_files: ${{ needs.code_paths.outputs.test_files }}
       ssh_source_changed: ${{ needs.code_paths.outputs.ssh_source_changed }}
       run_changed_e2e: ${{ needs.code_paths.outputs.e2e_run_changed != 'false' }}
@@ -1402,7 +1499,7 @@ jobs:
       contents: read
     uses: ./.github/workflows/windows-wsl-e2e.yml
     with:
-      ref: ${{ github.event.pull_request.head.sha }}
+      ref: ${{ inputs.candidate_commit || github.event.pull_request.head.sha }}
 
   verify:
     if: ${{ !cancelled() }}
@@ -1420,6 +1517,7 @@ jobs:
       - managed_hook_node18
       - package
       - package_windows
+      - native_smoke
     # Evaluating job results only needs the lightweight container runner.
     runs-on: ubuntu-slim
     timeout-minutes: 5
@@ -1497,3 +1595,9 @@ jobs:
           check_job package "$PACKAGE" "$PACKAGE_SHOULD_RUN"
           check_job package_windows "$PACKAGE_WINDOWS" "$PACKAGE_WINDOWS_SHOULD_RUN"
           exit "$failed"
+
+      - name: Require candidate native smoke
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          NATIVE_SMOKE: ${{ needs.native_smoke.result }}
+        run: test "$NATIVE_SMOKE" = success

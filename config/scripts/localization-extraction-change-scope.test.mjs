@@ -101,7 +101,7 @@ it('preserves deleted and renamed inputs and falls back to extraction on detecti
     (candidate) => candidate.name === 'Verify localization extraction'
   )
   expect(step.env).toMatchObject({
-    BASE_SHA: '${{ github.event.pull_request.base.sha }}'
+    BASE_SHA: '${{ env.ORCA_SOURCE_BASE }}'
   })
   // The base side comes from the merge ref's first parent, so the gate needs no merge base and
   // works on a shallow checkout. The payload head SHA is no longer read: HEAD is the merged tree

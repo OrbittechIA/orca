@@ -8,6 +8,9 @@ import type {
 } from './agent-prompt-submission-verification'
 import { verifyAgentPromptSubmission } from './agent-prompt-submission-verification'
 import { AgentPromptRequestCorrelation } from './agent-prompt-request-correlation'
+import { createHash } from 'node:crypto'
+import { selectExactWorkerProviderSession } from './orchestration/worker-provider-session'
+import type { MutationCurrentBindingSnapshot } from '../../shared/orchestration-mutation-request'
 
 export class OrcaRuntimeWithAgentPromptRequestCorrelation extends OrcaRuntimeWithSerializeAgentPromptSubmission {
   private readonly agentPromptCorrelation = new AgentPromptRequestCorrelation()
@@ -36,6 +39,49 @@ export class OrcaRuntimeWithAgentPromptRequestCorrelation extends OrcaRuntimeWit
       ptyId,
       processIncarnation: incarnationId ?? `${this.runtimeId}:${ptyId}:${generation}`,
       generation
+    }
+  }
+
+  getTerminalPromptCurrentBinding(
+    handle: string,
+    observedAfter: number
+  ): MutationCurrentBindingSnapshot | null {
+    const live = this.getLivePtyForHandle(handle)
+    const pty = live?.pty
+    if (
+      !pty?.connected ||
+      !pty.paneKey ||
+      !pty.incarnationId ||
+      !pty.launchToken ||
+      pty.launchIncarnationId !== pty.incarnationId
+    ) {
+      return null
+    }
+    const binding = this.getTerminalPromptRequestBinding(handle)
+    const session = selectExactWorkerProviderSession({
+      paneKey: pty.paneKey,
+      processIncarnation: binding.processIncarnation,
+      connectionId: pty.connectionId,
+      launchToken: pty.launchToken,
+      wslDistro: pty.connectionId
+        ? undefined
+        : (this.wslDistroByPtyId.get(pty.ptyId) ?? pty.wslDistro),
+      observedAfter,
+      statuses: this.getAgentStatusSnapshotFn?.() ?? [],
+      requireUniqueLiveBinding: true
+    })
+    if (!session || session.connectionId === undefined) {
+      return null
+    }
+    return {
+      terminal: handle,
+      ...binding,
+      paneKey: session.paneKey,
+      connectionId: session.connectionId,
+      launchTokenHash: createHash('sha256').update(pty.launchToken).digest('hex'),
+      provider: session.agent,
+      providerSession: session.providerSession,
+      observedAt: session.observedAt
     }
   }
 

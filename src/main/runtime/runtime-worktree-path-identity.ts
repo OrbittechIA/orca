@@ -5,6 +5,7 @@ import {
   isPathInsideOrEqual,
   normalizeRuntimePathForComparison
 } from '../../shared/cross-platform-path'
+import { LOCAL_EXECUTION_HOST_ID, parseExecutionHostId } from '../../shared/execution-host'
 import { parsePtySessionId } from '../../shared/pty-session-id-format'
 import { splitWorktreeId, worktreeIdsEqual } from '../../shared/worktree/id'
 import { normalizeLocalBranchName } from './runtime-worktree-selection'
@@ -34,6 +35,21 @@ export function runtimeWorktreeIdentityKey(worktreeId: string): string {
   return parsed
     ? `${parsed.repoId}\0${normalizeRuntimePathForComparison(parsed.worktreePath)}`
     : worktreeId
+}
+
+/**
+ * Keys the workspace lifecycle hold per execution host. One worktree id can name two records
+ * on two hosts (a local row and an `ssh:*` row under the migrated spelling), and upstream runs
+ * their removals concurrently: a hold on one host must neither wait for nor block a create or
+ * a removal on the other. No host means the local machine, which is what an unscoped hold has
+ * always meant.
+ */
+export function runtimeWorktreeLifecycleKey(
+  worktreeId: string,
+  executionHostId?: string | null
+): string {
+  const host = parseExecutionHostId(executionHostId)?.id ?? LOCAL_EXECUTION_HOST_ID
+  return `${host}\0${runtimeWorktreeIdentityKey(worktreeId)}`
 }
 
 export function runtimeWorktreeLookupKey(worktreeId: string): string {

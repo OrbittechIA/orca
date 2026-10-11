@@ -1,10 +1,13 @@
 // @vitest-environment happy-dom
 
-import { act, renderHook, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LinearIssue } from '../../../../shared/linear/issue-types'
 import type { TaskSourceContext } from '../../../../shared/task-source-context'
-import type { NormalizedWorkItemSourceSearchProps } from './smart-workspace-name-field-model'
+import {
+  SEARCH_DEBOUNCE_MS,
+  type NormalizedWorkItemSourceSearchProps
+} from './smart-workspace-name-field-model'
 import { useWorkItemSourceSearch } from './use-work-item-source-search'
 import { referenceLinearIssue } from '../sidebar/workspace-reference-fixtures.test-support'
 import { useWorkItemSourceFoundation } from './use-work-item-source-foundation'
@@ -67,6 +70,13 @@ function props(context?: TaskSourceContext): NormalizedWorkItemSourceSearchProps
     crossRepoSwitchTarget: 'task-source'
   }
 }
+
+afterEach(async () => {
+  await act(async () => {
+    cleanup()
+  })
+  vi.useRealTimers()
+})
 
 describe('smart workspace explicit source connection', () => {
   beforeEach(() => {
@@ -164,4 +174,29 @@ describe('smart workspace explicit source connection', () => {
       )
     }
   )
+
+  it('cancels the pending search debounce when its hook is disposed', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const { result, rerender } = renderHook(
+      ({ value }) => useWorkItemSourceFoundation({ ...props(), value }),
+      { initialProps: { value: '' } }
+    )
+    rerender({ value: 'first search' })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS)
+    })
+    expect(result.current.debouncedQuery).toBe('first search')
+
+    rerender({ value: 'disposed search' })
+    expect(vi.getTimerCount()).toBe(1)
+    await act(async () => {
+      cleanup()
+    })
+    expect(vi.getTimerCount()).toBe(0)
+    await act(async () => {
+      await vi.runAllTimersAsync()
+    })
+    expect(result.current.debouncedQuery).toBe('first search')
+    expect(mocks.state.searchLinearIssues).not.toHaveBeenCalled()
+  })
 })

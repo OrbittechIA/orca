@@ -98,6 +98,7 @@ export type RuntimeStore = {
     experimentalNativeChat?: GlobalSettings['experimentalNativeChat']
     defaultTaskSource?: GlobalSettings['defaultTaskSource']
     defaultTaskViewPreset?: GlobalSettings['defaultTaskViewPreset']
+    workItemStartPromptDelivery?: GlobalSettings['workItemStartPromptDelivery']
     visibleTaskProviders?: GlobalSettings['visibleTaskProviders']
     defaultRepoSelection?: GlobalSettings['defaultRepoSelection']
     defaultLinearTeamSelection?: GlobalSettings['defaultLinearTeamSelection']

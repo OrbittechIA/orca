@@ -41,6 +41,7 @@ import {
   buildWorkspaceDirHistoryForUpdate,
   stripRetiredGlobalSettings
 } from './terminal-settings-migrations'
+import { resolveWorkItemStartPromptDelivery } from '../../../shared/agent-session-options'
 
 export type SettingsMutationOperations = {
   state: PersistedState
@@ -160,6 +161,11 @@ export function updateSettings(
     if ('visibleTaskProviders' in updates) {
       sanitizedUpdates.visibleTaskProvidersDefaultedForJira = true
     }
+  }
+  if ('workItemStartPromptDelivery' in updates) {
+    sanitizedUpdates.workItemStartPromptDelivery = resolveWorkItemStartPromptDelivery(
+      updates.workItemStartPromptDelivery
+    )
   }
   if ('autoRenameBranchFromWork' in updates || 'autoRenameBranchFromWorkDefaultedOn' in updates) {
     sanitizedUpdates.autoRenameBranchFromWorkDefaultedOn = true

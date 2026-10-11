@@ -1,3 +1,5 @@
+import type { RuntimeClientTarget } from '@/runtime/runtime-client-target'
+import type { StructuredAgentSessionSent } from './structured-agent-session-message-sender'
 // A chat's one send slot: the pending entry that draws a message as sending and keeps any other send
 // of that chat out until it settles.
 
@@ -9,6 +11,8 @@ import {
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import {
   getStructuredAgentSessionPendingSends,
+  findStructuredAgentSessionPendingSend,
+  updateStructuredAgentSessionPendingSend,
   publishStructuredAgentSessionSends,
   structuredAgentSessionSendOut,
   type StructuredAgentSessionPendingSend
@@ -17,6 +21,9 @@ import {
 export type StructuredAgentSessionSendInput = {
   sessionId: string
   text: string
+  /** An explicit Start retry reuses the operation its first attempt staged. */
+  clientMessageId?: string
+  workItemStart?: true
   attachments?: readonly StructuredAgentSessionAttachment[]
   /** Asks the host to hold it as a card while the agent works; decided once, at the send. */
   delivery?: 'queue-if-active'
@@ -36,7 +43,8 @@ export function takeStructuredAgentSessionSendSlot(
   }
   const attachments = input.attachments ?? []
   const entry: StructuredAgentSessionPendingSend = {
-    clientMessageId: createStructuredAgentSessionOperationId(createBrowserUuid),
+    clientMessageId:
+      input.clientMessageId ?? createStructuredAgentSessionOperationId(createBrowserUuid),
     sessionId: input.sessionId,
     body: structuredAgentSessionSendBody(input.text, attachments),
     previewUris: attachments.map((attachment) => attachment.previewUri),
@@ -56,4 +64,43 @@ export function takeStructuredAgentSessionSendSlot(
     ...(input.callerKeepsText ? {} : { notice: null })
   })
   return entry
+}
+
+export type StructuredAgentSessionReservedSend = {
+  clientMessageId: string
+  /** Sends it once the chat exists; null when the reservation was released or dropped meanwhile. */
+  send: (target: RuntimeClientTarget) => StructuredAgentSessionSent | null
+  /** Gives the slot back unsent. */
+  release: () => void
+}
+
+export function reserveStructuredAgentSessionSend(
+  input: StructuredAgentSessionSendInput,
+  dispatch: (
+    entry: StructuredAgentSessionPendingSend,
+    target: RuntimeClientTarget,
+    workItemStart?: true
+  ) => StructuredAgentSessionSent
+): StructuredAgentSessionReservedSend | null {
+  const entry = takeStructuredAgentSessionSendSlot(input)
+  if (!entry) {
+    return null
+  }
+  // Once sent, the entry is the send's: what it keeps after settling is not the reservation's.
+  let sent = false
+  const held = (): StructuredAgentSessionPendingSend | undefined =>
+    sent ? undefined : findStructuredAgentSessionPendingSend(entry.sessionId, entry.clientMessageId)
+  return {
+    clientMessageId: entry.clientMessageId,
+    send: (target) => {
+      const current = held()
+      sent = true
+      return current ? dispatch(current, target, input.workItemStart) : null
+    },
+    release: () => {
+      if (held()) {
+        updateStructuredAgentSessionPendingSend(entry.sessionId, entry.clientMessageId, null)
+      }
+    }
+  }
 }

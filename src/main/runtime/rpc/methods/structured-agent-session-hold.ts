@@ -26,8 +26,8 @@ export const STRUCTURED_AGENT_SESSION_HOLD_METHODS = [
     name: 'agentSession.release',
     permission: 'workspace',
     params: HoldParams,
-    handler: async (_params, ctx) => {
-      requireStructuredCleanupHost(ctx)
+    handler: async (params, ctx) => {
+      requireStructuredCleanupHost(ctx, params.sessionId)
       return { released: true as const }
     }
   })

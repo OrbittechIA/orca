@@ -27,10 +27,12 @@ export type AgentLaunchRoutingInput = {
   startsOutsideWorkspaceRoot?: boolean
   /** The agents the target host listed as structured; absent until it has. */
   hostStructuredAgents?: readonly string[]
+  launchOrigin?: 'work-item-start'
 }
 
 export function resolveAgentLaunchRoute(input: AgentLaunchRoutingInput): AgentLaunchRoute {
-  return isNativeChatEnabled(input.settings) && structuredAgentLaunchSupported(input)
+  return (input.launchOrigin === 'work-item-start' || isNativeChatEnabled(input.settings)) &&
+    structuredAgentLaunchSupported(input)
     ? 'structured-native-chat'
     : 'terminal-tui'
 }
@@ -50,6 +52,7 @@ function structuredAgentLaunchSupport(input: Omit<AgentLaunchRoutingInput, 'laun
     ...(input.clientCapabilities ? { clientCapabilities: input.clientCapabilities } : {}),
     workspaceKind: input.workspaceKind,
     projectRuntime: input.projectRuntime,
+    ...(input.launchOrigin ? { launchOrigin: input.launchOrigin } : {}),
     startsOutsideWorkspaceRoot: input.startsOutsideWorkspaceRoot,
     ...(input.hostStructuredAgents ? { hostStructuredAgents: input.hostStructuredAgents } : {})
   })

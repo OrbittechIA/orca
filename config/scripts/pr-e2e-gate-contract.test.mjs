@@ -117,7 +117,9 @@ describe('PR E2E gate contract', () => {
     expect(prWorkflow.jobs.code_paths.outputs.test_files).toBe(
       '${{ steps.e2e_filter.outputs.test_files }}'
     )
-    expect(prWorkflow.jobs.e2e.with.ref).toBe('${{ github.event.pull_request.head.sha }}')
+    expect(prWorkflow.jobs.e2e.with.ref).toBe(
+      '${{ inputs.candidate_commit || github.event.pull_request.head.sha }}'
+    )
     expect(prWorkflow.jobs.e2e.with.test_files).toBe('${{ needs.code_paths.outputs.test_files }}')
   })
 
@@ -131,6 +133,15 @@ describe('PR E2E gate contract', () => {
     expect(successLoop.length).toBeGreaterThan(0)
     expect(verifyStep.run).toContain('"$CODE_PATHS" != "success"')
     for (const job of prWorkflow.jobs.verify.needs) {
+      if (job === 'native_smoke') {
+        const nativeGate = prWorkflow.jobs.verify.steps.find(
+          (step) => step.name === 'Require candidate native smoke'
+        )
+        expect(nativeGate.if).toBe("github.event_name == 'workflow_dispatch'")
+        expect(nativeGate.env.NATIVE_SMOKE).toBe('${{ needs.native_smoke.result }}')
+        expect(nativeGate.run).toBe('test "$NATIVE_SMOKE" = success')
+        continue
+      }
       const envVar = job.replaceAll('-', '_').toUpperCase()
       expect(verifyStep.env[envVar]).toBe(`\${{ needs.${job}.result }}`)
       if (job === 'code_paths' || job === 'preflight') {

@@ -3,6 +3,12 @@ name: Unit tests
 on:
   workflow_call:
     inputs:
+      ref:
+        description: Immutable source commit; empty keeps the caller's default checkout.
+        required: false
+        default: ''
+        type: string
+
       node_versions:
         description: JSON array of Node.js major versions to test.
         required: true
@@ -37,6 +43,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - uses: ./.github/actions/install-node-dependencies
@@ -65,7 +72,7 @@ jobs:
         run: |
           ORCA_SHARD_SOURCE_SHA="$(git rev-parse HEAD)"
           export ORCA_SHARD_SOURCE_SHA
-          node config/scripts/run-vitest.mjs run --config config/vitest.config.ts \
+          pnpm exec vitest run --config config/vitest.config.ts \
             --shard=${{ matrix.shard.index }}/${{ matrix.shard.count }} \
             ${{ inputs.runner == 'ubuntu-24.04-arm' && '--maxWorkers=4' || '' }}
 
@@ -93,6 +100,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - uses: ./.github/actions/install-node-dependencies

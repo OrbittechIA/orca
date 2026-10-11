@@ -1,3 +1,5 @@
+import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
+import * as quickWorkItemStartRoute from '@/hooks/composer-state/quick-work-item-start-route'
 import type { ComposerModel } from './composer-model'
 
 type QuickCreationExecutionInput = Pick<
@@ -35,7 +37,6 @@ type QuickCreationExecutionInput = Pick<
 import { useCallback } from 'react'
 import type { TuiAgent } from '../../../../shared/tui-agent'
 import type { WorktreeCreationRequest } from '@/lib/pending-worktree-creation'
-import { useAppStore } from '@/store'
 import { settleComposerSubmit } from '@/lib/composer-submit-cancellation'
 import { getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
 import { runBackgroundWorktreeCreation } from '@/lib/worktree-creation-flow'
@@ -44,7 +45,6 @@ import { resolveQuickCreateLinkedWorkItemPrompt } from '@/lib/linked-work-item-c
 import { buildQuickComposerStartup } from './quick-startup-plan'
 import { buildQuickCreationRequest } from './quick-creation-request'
 import type { PendingSmartGitHubSubmitResolution } from './source-selection-decisions'
-import { resolveAgentSessionLaunchRoute } from '@/lib/agent-session-launch-plan'
 
 export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
   const {
@@ -119,9 +119,15 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
       } = prepared
 
       const promptLinkedWorkItem = agent === null ? null : submitLinkedWorkItem
+      // Preparation owns this decision: it is only read here, never re-derived.
+      const { workItemStartPromptDelivery } = prepared
 
       const { prompt: quickPrompt, draftPrompt: quickDraftPrompt } =
-        resolveQuickCreateLinkedWorkItemPrompt(promptLinkedWorkItem, trimmedNote)
+        resolveQuickCreateLinkedWorkItemPrompt(
+          promptLinkedWorkItem,
+          trimmedNote,
+          workItemStartPromptDelivery
+        )
 
       const {
         startupPlan,
@@ -161,6 +167,8 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
       const activeEphemeralVmRecipeId = ephemeralVmsEnabled ? selectedEphemeralVmRecipeId : null
 
       if (activeEphemeralVmRecipeId && selectedWorkspaceTarget.status === 'ready') {
+        // Before the VM trust prompt or any provisioning: a VM is never a local execution host.
+        quickWorkItemStartRoute.refuseStrictStartOnEphemeralVm(workItemStartPromptDelivery)
         const selectedRecipe = ephemeralVmRecipes.find(
           (recipe) => recipe.id === activeEphemeralVmRecipeId
         )
@@ -172,22 +180,22 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
         }
       }
 
-      const promptDelivery = quickDraftPrompt ? 'draft' : 'auto-submit'
-      // Why: the verdict is persisted on the request as data and re-entered once the worktree exists.
-      const agentLaunchRoute = agent
-        ? resolveAgentSessionLaunchRoute(useAppStore.getState(), {
-            agent,
-            workspace: {
-              kind: selectedRepoIsGit ? 'git-worktree' : 'folder',
-              repoId,
-              executionHostId: ephemeralVmRecipe
-                ? 'runtime:pending-ephemeral-vm'
-                : (workspaceRunContext?.hostId ?? selectedRepoExecutionHostId ?? undefined)
-            },
-            prompt: quickDraftPrompt ?? quickPrompt,
-            promptDelivery
-          })
-        : 'terminal-tui'
+      const launch = await quickWorkItemStartRoute.resolveQuickCreationAgentLaunchRoute({
+        agent,
+        workItemPromptDelivery: workItemStartPromptDelivery,
+        settings,
+        executionHostId: selectedRepoExecutionHostId ?? LOCAL_EXECUTION_HOST_ID,
+        repoId,
+        workspaceKind: selectedRepoIsGit ? 'git-worktree' : 'folder',
+        launchText: quickPrompt,
+        nativeChatTranscriptIsLocalReadable: !selectedRepoIsRemote,
+        quickPrompt,
+        draftPrompt: quickDraftPrompt,
+        workspaceExecutionHostId: ephemeralVmRecipe
+          ? 'runtime:pending-ephemeral-vm'
+          : (workspaceRunContext?.hostId ?? selectedRepoExecutionHostId ?? undefined)
+      })
+      const { route: agentLaunchRoute, promptDelivery } = launch
       const structuredLaunch = agentLaunchRoute === 'structured-native-chat'
 
       const request = buildQuickCreationRequest({
@@ -215,6 +223,7 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
         pushTarget: submitPushTarget,
         agent,
         agentLaunchRoute,
+        ...(workItemStartPromptDelivery ? { workItemStartPromptDelivery } : {}),
         linkedLinearIssue,
         linkedLinearIssueWorkspaceId,
         linkedLinearIssueOrganizationUrlKey,

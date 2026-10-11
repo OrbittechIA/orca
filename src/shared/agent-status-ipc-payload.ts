@@ -70,6 +70,8 @@ export type AgentStatusIpcPayload = ParsedAgentStatusPayload & {
   /** Present on rows the structured session host projects; `owned` keeps them fresh past the
    *  staleness window because the host still runs the provider child. */
   structuredHost?: StructuredHostStatus
+  /** Derived from the canonical structured-session subject, never from a terminal id. */
+  structuredSessionId?: string
 } & WithAgentStatusObservation
 
 /** Identity used by UI-only cleanup to evict exactly the status it cleared.

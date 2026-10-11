@@ -82,7 +82,7 @@ describe('the families a page closure reaches', () => {
   it('reads the family names out of a pin table, and nothing else in it', () => {
     const names = pinnedFamilyNames(read(PIN_TABLES[0]))
     expect({ families: names.length, first: names[0] }).toEqual({
-      families: 20,
+      families: 22,
       first: 'settings.repo-metadata'
     })
   })

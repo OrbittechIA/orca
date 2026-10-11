@@ -37,10 +37,12 @@ describe('real WSL terminal lane', () => {
     expect(hasWslSourceChange([path])).toBe(false)
   })
 
-  it('runs the reusable lane at the immutable PR head', () => {
+  it('runs the reusable lane at the immutable candidate or PR head', () => {
     const pr = parse(read('.github/workflows/pr.yml'))
     expect(pr.jobs.windows_wsl.if).toBe("needs.code_paths.outputs.wsl_source_changed == 'true'")
-    expect(pr.jobs.windows_wsl.with.ref).toBe('${{ github.event.pull_request.head.sha }}')
+    expect(pr.jobs.windows_wsl.with.ref).toBe(
+      '${{ inputs.candidate_commit || github.event.pull_request.head.sha }}'
+    )
     const detector = pr.jobs['code_paths'].steps.find(
       (step) => step.name === 'Filter changed E2E specs'
     )
@@ -66,5 +68,37 @@ describe('real WSL terminal lane', () => {
     expect(receipt.run).toBe(
       'node config/scripts/verify-wsl-e2e-participation.mjs test-results/wsl-results.json'
     )
+  })
+
+  it('fences dispatch source, event and workflow to a full candidate SHA on official224', () => {
+    const pr = parse(read('.github/workflows/pr.yml'))
+    expect(pr.on.pull_request.types).toContain('synchronize')
+    expect(pr.on.workflow_dispatch.inputs.candidate_commit.required).toBe(true)
+    expect(pr.on.workflow_dispatch.inputs.candidate_commit.type).toBe('string')
+    expect(pr.env.ORCA_SOURCE_BASE).toBe(
+      "${{ github.event_name == 'workflow_dispatch' && '2bb20586ebc39d605e16d95f57420e20a16e7485' || github.event.pull_request.base.sha }}"
+    )
+    const steps = pr.jobs.code_paths.steps
+    expect(steps[0].with.ref).toBe("${{ inputs.candidate_commit || '' }}")
+    const guard = steps.find((step) => step.name === 'Verify candidate source identity')
+    expect(guard.if).toBe("github.event_name == 'workflow_dispatch'")
+    expect(guard.env).toEqual({
+      CANDIDATE_COMMIT: '${{ inputs.candidate_commit }}',
+      EVENT_COMMIT: '${{ github.sha }}',
+      WORKFLOW_COMMIT: '${{ github.workflow_sha }}'
+    })
+    for (const fence of [
+      'set -euo pipefail',
+      'if ! [[ "$CANDIDATE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then',
+      'SOURCE_COMMIT="$(git rev-parse HEAD)"',
+      'test "$SOURCE_COMMIT" = "$CANDIDATE_COMMIT" ||',
+      'test "$EVENT_COMMIT" = "$CANDIDATE_COMMIT" ||',
+      'test "$WORKFLOW_COMMIT" = "$CANDIDATE_COMMIT" ||',
+      'test "$(git rev-parse "${ORCA_SOURCE_BASE}^{tree}")" = f7e0d5d058475cf246f53f3d68086a1ab101d45f ||',
+      'git merge-base --is-ancestor "$ORCA_SOURCE_BASE" HEAD ||'
+    ]) {
+      expect(guard.run).toContain(fence)
+    }
+    expect(guard.run).toContain('exit 1')
   })
 })

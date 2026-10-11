@@ -6,9 +6,15 @@
 // completion is an edge that has already passed, so this one opens with nothing and replays
 // nothing: a client that was away during a completion has missed it, by decision.
 
+import { agentSessionRefusalError } from '../../../../shared/agent-session-wire-refusals'
+import { getStructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-registry'
 import { defineMethod, defineStreamingMethod } from '../core'
 import {
   requireStructuredCapability,
+  canReachStructuredSession,
+  isWorkItemStartStructuredSession,
+  requireWorkItemStartStatusHost,
+  supportsStructuredSessions,
   requireStructuredHost as requireHost
 } from './structured-agent-session-gate'
 import {
@@ -28,6 +34,16 @@ export const STRUCTURED_AGENT_SESSION_TURN_COMPLETION_METHODS = [
     params: AcknowledgeAttentionParams,
     handler: (params, ctx) => {
       requireStructuredCapability(ctx)
+      const host = getStructuredAgentSessionHost()
+      if (
+        (!supportsStructuredSessions(ctx) ||
+          isWorkItemStartStructuredSession(host, params.sessionId)) &&
+        (!host || !canReachStructuredSession(ctx, host, params.sessionId))
+      ) {
+        throw agentSessionRefusalError('structured_agent_session_unsupported', {
+          reason: 'clientCapabilityMissing'
+        })
+      }
       ctx.runtime.retireStructuredAttention({
         sessionId: params.sessionId,
         observedCursor: params.observedCursor
@@ -40,7 +56,9 @@ export const STRUCTURED_AGENT_SESSION_TURN_COMPLETION_METHODS = [
     permission: 'workspace',
     params: SubscribeTurnCompletionsParams,
     handler: async (params, ctx, emit) => {
-      const host = requireHost(ctx)
+      const host = supportsStructuredSessions(ctx)
+        ? requireHost(ctx)
+        : requireWorkItemStartStatusHost(ctx)
       const subscriptionId = structuredAgentSessionTurnCompletionSubscriptionId(ctx)
       let dispose = (): void => {}
       const stream = bindStructuredAgentSessionStream(ctx, subscriptionId, () => dispose())
@@ -59,7 +77,8 @@ export const STRUCTURED_AGENT_SESSION_TURN_COMPLETION_METHODS = [
                 : undefined
           if (
             sessionId === undefined ||
-            clientReadsStructuredSessionAgent(ctx, host.sessionAgent(sessionId) ?? '')
+            (clientReadsStructuredSessionAgent(ctx, host.sessionAgent(sessionId) ?? '') &&
+              canReachStructuredSession(ctx, host, sessionId))
           ) {
             emit(event)
           }

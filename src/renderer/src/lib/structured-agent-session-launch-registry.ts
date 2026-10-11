@@ -15,6 +15,7 @@ import {
   readStructuredAgentLaunchRecord,
   structuredAgentLaunchRecordFor,
   writeStructuredAgentLaunchRecord,
+  type WorkItemStartPromptIdentity,
   type StructuredAgentLaunchPersistedRecord
 } from './structured-agent-session-launch-persistence'
 import {
@@ -26,6 +27,7 @@ import {
 
 export type StructuredLaunchState = StructuredLaunchRecoveryState & {
   identity: string
+  promptIdentity?: WorkItemStartPromptIdentity
   /** Fixed by the caller that opened this launch so coalesced prompts use one delivery mode. */
   promptDelivery: StructuredAgentLaunchOptions['promptDelivery']
   callers: StructuredLaunchCallerGroup
@@ -84,9 +86,9 @@ export function getStructuredLaunchStateBySessionId(
   return structuredLaunchesBySessionId.get(sessionId)
 }
 
-export function setStructuredLaunchState(state: StructuredLaunchState): void {
+export function setStructuredLaunchState(state: StructuredLaunchState): boolean {
   structuredLaunchesBySessionId.set(state.intent.sessionId, state)
-  persistStructuredLaunchState(state)
+  return persistStructuredLaunchState(state)
 }
 
 export function deleteStructuredLaunchStateIfCurrent(state: StructuredLaunchState): boolean {
@@ -98,14 +100,18 @@ export function deleteStructuredLaunchStateIfCurrent(state: StructuredLaunchStat
   return true
 }
 
-function persistStructuredLaunchState(state: StructuredLaunchState): void {
+function persistStructuredLaunchState(state: StructuredLaunchState): boolean {
   const lifecycle = launchStateLifecycle(state)
-  if (lifecycle === 'published' || lifecycle === 'cancelled') {
+  if ((lifecycle === 'published' && !state.promptIdentity) || lifecycle === 'cancelled') {
     deleteStructuredAgentLaunchRecord(state.intent.sessionId)
-    return
+    return true
   }
-  writeStructuredAgentLaunchRecord({
-    ...structuredAgentLaunchRecordFor(state.intent, lifecycle),
+  return writeStructuredAgentLaunchRecord({
+    ...structuredAgentLaunchRecordFor(
+      state.intent,
+      lifecycle === 'published' ? 'visibility-unknown' : lifecycle
+    ),
+    ...(state.promptIdentity ? { promptIdentity: state.promptIdentity } : {}),
     ...(lifecycle === 'failed' ? { failedAt: state.callers.failedAt } : {})
   })
 }

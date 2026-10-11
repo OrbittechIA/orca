@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+import { createPackage, uncache } from '@electron/asar'
 import {
   chmodSync,
   existsSync,
@@ -14,28 +16,81 @@ import {
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { linuxFormatArguments, packageLinuxFormats } from './package-linux-formats.mjs'
+import { readBuildProvenanceLiteral } from './build-provenance.mjs'
+import { buildCandidateManifest } from './write-candidate-manifest.mjs'
+import { runProcessSync } from './script-child-process.mjs'
+
+const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex')
 
 let root
+let sourceDirectory
+let provenanceLiteral
 let preparedDirectory
 let outputDirectory
+let preparedAsar
 const targets = ['AppImage', 'deb', 'rpm']
 const valueAfter = (args, flag) => args[args.indexOf(flag) + 1]
 
-beforeEach(() => {
+async function writePreparedAsar(literal = provenanceLiteral) {
+  const contents = join(root, 'asar contents')
+  mkdirSync(join(contents, 'out/main'), { recursive: true })
+  writeFileSync(
+    join(contents, 'out/main/index.js'),
+    `const provenance = { site: 'orca:build-provenance:embed', value: ${literal} }`
+  )
+  const asarPath = join(preparedDirectory, 'resources/app.asar')
+  uncache(asarPath)
+  await createPackage(contents, asarPath)
+  preparedAsar = readFileSync(asarPath)
+}
+
+beforeEach(async () => {
+  vi.stubEnv('ORCA_BUILD_UNCERTIFIED', '')
+  vi.stubEnv('ORCA_BUILD_COMMIT', '')
+  vi.stubEnv('ORCA_BUILD_TREE', '')
   root = mkdtempSync(join(tmpdir(), 'orca formats with spaces-'))
+  sourceDirectory = join(root, 'source')
+  mkdirSync(sourceDirectory)
+  writeFileSync(join(sourceDirectory, 'package.json'), JSON.stringify({ version: '1.4.222' }))
+  for (const args of [
+    ['init', '--quiet'],
+    ['add', 'package.json'],
+    [
+      '-c',
+      'user.name=Fixture',
+      '-c',
+      'user.email=fixture@example.invalid',
+      '-c',
+      'commit.gpgsign=false',
+      '-c',
+      'core.hooksPath=',
+      'commit',
+      '--quiet',
+      '-m',
+      'fixture'
+    ]
+  ]) {
+    const result = runProcessSync({ program: 'git', args, cwd: sourceDirectory })
+    expect(result.code, result.stderr).toBe(0)
+  }
+  provenanceLiteral = readBuildProvenanceLiteral({ cwd: sourceDirectory })
+  expect(provenanceLiteral).not.toBe('null')
   preparedDirectory = join(root, 'prepared app')
   outputDirectory = join(root, 'output packages')
   mkdirSync(join(preparedDirectory, 'resources'), { recursive: true })
   mkdirSync(outputDirectory)
   writeFileSync(join(preparedDirectory, 'resources/package-type'), 'AppImage')
-  writeFileSync(join(preparedDirectory, 'resources/app.asar'), 'verified application')
+  await writePreparedAsar()
   writeFileSync(join(preparedDirectory, 'orca-ide'), 'executable')
   chmodSync(join(preparedDirectory, 'orca-ide'), 0o755)
 })
 
-afterEach(() => rmSync(root, { recursive: true, force: true }))
+afterEach(() => {
+  rmSync(root, { recursive: true, force: true })
+  vi.unstubAllEnvs()
+})
 
 function emitPackage(args) {
   const format = valueAfter(args, '--linux')
@@ -73,6 +128,104 @@ it('preserves configured hooks, architecture, names, and PR compression with exa
 })
 
 describe('independent Linux package formats', () => {
+  it('binds every format to its copied ASAR before building and ignores stale parent metadata', async () => {
+    const staleSidecar = JSON.stringify({ appContentSha256: '0'.repeat(64), appContentBytes: 1 })
+    writeFileSync(join(outputDirectory, 'app-content.linux-x64.json'), staleSidecar)
+    writeFileSync(join(outputDirectory, 'old.deb'), 'previous package')
+    const seen = []
+    await packageLinuxFormats({
+      sourceDirectory,
+      preparedDirectory,
+      outputDirectory,
+      prepareAppImageTools: async () => ({}),
+      runBuilder: async (args) => {
+        const output = valueAfter(args, '--config.directories.output')
+        const app = valueAfter(args, '--prepackaged')
+        const copiedAsar = readFileSync(join(app, 'resources/app.asar'))
+        const sidecar = JSON.parse(readFileSync(join(output, 'app-content.linux-x64.json'), 'utf8'))
+        expect(sidecar).toEqual({
+          platform: 'linux',
+          arch: 'x64',
+          appContentSha256: sha256(copiedAsar),
+          appContentBytes: copiedAsar.length
+        })
+        const { format } = emitPackage(args)
+        const manifest = buildCandidateManifest({
+          distDir: output,
+          artifactPaths: [join(output, `orca.${format}`)],
+          provenanceLiteral
+        })
+        expect(manifest.artifacts).toEqual([
+          expect.objectContaining({
+            artifact: `orca.${format}`,
+            appContentSha256: sha256(preparedAsar),
+            appContentBytes: preparedAsar.length
+          })
+        ])
+        writeFileSync(join(output, 'candidate-manifest.json'), JSON.stringify(manifest))
+        seen.push(format)
+      }
+    })
+    expect(seen.sort()).toEqual(targets.slice().sort())
+    for (const format of targets) {
+      const metadata = join(outputDirectory, 'linux-package-formats', format)
+      const sidecar = JSON.parse(readFileSync(join(metadata, 'app-content.linux-x64.json'), 'utf8'))
+      expect(sidecar.appContentSha256).toBe(sha256(preparedAsar))
+      expect(
+        JSON.parse(readFileSync(join(metadata, 'candidate-manifest.json'), 'utf8')).artifacts
+      ).toHaveLength(1)
+    }
+    expect(readFileSync(join(outputDirectory, 'app-content.linux-x64.json'), 'utf8')).toBe(
+      staleSidecar
+    )
+    expect(readFileSync(join(outputDirectory, 'old.deb'), 'utf8')).toBe('previous package')
+  })
+
+  it.each(['stale bundle', 'unidentified bundle', 'uncertifiable source'])(
+    'refuses %s before any builder runs',
+    async (scenario) => {
+      if (scenario === 'stale bundle') {
+        await writePreparedAsar(
+          JSON.stringify({ ...JSON.parse(provenanceLiteral), commit: 'd'.repeat(40) })
+        )
+      } else if (scenario === 'unidentified bundle') {
+        await writePreparedAsar('null')
+      } else {
+        writeFileSync(join(sourceDirectory, 'package.json'), JSON.stringify({ version: 'changed' }))
+      }
+      const runBuilder = vi.fn()
+      await expect(
+        packageLinuxFormats({
+          sourceDirectory,
+          preparedDirectory,
+          outputDirectory,
+          prepareAppImageTools: async () => ({}),
+          runBuilder
+        })
+      ).rejects.toThrow('Linux package formats failed')
+      expect(runBuilder).not.toHaveBeenCalled()
+      expect(readdirSync(outputDirectory)).toEqual([])
+    }
+  )
+
+  it('keeps explicit uncertified development packages without claiming app-content certification', async () => {
+    vi.stubEnv('ORCA_BUILD_UNCERTIFIED', '1')
+    await writePreparedAsar('null')
+    const seen = []
+    await packageLinuxFormats({
+      sourceDirectory,
+      preparedDirectory,
+      outputDirectory,
+      prepareAppImageTools: async () => ({}),
+      runBuilder: async (args) => {
+        const output = valueAfter(args, '--config.directories.output')
+        expect(existsSync(join(output, 'app-content.linux-x64.json'))).toBe(false)
+        seen.push(emitPackage(args).format)
+      }
+    })
+    expect(seen.sort()).toEqual(targets.slice().sort())
+  })
+
   it('starts all formats before awaiting completion and isolates metadata writes', async () => {
     if (process.platform !== 'win32') {
       symlinkSync('resources/package-type', join(preparedDirectory, 'marker-link'))
@@ -83,6 +236,7 @@ describe('independent Linux package formats', () => {
     })
     const copies = []
     await packageLinuxFormats({
+      sourceDirectory,
       preparedDirectory,
       outputDirectory,
       prepareAppImageTools: async () => ({}),
@@ -90,7 +244,7 @@ describe('independent Linux package formats', () => {
         const app = valueAfter(args, '--prepackaged')
         const format = valueAfter(args, '--linux')
         expect(readFileSync(join(app, 'resources/package-type'), 'utf8')).toBe('AppImage')
-        expect(readFileSync(join(app, 'resources/app.asar'), 'utf8')).toBe('verified application')
+        expect(readFileSync(join(app, 'resources/app.asar'))).toEqual(preparedAsar)
         if (process.platform !== 'win32') {
           expect(readlinkSync(join(app, 'marker-link'))).toBe('resources/package-type')
           expect(statSync(join(app, 'orca-ide')).mode & 0o777).toBe(0o755)
@@ -111,9 +265,7 @@ describe('independent Linux package formats', () => {
     })
     expect(new Set(copies).size).toBe(3)
     expect(readFileSync(join(preparedDirectory, 'resources/package-type'), 'utf8')).toBe('AppImage')
-    expect(readFileSync(join(preparedDirectory, 'resources/app.asar'), 'utf8')).toBe(
-      'verified application'
-    )
+    expect(readFileSync(join(preparedDirectory, 'resources/app.asar'))).toEqual(preparedAsar)
     for (const format of targets) {
       expect(readFileSync(join(outputDirectory, `orca.${format}`), 'utf8')).toBe(format)
       expect(
@@ -139,6 +291,7 @@ describe('independent Linux package formats', () => {
       })
       await expect(
         packageLinuxFormats({
+          sourceDirectory,
           preparedDirectory,
           outputDirectory,
           prepareAppImageTools: async ({ directory }) => {
@@ -193,6 +346,7 @@ describe('independent Linux package formats', () => {
     let overlay
     const calls = []
     await packageLinuxFormats({
+      sourceDirectory,
       preparedDirectory,
       outputDirectory,
       prepareAppImageTools: async ({ directory }) => {
@@ -220,6 +374,7 @@ describe('independent Linux package formats', () => {
   it('rejects missing artifacts even when the builder reports success', async () => {
     await expect(
       packageLinuxFormats({
+        sourceDirectory,
         preparedDirectory,
         outputDirectory,
         prepareAppImageTools: async () => ({}),
@@ -238,6 +393,7 @@ describe('independent Linux package formats', () => {
     writeFileSync(join(outputDirectory, 'orca.deb'), 'previous package')
     await expect(
       packageLinuxFormats({
+        sourceDirectory,
         preparedDirectory,
         outputDirectory,
         prepareAppImageTools: async () => ({}),
@@ -254,6 +410,7 @@ describe('independent Linux package formats', () => {
     writeFileSync(join(preparedDirectory, 'resources/package-type'), 'rpm')
     await expect(
       packageLinuxFormats({
+        sourceDirectory,
         preparedDirectory,
         outputDirectory,
         prepareAppImageTools: async () => ({}),

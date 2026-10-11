@@ -10,6 +10,9 @@
 // spoof transmission with a shell export.
 //
 declare const ORCA_BUILD_IDENTITY: 'stable' | 'rc' | null
+// Identidade do build (versão, commit, árvore, buildId, plataforma, arch), substituída no
+// empacotamento a partir do git. `null` fora de um build empacotado.
+declare const ORCA_BUILD_PROVENANCE: unknown
 declare const ORCA_POSTHOG_WRITE_KEY: string | null
 
 // Diagnostic-bundle upload endpoint for Mode 3 (telemetry-error-tracking.md

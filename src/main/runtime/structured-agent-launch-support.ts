@@ -43,7 +43,8 @@ type LaunchSupportRuntime = {
 export async function structuredAgentSupportsLaunch(
   agent: string,
   worktreeSelector: string,
-  runtime: LaunchSupportRuntime
+  runtime: LaunchSupportRuntime,
+  workspacePath?: string
 ): Promise<boolean> {
   const supportsLaunch = structuredAgentRuntimeRegistration(agent)?.supportsLaunch
   if (!supportsLaunch) {
@@ -54,7 +55,8 @@ export async function structuredAgentSupportsLaunch(
     ...(await resolveHostStructuredAgentBaseEnvironment(settings)),
     ...(isTuiAgent(agent) ? resolveTuiAgentLaunchEnv(agent, settings.agentDefaultEnv) : {})
   }
-  const cwd = (await runtime.resolveRuntimeFileTarget(worktreeSelector)).worktree.path
+  const cwd =
+    workspacePath ?? (await runtime.resolveRuntimeFileTarget(worktreeSelector)).worktree.path
   return supportsLaunch({ cwd, env, commandSettings: settings })
 }
 
@@ -64,6 +66,7 @@ export async function structuredAgentSupportsLaunch(
 export async function resolveHostStructuredAgentCreateSupport(input: {
   agent: StructuredAgentId
   worktreeSelector: string
+  workspacePath?: string
   location: AgentSessionExecutionLocation
   runtime: LaunchSupportRuntime
   getSettings: () => ClaudeManagedAccountGateSettings
@@ -73,7 +76,12 @@ export async function resolveHostStructuredAgentCreateSupport(input: {
     structuredAgentRuntimeRegistration(agent)?.supportsLocation(location) ?? false
   const supportsLaunch =
     supportsLocation &&
-    (await structuredAgentSupportsLaunch(agent, input.worktreeSelector, input.runtime))
+    (await structuredAgentSupportsLaunch(
+      agent,
+      input.worktreeSelector,
+      input.runtime,
+      input.workspacePath
+    ))
   const support = resolveStructuredAgentSessionCreateSupport({
     agent,
     location,

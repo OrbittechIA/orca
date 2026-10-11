@@ -63,7 +63,9 @@ describe('PR workflow parallelism', () => {
   })
 
   it('cancels superseded runs for the same pull request', () => {
-    expect(workflow.concurrency.group).toBe('pr-checks-${{ github.event.pull_request.number }}')
+    expect(workflow.concurrency.group).toBe(
+      'pr-checks-${{ github.event.pull_request.number || github.run_id }}'
+    )
     expect(workflow.concurrency['cancel-in-progress']).toBe(true)
     expect(workflow.jobs.test.if).toContain('!cancelled()')
     expect(workflow.jobs.test.if).not.toContain('always()')
@@ -514,7 +516,7 @@ describe('PR workflow parallelism', () => {
     expect(steps[cacheIndex].with.key).toContain(
       "hashFiles('pnpm-lock.yaml', 'config/tsconfig*.json')"
     )
-    expect(steps[cacheIndex].with.key).toContain('github.event.pull_request.base.sha')
+    expect(steps[cacheIndex].with.key).toContain('env.ORCA_SOURCE_BASE')
     expect(steps[cacheIndex].with['restore-keys']).not.toContain('tsbuildinfo-${{ runner.os }}-\n')
   })
 
@@ -576,7 +578,8 @@ describe('PR workflow parallelism', () => {
       'cross-version-wire',
       'managed_hook_node18',
       'package',
-      'package_windows'
+      'package_windows',
+      'native_smoke'
     ])
     const verifyStep = workflow.jobs.verify.steps.find(
       (step) => step.name === 'Require successful checks'

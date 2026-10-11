@@ -6,6 +6,7 @@ import type {
   GitHubProjectRef
 } from './mobile-tasks-dependencies'
 import type { GitHubProjectSortDirection } from '../../../src/shared/github/project-types'
+import type { WorkItemStartPromptDelivery } from '../../../src/shared/agent-session-options'
 
 export type GitHubTaskKind = 'issues' | 'prs'
 
@@ -58,6 +59,8 @@ export type RuntimeTaskSettings = {
   defaultRepoSelection?: string[] | null
   defaultLinearTeamSelection?: string[] | null
   githubProjects?: GitHubProjectSettings
+  /** Host preference for Work Item Start. `submit-after-ready` requires a structured session. */
+  workItemStartPromptDelivery?: WorkItemStartPromptDelivery
 }
 
 export type LinearWorkspace = {

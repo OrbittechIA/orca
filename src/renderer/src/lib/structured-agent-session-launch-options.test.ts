@@ -1,12 +1,13 @@
 // @vitest-environment happy-dom
 
+import { launchPromptFingerprint } from './structured-agent-session-launch-staging'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RuntimeMobileSessionTabsResult } from '../../../shared/runtime-session-contracts'
 import type { StructuredAgentSessionLaunchIntent } from '@/lib/launch-structured-agent-session'
 import { RuntimeRpcCallError } from '@/runtime/runtime-rpc-result'
 
 type CallParams = {
-  envelope?: { expectedRuntimeFence?: number | null }
+  envelope?: { expectedRuntimeFence?: number | null; clientOperationId?: string }
   key?: string
   value?: string
 }
@@ -223,6 +224,61 @@ describe('picks made while a chat launches', () => {
       { method: 'agentSession.send' }
     ])
     expect(lifecycle()).toBeNull()
+  })
+
+  it('applies picks made during recovery before replaying the original prompt operation', async () => {
+    const history = deferred<unknown>()
+    const call = mocks.call.getMockImplementation()!
+    mocks.call.mockImplementation((target, method, params) =>
+      method === 'agentSession.history' ? history.promise : call(target, method, params)
+    )
+    const intent = launchIntent({ model: 'gpt-seeded' })
+    intent.params.launchOrigin = 'work-item-start'
+    const retainedSendId = `${Date.now()}-${'a'.repeat(32)}`
+    const launch = startStructuredAgentLaunch(WORKTREE_ID, 'codex', {
+      requestId: 'recovery-request',
+      prompt: 'first turn',
+      promptDelivery: 'submit-after-ready',
+      recover: {
+        intent,
+        clientMessageId: retainedSendId,
+        bodyFingerprint: launchPromptFingerprint(SESSION_ID, 'first turn')
+      }
+    })
+    const modelPick = holdStructuredAgentSessionLaunchOption(SESSION_ID, 'model', 'gpt-picked')
+    const effortPick = holdStructuredAgentSessionLaunchOption(SESSION_ID, 'effort', 'high')
+    history.resolve({ ok: true, page: { fence: 7 } })
+    await settle()
+
+    expect(mutations()).toEqual([
+      { method: 'agentSession.setOption', fence: 7, key: 'model', value: 'gpt-picked' }
+    ])
+    expect(lifecycle()).toBe('pending')
+    setOptionReplies[0]!.resolve({ ok: true, value: { options: { model: 'gpt-picked' } } })
+    await expect(modelPick).resolves.toEqual({
+      kind: 'accepted',
+      options: { model: 'gpt-picked' }
+    })
+    await settle()
+    expect(mutations()).toEqual([
+      { method: 'agentSession.setOption', fence: 7, key: 'model', value: 'gpt-picked' },
+      { method: 'agentSession.setOption', fence: 7, key: 'effort', value: 'high' }
+    ])
+    setOptionReplies[1]!.resolve({ ok: true, value: { options: { effort: 'high' } } })
+    await expect(effortPick).resolves.toEqual({ kind: 'accepted', options: { effort: 'high' } })
+    await launch.promptDeliveryResult
+
+    expect(mutations().map((mutation) => mutation.method)).toEqual([
+      'agentSession.setOption',
+      'agentSession.setOption',
+      'agentSession.send'
+    ])
+    expect(
+      mocks.call.mock.calls.find(([, method]) => method === 'agentSession.send')?.[2].envelope
+        ?.clientOperationId
+    ).toBe(retainedSendId)
+    expect(mocks.launch).not.toHaveBeenCalled()
+    expect(mocks.createIntent).not.toHaveBeenCalled()
   })
 
   it('applies a pick made while the earlier ones are being applied', async () => {

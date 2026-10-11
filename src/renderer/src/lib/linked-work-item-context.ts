@@ -1,4 +1,5 @@
 import type { TaskProvider } from '../../../shared/task-providers'
+import type { WorkItemStartPromptDelivery } from '../../../shared/agent-session-options'
 
 export type LinkedWorkItemContext = {
   provider: TaskProvider
@@ -187,7 +188,8 @@ export function resolveQuickCreateLinkedWorkItemPrompt(
       > & { linkedContext?: LinkedWorkItemContext })
     | null
     | undefined,
-  note: string
+  note: string,
+  promptDelivery: WorkItemStartPromptDelivery = 'draft'
 ): { prompt: string; draftPrompt: string | null } {
   const trimmedNote = note.trim()
   const linearBlock = isLinearWorkItemReference(linkedWorkItem)
@@ -206,6 +208,9 @@ export function resolveQuickCreateLinkedWorkItemPrompt(
       ? [trimmedNote, linkedUrl].filter(Boolean).join('\n\n')
       : null
   const isLinearTypedOnly = linkedWorkItem?.number === 0 && Boolean(trimmedNote) && !draftPrompt
+  if (promptDelivery === 'submit-after-ready' && draftPrompt) {
+    return { prompt: draftPrompt, draftPrompt: null }
+  }
   return {
     prompt: isLinearTypedOnly ? trimmedNote : '',
     draftPrompt

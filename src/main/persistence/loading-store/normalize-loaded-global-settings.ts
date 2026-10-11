@@ -18,6 +18,7 @@ import { normalizeMachineName } from '../../../shared/machine-name'
 import type { PersistedState } from '../../../shared/persisted-state-types'
 import type { PreparedLoadedTerminalSettings } from './prepare-loaded-terminal-settings'
 import type { PreparedLoadedProfileSettings } from './prepare-loaded-profile-settings'
+import { resolveWorkItemStartPromptDelivery } from '../../../shared/agent-session-options'
 
 export function normalizeLoadedGlobalSettings(
   parsed: PersistedState,
@@ -70,6 +71,9 @@ export function normalizeLoadedGlobalSettings(
       : {}),
     nativeChatAppearance: normalizeNativeChatAppearanceSettings(
       parsed.settings?.nativeChatAppearance
+    ),
+    workItemStartPromptDelivery: resolveWorkItemStartPromptDelivery(
+      parsed.settings?.workItemStartPromptDelivery
     ),
     worktreeVisibilityDefaults: migratedExternalVisibility.defaults,
     prBotAuthorOverrides: normalizePRBotAuthorOverrides(parsed.settings?.prBotAuthorOverrides),

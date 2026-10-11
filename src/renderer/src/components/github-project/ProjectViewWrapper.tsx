@@ -20,6 +20,7 @@ import type {
   GitHubProjectFieldMutationValue,
   GitHubProjectRow
 } from '../../../../shared/github/project-types'
+import { resolveWorkItemStartPromptDelivery } from '../../../../shared/agent-session-options'
 
 type Props = { selectedRepoIds: ReadonlySet<string> }
 
@@ -122,6 +123,9 @@ function ProjectViewBody({
             repoId: dialogItem.workItem.repoId,
             launchSource: 'task_page',
             telemetrySource: 'sidebar',
+            promptDelivery: resolveWorkItemStartPromptDelivery(
+              useAppStore.getState().settings?.workItemStartPromptDelivery
+            ),
             openModalFallback: () => {
               if (item.url) {
                 void window.api.shell.openUrl(item.url)

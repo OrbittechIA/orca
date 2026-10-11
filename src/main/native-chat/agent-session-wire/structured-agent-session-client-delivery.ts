@@ -119,8 +119,10 @@ export class StructuredAgentSessionClientDelivery {
     this.turnCompletionFeed.observe(sessionId, undefined, { historical: true })
   }
 
-  subscribeStatus = (subscriber: StructuredAgentSessionStatusSubscriber): (() => void) =>
-    this.statusFeed.subscribe(subscriber)
+  subscribeStatus = (
+    subscriber: StructuredAgentSessionStatusSubscriber,
+    includeSession?: (sessionId: string) => boolean
+  ): (() => void) => this.statusFeed.subscribe(subscriber, includeSession)
   forgetStatus = (sessionId: string): void => this.statusFeed.forget(sessionId)
 
   readStatusSummary = (sessionId: string): AgentSessionStatusSummary | undefined =>
