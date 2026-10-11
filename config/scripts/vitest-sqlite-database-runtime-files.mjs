@@ -157,6 +157,7 @@ export const SQLITE_DATABASE_RUNTIME_INCLUDE = [
   'src/main/runtime/rpc/methods/orchestration/worker/workers-new-worktree.test.ts',
   'src/main/runtime/rpc/methods/orchestration/worker/workers-recovery.test.ts',
   'src/main/runtime/rpc/methods/structured-worker-stop-receipt.test.ts',
+  'src/main/runtime/rpc/methods/worktree-material.test.ts',
   'src/main/runtime/rpc/orchestration-11745-regression-verification.test.ts',
   'src/main/runtime/rpc/orchestration-commit-notify-characterization.test.ts',
   'src/main/runtime/rpc/orchestration-contract-fence.test.ts',
