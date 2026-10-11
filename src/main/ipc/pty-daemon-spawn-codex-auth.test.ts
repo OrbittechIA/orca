@@ -16,8 +16,24 @@ import { join } from 'node:path'
 import { SETUP_AGENT_SEQUENCE_STARTUP_COMMAND_ENV } from '../../shared/setup-agent-sequencing'
 import { registerPtyHandlers, resolveCodexHomeAfterManagedAuthReadiness } from './pty'
 import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
+import { createGlobalSettingsFixture } from '../../shared/global-settings-test-fixture'
+import type { CodexManagedAccount } from '../../shared/managed-account-types'
 
 const consumerConfigHome = join(TEST_MANAGED_ROOT, 'opencode-consumer-config')
+
+function createManagedCodexAuthSettings(managedHomes: string[]) {
+  return createGlobalSettingsFixture({
+    codexManagedAccounts: managedHomes.map<CodexManagedAccount>((managedHomePath, index) => ({
+      id: `account-${index + 1}`,
+      email: `account-${index + 1}@example.test`,
+      managedHomePath,
+      managedHomeRuntime: 'host',
+      createdAt: 1,
+      updatedAt: 1,
+      lastAuthenticatedAt: 1
+    }))
+  })
+}
 
 vi.mock('electron', () => import('./pty-ipc-mock-registry').then((m) => m.electronModuleMock()))
 vi.mock('fs', () => import('./pty-ipc-mock-registry').then((m) => m.fsModuleMock()))
@@ -88,15 +104,12 @@ describe('registerPtyHandlers', () => {
         })
         const daemonSpawn = setupDaemonAdapter()
         handlers.clear()
-        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime(), () => TEST_CODEX_HOME, (() => ({
-          codexManagedAccounts: [
-            {
-              id: 'account-1',
-              managedHomePath: TEST_CODEX_HOME,
-              managedHomeRuntime: 'host'
-            }
-          ]
-        })) as never)
+        registerPtyHandlers(
+          mainWindow,
+          createPtyIpcAdmissionRuntime(),
+          () => TEST_CODEX_HOME,
+          () => createManagedCodexAuthSettings([TEST_CODEX_HOME])
+        )
 
         const spawnPromise = handlers.get('pty:spawn')!(null, {
           cols: 80,
@@ -158,13 +171,12 @@ describe('registerPtyHandlers', () => {
         const daemonSpawn = setupDaemonAdapter()
         const resolveHome = vi.fn(() => selectedHome)
         handlers.clear()
-        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime(), resolveHome, (() => ({
-          codexManagedAccounts: [TEST_CODEX_HOME, nextHome].map((managedHomePath, index) => ({
-            id: `account-${index + 1}`,
-            managedHomePath,
-            managedHomeRuntime: 'host'
-          }))
-        })) as never)
+        registerPtyHandlers(
+          mainWindow,
+          createPtyIpcAdmissionRuntime(),
+          resolveHome,
+          () => createManagedCodexAuthSettings([TEST_CODEX_HOME, nextHome])
+        )
 
         const spawnPromise = handlers.get('pty:spawn')!(null, {
           cols: 80,
@@ -192,15 +204,12 @@ describe('registerPtyHandlers', () => {
         })
         const daemonSpawn = setupDaemonAdapter()
         handlers.clear()
-        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime(), () => TEST_CODEX_HOME, (() => ({
-          codexManagedAccounts: [
-            {
-              id: 'account-1',
-              managedHomePath: TEST_CODEX_HOME,
-              managedHomeRuntime: 'host'
-            }
-          ]
-        })) as never)
+        registerPtyHandlers(
+          mainWindow,
+          createPtyIpcAdmissionRuntime(),
+          () => TEST_CODEX_HOME,
+          () => createManagedCodexAuthSettings([TEST_CODEX_HOME])
+        )
 
         await handlers.get('pty:spawn')!(null, {
           cols: 80,
@@ -219,15 +228,12 @@ describe('registerPtyHandlers', () => {
         })
         const daemonSpawn = setupDaemonAdapter()
         handlers.clear()
-        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime(), () => TEST_CODEX_HOME, (() => ({
-          codexManagedAccounts: [
-            {
-              id: 'account-1',
-              managedHomePath: TEST_CODEX_HOME,
-              managedHomeRuntime: 'host'
-            }
-          ]
-        })) as never)
+        registerPtyHandlers(
+          mainWindow,
+          createPtyIpcAdmissionRuntime(),
+          () => TEST_CODEX_HOME,
+          () => createManagedCodexAuthSettings([TEST_CODEX_HOME])
+        )
 
         await handlers.get('pty:spawn')!(null, {
           cols: 80,
@@ -300,15 +306,12 @@ describe('registerPtyHandlers', () => {
           ) => (context?.unavailableManagedHomePath ? null : TEST_CODEX_HOME)
         )
         handlers.clear()
-        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime(), resolveHome, (() => ({
-          codexManagedAccounts: [
-            {
-              id: 'account-1',
-              managedHomePath: TEST_CODEX_HOME,
-              managedHomeRuntime: 'host'
-            }
-          ]
-        })) as never)
+        registerPtyHandlers(
+          mainWindow,
+          createPtyIpcAdmissionRuntime(),
+          resolveHome,
+          () => createManagedCodexAuthSettings([TEST_CODEX_HOME])
+        )
 
         const spawnPromise = handlers.get('pty:spawn')!(null, {
           cols: 80,
@@ -349,15 +352,12 @@ describe('registerPtyHandlers', () => {
                 : thirdHome
         )
         handlers.clear()
-        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime(), resolveHome, (() => ({
-          codexManagedAccounts: [TEST_CODEX_HOME, secondHome, thirdHome].map(
-            (managedHomePath, index) => ({
-              id: `account-${index + 1}`,
-              managedHomePath,
-              managedHomeRuntime: 'host'
-            })
-          )
-        })) as never)
+        registerPtyHandlers(
+          mainWindow,
+          createPtyIpcAdmissionRuntime(),
+          resolveHome,
+          () => createManagedCodexAuthSettings([TEST_CODEX_HOME, secondHome, thirdHome])
+        )
 
         const spawnPromise = handlers.get('pty:spawn')!(null, {
           cols: 80,
