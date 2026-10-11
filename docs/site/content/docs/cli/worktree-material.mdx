@@ -1,0 +1,58 @@
+---
+title: Historical worktree material
+description: Inspect exact historical Git material and durable refusal receipts.
+---
+
+These commands inspect missing historical material. **Restoration is currently refused before material effects.**
+They do not confirm a writer, dispatch, ownership, or settlement. A merged review does not erase past effects.
+Older runtimes may report an unknown method; never substitute `worktree create` or a new request to bypass it.
+
+```sh
+orca worktree material-plan --manifest manifest.json --json
+orca worktree material-restore --manifest manifest.json --request-id <uuid> --json
+orca worktree material-show --request-id <uuid> --json
+```
+
+PLAN and SHOW are read-only. RESTORE requires an explicit UUID and records a caller-bound durable refusal;
+identical requests replay that receipt. Different input under that UUID is rejected. A pending request is
+UNKNOWN and must not be retried as a new restoration. SHOW does not open a cold database; it reports
+`unverifiable` until the existing receipt store is available. A completed receipt is historical, not proof
+of current material. No metadata contents, caller fingerprints, credentials or sessions are returned.
+
+The strict JSON manifest contains `schemaVersion: 1`, `repo: "id:<id>"`, `canonicalSource` (remote host/path,
+without credentials or URL scheme), `executionHostId`, `worktreeId`, absolute `path`, `branch`, full 40-character
+`head` and `tree`, nullable positive `linkedIssue` and `linkedReview`, nullable UUID `historicalInstanceId`,
+opaque bounded `runId`, 64-character `capsuleSHA256`, and `expectedMetadataDigest`. RESTORE also requires
+`expectedCatalogDigest` and `expectedPlanDigest` from PLAN. Every digest is lowercase SHA-256 over the
+canonical JSON observation. The capsule and run are evidence only, never lifecycle authority.
+
+The planner reads Git's complete porcelain list before UI visibility filtering and the existing local
+metadata snapshot, including aliases. `coverage.hostMetadata: "aliased-local"` does **not** cover unaliased
+orphan identities; process coverage remains `unverifiable`. No restorable verdict is emitted. Unsupported
+folder, SSH, runtime-host and WSL material is refused before local filesystem observations can certify it.
+Metadata, branch/head/tree, source identity, exact path, symlink and catalog drift conflicts fail closed.
+
+A validated historical admin/index may produce `candidateRoute: "checkout-index"`. Temporary Git fixtures
+prove that explicit `--git-dir` and `--work-tree` with `checkout-index --all` (without `-u` or `-f`) plus an
+exclusively created `.git` link preserve HEAD, branch, admin and index bytes. This supersedes the earlier
+assumption that missing directories always required force/prune. See [checkout-index](https://git-scm.com/docs/git-checkout-index)
+and [Git repository layout](https://git-scm.com/docs/gitrepository-layout/2.25.0). The syntax is documented for
+the Git 2.25 baseline; these fixtures actually ran Git 2.43.0, so no 2.25 binary result is claimed.
+
+The candidate refuses divergent/incomplete index/admin, locks, unsafe paths, symlink/gitlink/skip-worktree
+index entries, configured fsmonitor, external checkout filters and promisor material. Inherited Git object,
+index and worktree redirection also prevents proof. Git 2.25 interprets fsmonitor boolean strings as hook
+pathnames; no modern boolean override is used.
+
+The public RESTORE still returns `E_MATERIAL_CENSUS_UNVERIFIABLE` without material effects. The available
+metadata snapshot omits unaliased canonical identities. Daemon process enumeration can reconnect or
+respawn, so it is not a read-only absence proof. Existing in-process lifecycle locks also disappear after
+crash; pending receipts alone do not prevent another Start from entering partial material after restart.
+These are separate gates from the now-demonstrated Git candidate.
+
+Full snapshot retention is prepared as a bounded metadata field and tested through a real isolated SQLite
+reload before synthetic instance rotation. The public projection excludes that field. Actual instance
+rotation and physical restoration remain disabled; metadata and historical terminals are unchanged.
+No ordinary-create hooks, includes, agents, PTYs, tabs, Start, Core or M2 calls occur in this boundary.
+A later scoped source change must provide complete read-only census and durable cross-entry admission
+before connecting the candidate materializer to public RESTORE.

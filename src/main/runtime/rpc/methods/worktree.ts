@@ -1,3 +1,4 @@
+import { WORKTREE_MATERIAL_METHODS } from './worktree-material'
 import {
   finishAutomationWorkspaceProvenanceRequest,
   releaseAutomationWorkspaceProvenanceRequest,
@@ -31,6 +32,7 @@ import { readsWorktreeRemovalMarker } from '../worktree-removal-marker-projectio
 
 export const WORKTREE_METHODS = [
   ...WORKTREE_CATALOG_METHODS,
+  ...WORKTREE_MATERIAL_METHODS,
   defineMethod({
     name: 'worktree.teardownMissingTerminals',
     permission: 'workspace',

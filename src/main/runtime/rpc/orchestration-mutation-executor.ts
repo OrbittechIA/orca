@@ -202,7 +202,9 @@ export class OrchestrationMutationExecutor {
           'operation_unknown',
           recovery
             ? `Worker start ${requestId} was accepted as Dispatch ${recovery.dispatchId} before restart. Inspect that Dispatch; do not start another worker.`
-            : `Mutation ${requestId} may have been accepted before restart. Retry inspection or recovery with the same request ID.`,
+            : request.method === 'worktree.materialRestore'
+              ? `Material ${requestId} has an unknown outcome. Use worktree material-show; never retry restoration.`
+              : `Mutation ${requestId} may have been accepted before restart. Retry inspection or recovery with the same request ID.`,
           recovery
             ? {
                 requestId,
@@ -223,21 +225,32 @@ export class OrchestrationMutationExecutor {
       effectPossible = true
     }
     let effectPossible = false
-    const active = Promise.resolve().then(() =>
-      invoke({
-        identity,
-        recordReceipt,
-        markWorkerDoneEffectFree: () => {
-          db.checkpointPendingMutationReceipt({
-            ...identity,
-            receipt: EFFECT_FREE_WORKER_DONE_CHECKPOINT
-          })
-        },
-        markEffectPossible: () => {
-          effectPossible = true
+    const active = Promise.resolve()
+      .then(() =>
+        invoke({
+          identity,
+          recordReceipt,
+          markWorkerDoneEffectFree: () => {
+            db.checkpointPendingMutationReceipt({
+              ...identity,
+              receipt: EFFECT_FREE_WORKER_DONE_CHECKPOINT
+            })
+          },
+          markEffectPossible: () => {
+            effectPossible = true
+          }
+        })
+      )
+      .catch((error: unknown) => {
+        if (request.method === 'worktree.materialRestore' && effectPossible) {
+          throw new OrchestrationError(
+            'operation_unknown',
+            'Material effects are unproven. Inspect material-show with this request ID; do not repeat restoration.',
+            { requestId }
+          )
         }
+        throw error
       })
-    )
     this.inFlight.set(key, { method: request.method, payloadHash, promise: active })
     try {
       const result = await active
@@ -246,7 +259,7 @@ export class OrchestrationMutationExecutor {
       return receipted
     } catch (error) {
       if (
-        (!isPromptMutation || !effectPossible) &&
+        (!(isPromptMutation || request.method === 'worktree.materialRestore') || !effectPossible) &&
         !(error instanceof OrchestrationError && error.code === 'operation_unknown')
       ) {
         db.discardPendingMutationReceipt(callerFingerprint, requestId)

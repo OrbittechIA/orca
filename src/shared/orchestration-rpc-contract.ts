@@ -81,7 +81,11 @@ export function isTerminalPromptMutation(method: string, params: unknown): boole
 }
 
 export function isDurableMutation(method: string, params: unknown): boolean {
-  return isOrchestrationMutation(method, params) || isTerminalPromptMutation(method, params)
+  return (
+    method === 'worktree.materialRestore' ||
+    isOrchestrationMutation(method, params) ||
+    isTerminalPromptMutation(method, params)
+  )
 }
 
 export function orchestrationSkillRecoveryData(): {

@@ -1,3 +1,5 @@
+import { planWorktreeMaterial } from './runtime-worktree-material'
+import type { MaterialManifest } from '../../shared/worktree/material-types'
 import { installRuntimeLinearCommandSurface } from './runtime-linear-command-surface'
 import { OrcaRuntimeWithMigrationCatalog } from './orca-runtime-migration-catalog'
 import type { RuntimeCommandSurfaceHost } from './orca-runtime-core'
@@ -23,6 +25,21 @@ class OrcaRuntimeService extends OrcaRuntimeWithMigrationCatalog {
     // module registers the generation bump at load; a headless host never loads it.
     registerDetectedWorktreeScanInvalidation()
     registerWorktreeChangeInvalidator((repoId) => this.invalidateWorktreeCatalog(repoId))
+  }
+
+  planMaterial(manifest: MaterialManifest) {
+    const repos = this.store?.getRepos() ?? []
+    const matching = repos.filter((repo) => `id:${repo.id}` === manifest.repo)
+    const repo = matching.length === 1 ? matching[0] : undefined
+    const snapshot =
+      repo && manifest.executionHostId === 'local'
+        ? (this.store?.captureNativeLocalWorktreeMetadataScanExpectation?.(repo) ?? null)
+        : null
+    return planWorktreeMaterial({ repos, snapshot }, manifest)
+  }
+
+  materialReceiptDb() {
+    return this.getOrchestrationDbIfAvailable()
   }
 
   /** Whether a window owns the layout and can show a launch's tab ahead of its process. */
