@@ -37,6 +37,8 @@ function bindingFixture() {
     providerSession: { key: 'session_id', id: 'provider_1' }
   }
   const host = {
+    getTerminalPromptCurrentBinding:
+      OrcaRuntimeWithAgentPromptRequestCorrelation.prototype.getTerminalPromptCurrentBinding,
     getLivePtyForHandle: () => ({ pty }),
     getTerminalPromptRequestBinding: () => ({
       ptyId: 'pty_1',
@@ -46,12 +48,7 @@ function bindingFixture() {
     wslDistroByPtyId: new Map<string, string>(),
     getAgentStatusSnapshotFn: () => [row]
   }
-  const read = (): unknown =>
-    Reflect.apply(
-      OrcaRuntimeWithAgentPromptRequestCorrelation.prototype.getTerminalPromptCurrentBinding,
-      host,
-      ['term_1', 150]
-    )
+  const read = () => host.getTerminalPromptCurrentBinding('term_1', 150)
   return { pty, row, read }
 }
 
