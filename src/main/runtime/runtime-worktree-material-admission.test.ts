@@ -568,3 +568,33 @@ it('desktop admission refuses a changed default before its effectful resolver', 
     db.close()
   }
 })
+
+it('floating defaults admit their fallback and final cwd without a worktree census row', async () => {
+  const f = createSqliteMaintenanceFixture()
+  const db = new OrchestrationDb(':memory:')
+  const runtime = new OrcaRuntimeService(f.store)
+  runtime.setOrchestrationDb(db)
+  const session = f.store.getWorkspaceSession()
+  const selected = vi.spyOn(f.store, 'getWorkspaceSession').mockReturnValue({
+    ...session,
+    activeWorktreeId: 'global-floating-terminal'
+  })
+  const boundary = vi.spyOn(runtime, 'getAvailableAuthoritativeWindow').mockImplementation(() => {
+    throw new Error('floating_admitted_boundary')
+  })
+  try {
+    db.beginMutationReceipt({ ...identity, material: manifest })
+    await expect(runtime.createTerminal(undefined, { cwd: '/fixture/safe' })).rejects.toThrow(
+      'floating_admitted_boundary'
+    )
+    await expect(runtime.createTerminal()).rejects.toThrow('floating_admitted_boundary')
+    await expect(runtime.createTerminal(undefined, { cwd: manifest.path })).rejects.toThrow(
+      'E_MATERIAL_TARGET_RESERVED'
+    )
+    expect(boundary).toHaveBeenCalledTimes(2)
+  } finally {
+    selected.mockRestore()
+    boundary.mockRestore()
+    db.close()
+  }
+})

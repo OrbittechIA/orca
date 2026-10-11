@@ -1,3 +1,5 @@
+import { lstat } from 'node:fs/promises'
+import { lstatSync } from 'node:fs'
 import path from 'node:path'
 import type { WorktreeMeta } from './meta-types'
 import type { z } from 'zod'
@@ -229,4 +231,50 @@ export function materialIndexEntries(staged: string): string[] | null {
     entries.push(`${match[1]} blob ${match[2]}\t${match[3]}`)
   }
   return entries
+}
+
+/** A cold ledger can be treated as empty only when its file is proven absent. */
+export function readAbsentMaterialClaims(filename: string): MaterialManifest[] {
+  try {
+    lstatSync(filename)
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return []
+    }
+    throw new Error('E_MATERIAL_ADMISSION_UNVERIFIABLE: claim_path_unverifiable')
+  }
+  // Even readOnly SQLite may touch WAL sidecars; an existing ledger needs its owner's handle.
+  throw new Error('E_MATERIAL_ADMISSION_UNVERIFIABLE: cold_claim_reader_unavailable')
+}
+
+export async function materialPathAbsent(filename: string): Promise<boolean> {
+  try {
+    await lstat(filename)
+    return false
+  } catch (error) {
+    return error instanceof Error && 'code' in error && error.code === 'ENOENT'
+  }
+}
+export async function absentLocalMaterialPath(target: string): Promise<boolean> {
+  if (
+    !path.isAbsolute(target) ||
+    path.normalize(target) !== target ||
+    !(await materialPathAbsent(target))
+  ) {
+    return false
+  }
+  let cursor = path.dirname(target)
+  while (true) {
+    if (!(await materialPathAbsent(cursor))) {
+      const stat = await lstat(cursor)
+      if (stat.isSymbolicLink() || !stat.isDirectory()) {
+        return false
+      }
+    }
+    const parent = path.dirname(cursor)
+    if (parent === cursor) {
+      return true
+    }
+    cursor = parent
+  }
 }

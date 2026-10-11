@@ -1,3 +1,4 @@
+import { isFloatingWorkspaceSelector } from '../../shared/floating-workspace-worktree'
 import {
   materialPathsOverlap as overlaps,
   requireMaterialProof as requireAdmission,
@@ -10,7 +11,6 @@ import {
 } from '../../shared/worktree/material-types'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import path from 'node:path'
-import { lstat } from 'node:fs/promises'
 import { realpathSync, lstatSync } from 'node:fs'
 import type { OrchestrationDb } from './orchestration/db'
 import { splitWorktreeIdForFilesystem } from '../../shared/worktree/id'
@@ -76,18 +76,20 @@ function scopeFor(
   }
   let selector = input.selector?.replace(/^id:/, '')
   let parsed = splitWorktreeIdForFilesystem(selector ?? '')
+  const floating = isFloatingWorkspaceSelector(selector)
   // Exact physical locators need no global ownership census to compare against reservations.
   // Aliases still require complete, unique resolution, including their execution host.
-  if (selector && !parsed && !requireProof) {
+  if (selector && !parsed && !floating && !requireProof) {
     return { remote: false, locations: [] }
   }
-  if (selector && !parsed) {
+  if (selector && !parsed && !floating) {
     const resolved = resolveMaterialCensusSelector(authority.captureCensus(selector), selector)
     requireAdmission(resolved, 'E_MATERIAL_ADMISSION_UNVERIFIABLE')
     if (resolved.hostId !== 'local') {
-      if (host?.kind === 'local' || !parseExecutionHostId(resolved.hostId)) {
-        throw new Error('E_MATERIAL_ADMISSION_UNVERIFIABLE')
-      }
+      requireAdmission(
+        host?.kind !== 'local' && parseExecutionHostId(resolved.hostId),
+        'E_MATERIAL_ADMISSION_UNVERIFIABLE'
+      )
       return { remote: true, locations: [] }
     }
     selector = resolved.worktreeId ?? undefined
@@ -95,7 +97,7 @@ function scopeFor(
   }
   const workspace = parsed?.worktreePath
   if (
-    (selector && (!workspace || !path.isAbsolute(workspace))) ||
+    (selector && !floating && (!workspace || !path.isAbsolute(workspace))) ||
     (input.cwd && !path.isAbsolute(input.cwd) && !workspace)
   ) {
     if (!requireProof) {
@@ -278,34 +280,19 @@ export async function withMaterialRestoreAdmission<T>(
   return operation()
 }
 
-export async function materialPathAbsent(filename: string): Promise<boolean> {
-  try {
-    await lstat(filename)
-    return false
-  } catch (error) {
-    return error instanceof Error && 'code' in error && error.code === 'ENOENT'
-  }
-}
-export async function absentLocalMaterialPath(target: string): Promise<boolean> {
-  if (
-    !path.isAbsolute(target) ||
-    path.normalize(target) !== target ||
-    !(await materialPathAbsent(target))
-  ) {
-    return false
-  }
-  let cursor = path.dirname(target)
-  while (true) {
-    if (!(await materialPathAbsent(cursor))) {
-      const stat = await lstat(cursor)
-      if (stat.isSymbolicLink() || !stat.isDirectory()) {
-        return false
-      }
+export { materialPathAbsent, absentLocalMaterialPath } from '../../shared/worktree/material-types'
+
+export function withTerminalMaterialAdmission<T>(
+  authority: MaterialAdmissionAuthority,
+  input: MaterialAdmissionInput,
+  fallback: () => string,
+  operation: (hold: MaterialAdmissionHold) => Promise<T>
+): Promise<T> {
+  const floating = isFloatingWorkspaceSelector(input.selector)
+  return withMaterialAdmission(authority, { ...input, creatingWorktree: floating }, (hold) => {
+    if (floating) {
+      hold.revalidate({ selector: input.selector, cwd: fallback() })
     }
-    const parent = path.dirname(cursor)
-    if (parent === cursor) {
-      return true
-    }
-    cursor = parent
-  }
+    return operation(hold)
+  })
 }

@@ -1,4 +1,5 @@
-import { lstatSync } from 'node:fs'
+import { isFloatingWorkspaceSelector } from '../../shared/floating-workspace-worktree'
+import { getDefaultFloatingWorkspacePath } from '../ipc/floating-workspace-directory'
 import { join } from 'node:path'
 import { getAppEnvironment } from '../../shared/app-environment'
 import type { TerminalCreateOptions } from './orca-runtime-create-terminal-dependencies'
@@ -8,6 +9,7 @@ import { MaterialRestoredReceipt } from '../../shared/rpc-contract/worktree-mate
 import {
   materialAdmissionContext,
   withMaterialAdmission,
+  withTerminalMaterialAdmission,
   withMaterialRestoreAdmission,
   type MaterialAdmissionHold,
   type MaterialAdmissionAuthority
@@ -20,7 +22,10 @@ import {
   materialAuthorityFence,
   type MaterialAuthority
 } from './runtime-worktree-material'
-import type { MaterialManifest } from '../../shared/worktree/material-types'
+import {
+  readAbsentMaterialClaims,
+  type MaterialManifest
+} from '../../shared/worktree/material-types'
 import { installRuntimeLinearCommandSurface } from './runtime-linear-command-surface'
 import { OrcaRuntimeWithMigrationCatalog } from './orca-runtime-migration-catalog'
 import type { RuntimeCommandSurfaceHost } from './orca-runtime-core'
@@ -50,22 +55,9 @@ class OrcaRuntimeService extends OrcaRuntimeWithMigrationCatalog {
 
   readonly materialAdmissionAuthority: MaterialAdmissionAuthority = {
     getExistingDb: () => this.getOrchestrationDbIfAvailable(),
-    readPendingClaims: () => {
-      const opened = this.getOrchestrationDbIfAvailable()
-      if (opened) {
-        return opened.readPendingMaterialClaims()
-      }
-      try {
-        lstatSync(join(getAppEnvironment().getPath('userData'), 'orchestration.db'))
-      } catch (error) {
-        if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-          return []
-        }
-        throw new Error('E_MATERIAL_ADMISSION_UNVERIFIABLE: claim_path_unverifiable')
-      }
-      // Opening even readOnly SQLite may touch WAL sidecars. Use the normal owner's open handle.
-      throw new Error('E_MATERIAL_ADMISSION_UNVERIFIABLE: cold_claim_reader_unavailable')
-    },
+    readPendingClaims: () =>
+      this.getOrchestrationDbIfAvailable()?.readPendingMaterialClaims() ??
+      readAbsentMaterialClaims(join(getAppEnvironment().getPath('userData'), 'orchestration.db')),
     captureCensus: (id) => this.store?.captureLocalWorktreeMaterialCensus?.(id) ?? null
   }
 
@@ -80,9 +72,10 @@ class OrcaRuntimeService extends OrcaRuntimeWithMigrationCatalog {
   override createTerminal(selector?: string, opts: TerminalCreateOptions = {}, created?: Worktree) {
     const observedSelector =
       selector ?? this.store?.getWorkspaceSession?.()?.activeWorktreeId ?? undefined
-    return withMaterialAdmission(
+    return withTerminalMaterialAdmission(
       this.materialAdmissionAuthority,
       { selector: observedSelector, cwd: opts.cwd },
+      getDefaultFloatingWorkspacePath,
       (hold) => super.createTerminal(selector, opts, created, hold)
     )
   }
@@ -100,7 +93,11 @@ class OrcaRuntimeService extends OrcaRuntimeWithMigrationCatalog {
       selector ??
       this.store?.getWorkspaceSession?.()?.activeWorktreeId ??
       undefined
-    material.revalidate({ selector: desktopSelector, cwd: opts.cwd })
+    material.revalidate(
+      isFloatingWorkspaceSelector(desktopSelector)
+        ? undefined
+        : { selector: desktopSelector, cwd: opts.cwd }
+    )
     const desktopWorkspace = desktopSelector
       ? await this.resolveTerminalWorkspaceLaunchScope(desktopSelector, created)
       : null
