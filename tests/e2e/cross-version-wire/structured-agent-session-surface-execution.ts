@@ -1,4 +1,5 @@
 import { expect, vi } from 'vitest'
+import { OrcaRuntimeService } from '../../../src/main/runtime/orca-runtime'
 import { RuntimeSubscriptionRegistry } from '../../../src/main/runtime/runtime-subscription-registry'
 import {
   attachParams,
@@ -14,7 +15,11 @@ import type {
 
 export function runtimeStub(overrides: Record<string, unknown> = {}): unknown {
   const subscriptions = new RuntimeSubscriptionRegistry()
+  const admissionRuntime = new OrcaRuntimeService()
+  // This fake-provider fixture owns no orchestration ledger; admission holds stay real.
+  admissionRuntime.materialAdmissionAuthority.readPendingClaims = () => []
   return {
+    materialAdmissionAuthority: admissionRuntime.materialAdmissionAuthority,
     getRuntimeId: () => 'runtime-1',
     getClientSettings: () => ({
       experimentalStructuredNativeChat: true,
