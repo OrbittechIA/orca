@@ -16,6 +16,7 @@ import {
   type AutomationListResult
 } from '../../shared/automation-list-scope'
 import { OrchestrationDb } from './orchestration/db'
+import { openExistingMaterialLedger } from './orchestration/db/orchestration-db'
 import { join } from 'node:path'
 import { existsSync } from 'node:fs'
 import { getAppEnvironment } from '../../shared/app-environment'
@@ -24,7 +25,15 @@ import type { LegacyWorkerTerminalRecoveryResult } from './runtime-legacy-worker
 import { makePaneKey } from '../../shared/stable-pane-id'
 import { runtimeWorktreeIdsEqual } from './runtime-worktree-path-identity'
 
+type DatabaseActivation = {
+  db: OrchestrationDb
+  phase: 'activating' | 'ready' | 'failed'
+  error?: unknown
+}
+
 export class OrcaRuntimeWithAutomationOperations extends OrcaRuntimeWithPtyForegroundProcessReads {
+  private orchestrationDbActivation: DatabaseActivation | null = null
+
   protected fenceAutomationOwner(
     id: string,
     expectedOwner: AutomationOwnerPrecondition | undefined,
@@ -152,12 +161,47 @@ export class OrcaRuntimeWithAutomationOperations extends OrcaRuntimeWithPtyForeg
   // which may not be finalized until after app.ready. Also allows unit tests
   // to inject an in-memory DB without touching the filesystem.
   getOrchestrationDb(): OrchestrationDb {
-    if (!this._orchestrationDb) {
-      this._orchestrationDb = new OrchestrationDb(this.orchestrationDbPath())
-      this.ensureOrchestrationFederationRelay()
-      this.scheduleRestoredMessageRepoints()
+    const db = (this._orchestrationDb ??= new OrchestrationDb(this.orchestrationDbPath()))
+    this.activateOrchestrationDb(db)
+    return db
+  }
+
+  /** Called by the owner after profile configuration, before local operations are exposed. */
+  prepareMaterialAdmissionStorage(): void {
+    if (this._orchestrationDb) {
+      if (this._orchestrationDb.readPendingMaterialClaims() === null) {
+        throw new Error('E_MATERIAL_ADMISSION_UNVERIFIABLE: owner_claims_unverifiable')
+      }
+      return
     }
-    return this._orchestrationDb
+    this._orchestrationDb = openExistingMaterialLedger(this.orchestrationDbPath())
+  }
+
+  private activateOrchestrationDb(db: OrchestrationDb): void {
+    const previous = this.orchestrationDbActivation
+    if (previous?.db === db) {
+      if (previous.phase === 'failed') {
+        throw previous.error
+      }
+      return // Relay initialization reenters the getter for this same handle.
+    }
+    const activation: DatabaseActivation = { db, phase: 'activating' }
+    this.orchestrationDbActivation = activation
+    try {
+      this.ensureOrchestrationFederationRelay()
+      if (this._orchestrationDb !== db || this.orchestrationDbActivation !== activation) {
+        throw new Error('orchestration_database_changed_during_activation')
+      }
+      this.scheduleRestoredMessageRepoints()
+      if (this._orchestrationDb !== db || this.orchestrationDbActivation !== activation) {
+        throw new Error('orchestration_database_changed_during_activation')
+      }
+      activation.phase = 'ready'
+    } catch (error) {
+      activation.phase = 'failed'
+      activation.error = error
+      throw error
+    }
   }
 
   /** The database, opened only if it already exists: a profile without one has no mail to redrive. */
@@ -172,11 +216,18 @@ export class OrcaRuntimeWithAutomationOperations extends OrcaRuntimeWithPtyForeg
   }
 
   setOrchestrationDb(db: OrchestrationDb): void {
+    if (
+      this._orchestrationDb === db &&
+      this.orchestrationDbActivation?.db === db &&
+      this.orchestrationDbActivation.phase !== 'failed'
+    ) {
+      return
+    }
     this.orchestrationFederation.resetForDatabaseChange()
     this.mailPointerRepointScheduler.clear()
     this._orchestrationDb = db
-    this.ensureOrchestrationFederationRelay()
-    this.scheduleRestoredMessageRepoints()
+    this.orchestrationDbActivation = null
+    this.activateOrchestrationDb(db)
   }
 
   protected async flushWorkspaceSessionOrThrowAsync(): Promise<void> {

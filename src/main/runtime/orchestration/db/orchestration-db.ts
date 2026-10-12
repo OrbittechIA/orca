@@ -4,6 +4,7 @@ import {
   type MaterialReceiptClaim
 } from '../../../../shared/worktree/material-types'
 import path from 'node:path'
+import { lstatSync } from 'node:fs'
 import { WorktreeMaterialRestore } from '../../../../shared/rpc-contract/worktree-material-params'
 import { OrchestrationError } from '../orchestration-error'
 import { ensureMutationReceiptCapacity } from '../mutation-receipt-capacity'
@@ -37,6 +38,15 @@ class OrchestrationDbCore {
 
   constructor(dbPath: (string & {}) | ':memory:') {
     this.db = new Database(dbPath)
+    try {
+      this.initializeStorage(dbPath)
+    } catch (error) {
+      this.db.close()
+      throw error
+    }
+  }
+
+  private initializeStorage(dbPath: string): void {
     this.db.pragma('journal_mode = WAL')
     this.db.pragma('synchronous = NORMAL')
     this.db.pragma('busy_timeout = 5000')
@@ -223,3 +233,25 @@ attachOrchestrationDbMethods(OrchestrationDbCore)
 export const OrchestrationDb = OrchestrationDbCore as new (
   dbPath: (string & {}) | ':memory:'
 ) => OrchestrationDb
+
+/** Boot owns this opening; admission only observes an already prepared handle. */
+export function openExistingMaterialLedger(filename: string): OrchestrationDb | null {
+  try {
+    lstatSync(filename)
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return null
+    }
+    throw error
+  }
+  const db = new OrchestrationDb(filename)
+  try {
+    if (db.readPendingMaterialClaims() === null) {
+      throw new Error('E_MATERIAL_ADMISSION_UNVERIFIABLE: owner_claims_unverifiable')
+    }
+    return db
+  } catch (error) {
+    db.close()
+    throw error
+  }
+}

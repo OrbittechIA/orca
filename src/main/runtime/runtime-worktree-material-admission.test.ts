@@ -618,3 +618,156 @@ it('an opened ledger returning null cannot become an absent-file empty ledger', 
     db.close()
   }
 })
+
+class BootRuntime extends OrcaRuntimeService {
+  readonly repoints = vi.fn()
+  protected override scheduleRestoredMessageRepoints(): void {
+    this.repoints()
+  }
+}
+
+it('prepares storage without hooks, observes later claims and preserves UNKNOWN across owner reload', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'material-owner-boot-'))
+  roots.push(root)
+  const filename = join(root, 'orchestration.db')
+  new OrchestrationDb(filename).close()
+  const path = vi.spyOn(getAppEnvironment(), 'getPath').mockReturnValue(root)
+  const runtime = new BootRuntime()
+  const relay = vi.spyOn(runtime, 'ensureOrchestrationFederationRelay')
+  let reopened: BootRuntime | undefined
+  try {
+    runtime.prepareMaterialAdmissionStorage()
+    runtime.prepareMaterialAdmissionStorage()
+    const effect = vi.fn(async () => 'admitted')
+    await expect(
+      withMaterialAdmission(runtime.materialAdmissionAuthority, { cwd: manifest.path }, effect)
+    ).resolves.toBe('admitted')
+    const writer = new OrchestrationDb(filename)
+    try {
+      writer.beginMutationReceipt({ ...identity, material: manifest })
+    } finally {
+      writer.close()
+    }
+    await expect(
+      withMaterialAdmission(runtime.materialAdmissionAuthority, { cwd: manifest.path }, effect)
+    ).rejects.toThrow('E_MATERIAL_TARGET_RESERVED')
+    await expect(
+      withMaterialAdmission(runtime.materialAdmissionAuthority, { cwd: '/fixture/other' }, effect)
+    ).resolves.toBe('admitted')
+    expect(effect).toHaveBeenCalledTimes(2)
+    const original = runtime
+      .materialReceiptDb()
+      ?.getMutationReceipt(identity.callerFingerprint, identity.requestId)
+    runtime.materialReceiptDb()?.close()
+    reopened = new BootRuntime()
+    reopened.prepareMaterialAdmissionStorage()
+    expect(
+      reopened
+        .materialReceiptDb()
+        ?.getMutationReceipt(identity.callerFingerprint, identity.requestId)
+    ).toEqual(original)
+    expect(original).toMatchObject({ state: 'pending', payload_hash: identity.payloadHash })
+    await expect(
+      acquireMaterialAdmission(reopened.materialAdmissionAuthority, { cwd: manifest.path })
+    ).rejects.toThrow('E_MATERIAL_TARGET_RESERVED')
+    expect(relay).not.toHaveBeenCalled()
+    expect(runtime.repoints).not.toHaveBeenCalled()
+    expect(reopened.repoints).not.toHaveBeenCalled()
+    const prepared = reopened.materialReceiptDb()
+    const restored = reopened
+    const activate = vi
+      .spyOn(restored, 'ensureOrchestrationFederationRelay')
+      .mockImplementation(() => {
+        expect(restored.getOrchestrationDb()).toBe(prepared)
+      })
+    expect(restored.getOrchestrationDb()).toBe(prepared)
+    expect(restored.getOrchestrationDb()).toBe(prepared)
+    expect(activate).toHaveBeenCalledOnce()
+    expect(restored.repoints).toHaveBeenCalledOnce()
+  } finally {
+    if (reopened) {
+      reopened.materialReceiptDb()?.close()
+    } else {
+      runtime.materialReceiptDb()?.close()
+    }
+    path.mockRestore()
+  }
+})
+
+it.each(['relay', 'repoints'] as const)(
+  'never certifies a failed %s hook and activates replacement once without recursion',
+  (failure) => {
+    const runtime = new BootRuntime()
+    const first = new OrchestrationDb(':memory:')
+    const replacement = new OrchestrationDb(':memory:')
+    const error = new Error('activation_hook_failed')
+    const relay = vi.spyOn(runtime, 'ensureOrchestrationFederationRelay').mockImplementation(() => {
+      expect(runtime.getOrchestrationDb()).toBe(runtime.materialReceiptDb())
+      if (failure === 'relay') {
+        throw error
+      }
+    })
+    if (failure === 'repoints') {
+      runtime.repoints.mockImplementationOnce(() => {
+        throw error
+      })
+    }
+    try {
+      expect(() => runtime.setOrchestrationDb(first)).toThrow(error)
+      expect(() => runtime.getOrchestrationDb()).toThrow(error)
+      expect(relay).toHaveBeenCalledOnce()
+      relay.mockImplementation(() => {
+        expect(runtime.getOrchestrationDb()).toBe(replacement)
+      })
+      runtime.setOrchestrationDb(replacement)
+      expect(runtime.getOrchestrationDb()).toBe(replacement)
+      runtime.setOrchestrationDb(replacement)
+      expect(runtime.getOrchestrationDb()).toBe(replacement)
+      expect(relay).toHaveBeenCalledTimes(2)
+      expect(runtime.repoints).toHaveBeenCalledTimes(failure === 'relay' ? 1 : 2)
+    } finally {
+      first.close()
+      replacement.close()
+    }
+  }
+)
+
+it('fails closed on an unreadable ledger path without opening or activating anything', async () => {
+  const runtime = new BootRuntime()
+  const denied = Object.assign(new Error('permission denied'), { code: 'EACCES' })
+  const fs = await import('node:fs')
+  const stat = vi.spyOn(fs, 'lstatSync').mockImplementation(() => {
+    throw denied
+  })
+  const relay = vi.spyOn(runtime, 'ensureOrchestrationFederationRelay')
+  try {
+    expect(() => runtime.prepareMaterialAdmissionStorage()).toThrow(denied)
+    expect(runtime.materialReceiptDb()).toBeNull()
+    expect(relay).not.toHaveBeenCalled()
+    expect(runtime.repoints).not.toHaveBeenCalled()
+  } finally {
+    stat.mockRestore()
+  }
+})
+
+it('cannot finish an old activation or duplicate repoints after reentrant handle replacement', () => {
+  const runtime = new BootRuntime()
+  const first = new OrchestrationDb(':memory:')
+  const next = new OrchestrationDb(':memory:')
+  const relay = vi.spyOn(runtime, 'ensureOrchestrationFederationRelay').mockImplementation(() => {
+    if (runtime.materialReceiptDb() === first) {
+      runtime.setOrchestrationDb(next)
+    }
+  })
+  try {
+    expect(() => runtime.setOrchestrationDb(first)).toThrow(
+      'orchestration_database_changed_during_activation'
+    )
+    expect(runtime.getOrchestrationDb()).toBe(next)
+    expect(relay).toHaveBeenCalledTimes(2)
+    expect(runtime.repoints).toHaveBeenCalledOnce()
+  } finally {
+    first.close()
+    next.close()
+  }
+})
