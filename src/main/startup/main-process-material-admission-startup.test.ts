@@ -3,6 +3,8 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { getAppEnvironment } from '../../shared/app-environment'
 import type { MaterialManifest } from '../../shared/worktree/material-types'
+import * as HookServer from '../agent-hooks/server'
+import { setMigrationUnsupportedPtyPersistenceListener } from '../agent-hooks/migration-unsupported-pty-state'
 import { createSqliteMaintenanceFixture } from '../persistence/loading-store/profile-state-maintenance-fixture'
 import { OrchestrationDb } from '../runtime/orchestration/db'
 import { OrcaRuntimeService } from '../runtime/orca-runtime'
@@ -46,7 +48,16 @@ vi.mock('../persistence/loading-store/user-data-path', async (original) => ({
   ...(await original<typeof DataPaths>()),
   getCanonicalUserDataPath: () => host.root
 }))
-vi.mock('../agent-hooks/server', () => ({ agentHookServer: { subscribeEnrichedStatus: vi.fn() } }))
+vi.mock('../agent-hooks/server', async (original) => {
+  const actual = await original<typeof HookServer>()
+  class FixtureAgentHookServer extends actual.AgentHookServer {
+    // Keep real in-memory aliases/listeners without opening the hook transport or its files.
+    override start(..._args: Parameters<HookServer.AgentHookServer['start']>): Promise<void> {
+      return Promise.resolve()
+    }
+  }
+  return { ...actual, agentHookServer: new FixtureAgentHookServer() }
+})
 vi.mock('../browser/browser-manager', () => ({
   browserManager: { setBrowserGuestStateChangedListener: vi.fn() }
 }))
@@ -90,6 +101,8 @@ const claim = {
 }
 let runtime: OrcaRuntimeService | undefined
 beforeEach(() => {
+  HookServer.agentHookServer.stop()
+  setMigrationUnsupportedPtyPersistenceListener(null)
   const fixture = createSqliteMaintenanceFixture()
   host.root = fixture.directory
   vi.spyOn(getAppEnvironment(), 'getPath').mockImplementation(() => host.root)
@@ -104,6 +117,8 @@ beforeEach(() => {
   )
 })
 afterEach(() => {
+  HookServer.agentHookServer.stop()
+  setMigrationUnsupportedPtyPersistenceListener(null)
   runtime?.materialReceiptDb()?.close()
   runtime = undefined
   state.runtime = null

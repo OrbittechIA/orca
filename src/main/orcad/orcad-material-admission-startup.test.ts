@@ -3,13 +3,17 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { getAppEnvironment } from '../../shared/app-environment'
 import type { MaterialManifest } from '../../shared/worktree/material-types'
+import * as HookServer from '../agent-hooks/server'
+import { setMigrationUnsupportedPtyPersistenceListener } from '../agent-hooks/migration-unsupported-pty-state'
 import { createSqliteMaintenanceFixture } from '../persistence/loading-store/profile-state-maintenance-fixture'
 import type { Store } from '../persistence/loading-store/store'
+import type * as WatcherProcess from '../ipc/parcel-watcher-process'
 import { OrcaRuntimeService } from '../runtime/orca-runtime'
 import { OrchestrationDb } from '../runtime/orchestration/db'
 import type { OrcaRuntimeRpcServer } from '../runtime/runtime-rpc'
 import { acquireMaterialAdmission } from '../runtime/runtime-worktree-material-admission'
 import { startOrcad, type OrcadHandle } from './orcad-entry'
+import type { OrcadProfileStateStartup } from './orcad-profile-state-startup'
 
 const host = vi.hoisted(() => ({
   root: '/unfinalized-profile',
@@ -20,6 +24,29 @@ const host = vi.hoisted(() => ({
   ready: vi.fn(),
   daemon: vi.fn(async () => {})
 }))
+const watcher = vi.hoisted(() => {
+  const unexpected = (): never => {
+    throw new Error('unexpected_watcher_effect')
+  }
+  return {
+    createWatcherProcessSupervisor:
+      vi.fn<typeof WatcherProcess.createWatcherProcessSupervisor>(unexpected),
+    subscribeViaWatcherProcess: vi.fn<typeof WatcherProcess.subscribeViaWatcherProcess>(async () =>
+      unexpected()
+    ),
+    subscribeViaRuntimeWatcherProcess: vi.fn<
+      typeof WatcherProcess.subscribeViaRuntimeWatcherProcess
+    >(async () => unexpected()),
+    disposeWatcherProcess: vi.fn<typeof WatcherProcess.disposeWatcherProcess>(),
+    disposeWatcherProcessAndWait: vi.fn<typeof WatcherProcess.disposeWatcherProcessAndWait>(
+      async () => {}
+    ),
+    resetWatcherProcessForTest: vi.fn<typeof WatcherProcess.resetWatcherProcessForTest>(),
+    resetRuntimeWatcherProcessForTest:
+      vi.fn<typeof WatcherProcess.resetRuntimeWatcherProcessForTest>(),
+    forgetRuntimeWatcherProcessRoot: vi.fn<typeof WatcherProcess.forgetRuntimeWatcherProcessRoot>()
+  } satisfies typeof WatcherProcess
+})
 vi.mock('electron', () => ({
   app: { getPath: () => host.root },
   BrowserWindow: class {
@@ -62,16 +89,17 @@ vi.mock('../runtime/agent-state-rules/agent-state-rules-live-update', () => ({
   startAgentStateRulesLiveUpdates: vi.fn()
 }))
 vi.mock('../daemon/daemon-init', () => ({ daemonOwnsFreshPersistentPtys: () => false }))
-vi.mock('../ipc/parcel-watcher-process', () => ({ disposeWatcherProcessAndWait: async () => {} }))
-vi.mock('../agent-hooks/server', () => ({
-  agentHookServer: {
-    start: async () => {},
-    stop: async () => {},
-    subscribeEnrichedStatus: () => () => {},
-    setStatusHooksEnabled: vi.fn(),
-    getStatusSnapshot: () => []
+vi.mock('../ipc/parcel-watcher-process', () => watcher)
+vi.mock('../agent-hooks/server', async (original) => {
+  const actual = await original<typeof HookServer>()
+  class FixtureAgentHookServer extends actual.AgentHookServer {
+    // Keep real in-memory aliases/listeners without opening the hook transport or its files.
+    override start(..._args: Parameters<HookServer.AgentHookServer['start']>): Promise<void> {
+      return Promise.resolve()
+    }
   }
-}))
+  return { ...actual, agentHookServer: new FixtureAgentHookServer() }
+})
 vi.mock('../agent-hooks/hook-status-session-tabs-republish', () => ({
   installHookStatusSessionTabsRepublish: () => () => {}
 }))
@@ -85,14 +113,14 @@ vi.mock('../server/serve-readiness', () => ({
   }
 }))
 vi.mock('./orcad-profile-state-startup', () => ({
-  createOrcadProfileStateStartup: async (path: string) => {
+  createOrcadProfileStateStartup: async (path: string): Promise<OrcadProfileStateStartup> => {
     expect(path).toBe(host.root)
     host.stages.push('profile-final')
     return {
       store: host.stores[0],
       authority: {
         backend: 'sqlite',
-        classification: 'established',
+        classification: 'sqlite-only',
         authority_mode: 'sqlite-established',
         runtime: 'orcad',
         migrated: false
@@ -152,6 +180,8 @@ const claim = {
 }
 let handle: OrcadHandle | undefined
 beforeEach(() => {
+  HookServer.agentHookServer.stop()
+  setMigrationUnsupportedPtyPersistenceListener(null)
   const fixture = createSqliteMaintenanceFixture()
   host.root = fixture.directory
   host.stores.splice(0, host.stores.length, fixture.store)
@@ -182,10 +212,15 @@ afterEach(async () => {
   try {
     await current?.stop()
   } finally {
+    HookServer.agentHookServer.stop()
+    setMigrationUnsupportedPtyPersistenceListener(null)
     for (const runtime of host.runtimes) {
       runtime.materialReceiptDb()?.close()
     }
     vi.restoreAllMocks()
+    expect(watcher.createWatcherProcessSupervisor).not.toHaveBeenCalled()
+    expect(watcher.subscribeViaWatcherProcess).not.toHaveBeenCalled()
+    expect(watcher.subscribeViaRuntimeWatcherProcess).not.toHaveBeenCalled()
   }
 })
 
