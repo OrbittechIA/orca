@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { describe, expect, it, vi } from 'vitest'
 import { spawnMock } from './pty-ipc-mock-registry'
 import { makeDeferred } from './pty-ipc-test-constants'
@@ -348,7 +349,7 @@ describe('registerPtyHandlers', () => {
     const barrier = makeDeferred()
     registerPtyHandlers(
       mainWindow as never,
-      undefined,
+      createPtyIpcAdmissionRuntime(),
       undefined,
       undefined,
       undefined,
@@ -483,6 +484,7 @@ describe('registerPtyHandlers', () => {
     vi.useFakeTimers()
     const barrier = makeDeferred()
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       registerPty: vi.fn(),
       noteTerminalSpawnCommand: vi.fn(),

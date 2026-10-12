@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   existsSyncMock,
@@ -117,7 +118,7 @@ describe('registerPtyHandlers', () => {
     it('passes chcp 65001 to cmd.exe for UTF-8 console output', async () => {
       process.env.COMSPEC = 'C:\\Windows\\system32\\cmd.exe'
 
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       await handlers.get('pty:spawn')!(null, { cols: 80, rows: 24 })
 
       expect(spawnMock).toHaveBeenCalledWith(
@@ -129,7 +130,7 @@ describe('registerPtyHandlers', () => {
     it('sets Console encoding for powershell.exe', async () => {
       process.env.COMSPEC = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
 
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       await handlers.get('pty:spawn')!(null, { cols: 80, rows: 24 })
 
       expect(spawnMock).toHaveBeenCalledWith(
@@ -141,7 +142,7 @@ describe('registerPtyHandlers', () => {
     it('sets Console encoding for pwsh.exe', async () => {
       process.env.COMSPEC = 'C:\\Program Files\\PowerShell\\7\\pwsh.exe'
 
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       await handlers.get('pty:spawn')!(null, { cols: 80, rows: 24 })
 
       expect(spawnMock).toHaveBeenCalledWith(
@@ -153,7 +154,7 @@ describe('registerPtyHandlers', () => {
     it('sets PYTHONUTF8=1 in the spawn environment on Windows', async () => {
       process.env.COMSPEC = 'C:\\Windows\\system32\\cmd.exe'
 
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       await handlers.get('pty:spawn')!(null, { cols: 80, rows: 24 })
 
       const spawnCall = spawnMock.mock.calls.at(-1)!
@@ -164,7 +165,7 @@ describe('registerPtyHandlers', () => {
       process.env.COMSPEC = 'C:\\Windows\\system32\\cmd.exe'
       process.env.PYTHONUTF8 = '0'
 
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       await handlers.get('pty:spawn')!(null, { cols: 80, rows: 24 })
 
       const spawnCall = spawnMock.mock.calls.at(-1)!
@@ -174,7 +175,7 @@ describe('registerPtyHandlers', () => {
     it('launches Git Bash from COMSPEC as an interactive login shell', async () => {
       process.env.COMSPEC = 'C:\\Program Files\\Git\\bin\\bash.exe'
 
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       await handlers.get('pty:spawn')!(null, { cols: 80, rows: 24 })
 
       expect(spawnMock).toHaveBeenCalledWith(
@@ -191,7 +192,7 @@ describe('registerPtyHandlers', () => {
 
       registerPtyHandlers(
         mainWindow as never,
-        undefined,
+        createPtyIpcAdmissionRuntime(),
         undefined,
         () =>
           ({
@@ -211,7 +212,7 @@ describe('registerPtyHandlers', () => {
 
       registerPtyHandlers(
         mainWindow as never,
-        undefined,
+        createPtyIpcAdmissionRuntime(),
         undefined,
         () =>
           ({
@@ -245,7 +246,7 @@ describe('registerPtyHandlers', () => {
 
       registerPtyHandlers(
         mainWindow as never,
-        undefined,
+        createPtyIpcAdmissionRuntime(),
         undefined,
         () =>
           ({
@@ -279,7 +280,7 @@ describe('registerPtyHandlers', () => {
 
       registerPtyHandlers(
         mainWindow as never,
-        undefined,
+        createPtyIpcAdmissionRuntime(),
         undefined,
         () =>
           ({
@@ -310,7 +311,7 @@ describe('registerPtyHandlers', () => {
 
       registerPtyHandlers(
         mainWindow as never,
-        undefined,
+        createPtyIpcAdmissionRuntime(),
         undefined,
         () =>
           ({
@@ -332,7 +333,7 @@ describe('registerPtyHandlers', () => {
 
       registerPtyHandlers(
         mainWindow as never,
-        undefined,
+        createPtyIpcAdmissionRuntime(),
         undefined,
         () =>
           ({
@@ -354,7 +355,7 @@ describe('registerPtyHandlers', () => {
 
       registerPtyHandlers(
         mainWindow as never,
-        undefined,
+        createPtyIpcAdmissionRuntime(),
         undefined,
         () =>
           ({
@@ -377,7 +378,7 @@ describe('registerPtyHandlers', () => {
 
       registerPtyHandlers(
         mainWindow as never,
-        undefined,
+        createPtyIpcAdmissionRuntime(),
         undefined,
         () =>
           ({
@@ -400,7 +401,7 @@ describe('registerPtyHandlers', () => {
 
       registerPtyHandlers(
         mainWindow as never,
-        undefined,
+        createPtyIpcAdmissionRuntime(),
         undefined,
         () =>
           ({
@@ -422,7 +423,7 @@ describe('registerPtyHandlers', () => {
 
       registerPtyHandlers(
         mainWindow as never,
-        undefined,
+        createPtyIpcAdmissionRuntime(),
         () => 'C:\\Users\\test\\AppData\\Roaming\\Orca\\codex-runtime-home\\home',
         () =>
           ({
@@ -443,7 +444,7 @@ describe('registerPtyHandlers', () => {
 
       registerPtyHandlers(
         mainWindow as never,
-        undefined,
+        createPtyIpcAdmissionRuntime(),
         () => 'C:\\Users\\test\\AppData\\Roaming\\Orca\\codex-runtime-home\\home',
         () =>
           ({

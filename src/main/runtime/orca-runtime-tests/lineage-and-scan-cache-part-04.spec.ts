@@ -1,3 +1,4 @@
+import type { MaterialManifest } from '../../../shared/worktree/material-types'
 import { describe, expect, it, vi } from 'vitest'
 import {
   MOCK_GIT_WORKTREES,
@@ -202,6 +203,10 @@ describe('OrcaRuntimeService', () => {
     const workerHandle = runtime.preAllocateHandleForPty('pty-worker')
     const coordinatorHandle = runtime.preAllocateHandleForPty('pty-coordinator')
     runtime.setOrchestrationDb({
+      // This dispatch-only double owns no pending material receipts.
+      readPendingMaterialClaims(): MaterialManifest[] {
+        return []
+      },
       getActiveDispatchForTerminal: vi.fn(() => ({
         task_id: 'task-1'
       })),

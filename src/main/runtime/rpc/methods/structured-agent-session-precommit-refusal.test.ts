@@ -9,7 +9,7 @@ import { recordingStructuredAgentSessionLogger } from '../../../native-chat/agen
 import { computeAgentSessionPayloadFingerprint } from '../../../../shared/agent-session-mutation-envelope'
 import { isDefinitiveAgentSessionCreateRefusal } from '../../../../shared/agent-session-definitive-refusal'
 import { STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
-import type { OrcaRuntimeService } from '../../orca-runtime'
+import { OrcaRuntimeService } from '../../orca-runtime'
 import type { RpcResponse } from '../core'
 import { RpcDispatcher } from '../dispatcher'
 import { STRUCTURED_AGENT_SESSION_METHODS } from './structured-agent-session'
@@ -42,6 +42,13 @@ function createParams(overrides: Record<string, unknown> = {}) {
 }
 
 let attach: ReturnType<typeof vi.fn>
+
+function admissionRuntime() {
+  const runtime = new OrcaRuntimeService()
+  // This synthetic provider has no orchestration ledger or material claims.
+  runtime.materialAdmissionAuthority.readPendingClaims = () => []
+  return runtime
+}
 
 function hostStub(): StructuredAgentSessionHost {
   attach = vi.fn(async () => ({
@@ -76,6 +83,7 @@ async function create(
   params: unknown = createParams()
 ): Promise<RpcResponse> {
   const runtime = {
+    materialAdmissionAuthority: admissionRuntime().materialAdmissionAuthority,
     getRuntimeId: () => 'runtime-1',
     // The structured surface is settings-gated for every caller; these fixtures probe the
     // pre-commit boundary, which only runs once the gate admits the call.
@@ -220,7 +228,7 @@ describe('the boundary the envelope stops at', () => {
   it('keeps hiding the surface from a client that never advertised it', async () => {
     const replies: RpcResponse[] = []
     await new RpcDispatcher({
-      runtime: { getRuntimeId: () => 'runtime-1' } as unknown as OrcaRuntimeService,
+      runtime: Object.assign(admissionRuntime(), { getRuntimeId: () => 'runtime-1' }),
       methods: STRUCTURED_AGENT_SESSION_METHODS
     }).dispatchStreaming(
       {

@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
 import { makePaneKey } from '../../shared/stable-pane-id'
@@ -136,6 +137,7 @@ describe('a pane whose process belongs to an agent launch', () => {
   ) {
     setLocalPtyProvider(localProvider(providerSpawn))
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       createPreAllocatedTerminalHandle: vi.fn(() => 'term_early'),
       registerPreAllocatedHandleForPty: vi.fn(),
@@ -270,6 +272,10 @@ describe('a pane whose process belongs to an agent launch', () => {
 
     // The remounted pane spawns while the new launch runs: it waits, it does not show the old notice.
     const mounted = mountPane()
+    // Let real material admission enter the wait for the still-running launch.
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(providerSpawn).not.toHaveBeenCalled()
+    expect(runtime.reportAgentLaunchPaneVerdict).not.toHaveBeenCalled()
     rows.push(
       recorded({
         status: 'succeeded',
@@ -328,6 +334,10 @@ describe('a pane whose process belongs to an agent launch', () => {
     const running = trackRunningAgentLaunchPane(pane)
 
     const mounted = mountPane()
+    // Close the launch while this admitted spawn is waiting for it.
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(providerSpawn).not.toHaveBeenCalled()
+    expect(runtime.reportAgentLaunchPaneVerdict).not.toHaveBeenCalled()
     running.finish({ tabTakenBack: true })
 
     await expect(mounted).rejects.toThrow(AGENT_LAUNCH_PANE_REFUSED_CODE)

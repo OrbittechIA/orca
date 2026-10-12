@@ -17,7 +17,7 @@ import { attachFingerprintFields } from '../native-chat/agent-session-wire/struc
 import { getStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
 import type { StructuredAgentSessionStatusSink } from '../native-chat/agent-session-wire/structured-agent-session-status-feed'
 import { AgentHookServer, _internals } from '../agent-hooks/server'
-import type { OrcaRuntimeService } from './orca-runtime'
+import { OrcaRuntimeService } from './orca-runtime'
 import type { RpcRequest, RpcResponse } from './rpc/core'
 import type { ClaudeStructuredAuthPolicy } from '../claude-accounts/claude-structured-auth-policy'
 import { RpcDispatcher } from './rpc/dispatcher'
@@ -225,7 +225,11 @@ beforeEach(async () => {
   childWork = []
   _internals.resetCachesForTests()
   hookServer = new AgentHookServer()
+  const admissionRuntime = new OrcaRuntimeService()
+  // This fake provider owns no orchestration ledger; the session journal remains real.
+  admissionRuntime.materialAdmissionAuthority.readPendingClaims = () => []
   const runtime = {
+    materialAdmissionAuthority: admissionRuntime.materialAdmissionAuthority,
     getRuntimeId: () => 'runtime-1',
     getClientSettings: () => ({ experimentalNativeChat: true }),
     getStructuredAgentSessionCreateSupport: async () => ({ supported: true }),

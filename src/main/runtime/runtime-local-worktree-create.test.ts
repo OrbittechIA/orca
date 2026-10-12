@@ -12,6 +12,8 @@ import {
   _resetGitAdmissionForTests
 } from '../git/command-runner/git-subprocess-admission'
 import { resolveGitAdmissionTier } from '../git/command-runner/git-operation-executor'
+import { OrcaRuntimeService } from './orca-runtime'
+import { materialAdmissionContext } from './runtime-worktree-material-admission'
 
 const mocks = vi.hoisted(() => ({
   rearm: vi.fn(),
@@ -111,6 +113,9 @@ function createWorktree(
   timing: WorktreeCreateTimingRecorder = createWorktreeCreateTimingRecorder(),
   repoOverrides: Partial<Repo> = {}
 ) {
+  const runtime = new OrcaRuntimeService()
+  // This isolated Git provider fixture owns no orchestration ledger or material claims.
+  runtime.materialAdmissionAuthority.readPendingClaims = () => []
   const store = {
     getSettings: () => ({
       workspaceDir: '/worktrees',
@@ -125,7 +130,13 @@ function createWorktree(
     getSparsePresets: (repoId: string): SparsePreset[] => readSparsePresets(repoId)
   }
   return createRuntimeLocalManagedWorktree({
-    request: { repoSelector: 'repo-1', name: 'app', baseBranch: 'main', ...request },
+    request: {
+      [materialAdmissionContext]: runtime.materialAdmissionAuthority,
+      repoSelector: 'repo-1',
+      name: 'app',
+      baseBranch: 'main',
+      ...request
+    },
     repo: {
       id: 'repo-1',
       path: '/repo',

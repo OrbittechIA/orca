@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { describe, expect, it, vi } from 'vitest'
 import { spawnMock } from './pty-ipc-mock-registry'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
@@ -126,7 +127,7 @@ describe('registerPtyHandlers', () => {
     }
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       for (const _proc of bulkProcs) {
         await handlers.get('pty:spawn')!(null, {
           cols: 80,
@@ -161,7 +162,9 @@ describe('registerPtyHandlers', () => {
       expect(mainWindow.webContents.send).toHaveBeenCalledTimes(513)
       expect(mainWindow.webContents.send).toHaveBeenNthCalledWith(513, 'pty:data', {
         id: interactiveSpawn.id,
-        data: '\x1b[20;2Hredraw'
+        data: '\x1b[20;2Hredraw',
+        seq: 13,
+        rawLength: 13
       })
 
       const reservePrefix = '\x1b[20;2H'
@@ -195,7 +198,7 @@ describe('registerPtyHandlers', () => {
     }
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const spawns: { id: string }[] = []
       for (const _proc of procs) {
         spawns.push(
@@ -234,7 +237,7 @@ describe('registerPtyHandlers', () => {
     }
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const spawns: { id: string }[] = []
       for (const _proc of procs) {
         spawns.push(

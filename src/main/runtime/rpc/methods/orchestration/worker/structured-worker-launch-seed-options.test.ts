@@ -5,6 +5,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
+import { OrcaRuntimeService } from '../../../../orca-runtime'
 
 const createStructuredWorkerSession = vi.fn(async (_args: Record<string, unknown>) => ({
   identity: { handle: 'structworker_1', sessionId: 'sess_1' },
@@ -65,9 +66,13 @@ describe('the create the seed options land in', () => {
   }
 
   async function prepare(options?: Record<string, string>) {
+    const runtime = new OrcaRuntimeService()
+    // The launch-parameter fixture owns no orchestration ledger or material claims.
+    runtime.materialAdmissionAuthority.readPendingClaims = () => []
     const prepared = await prepareStructuredAgentSessionCreateForWorktree({
       // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: prepare reads the resolver and the lifecycle hold off the runtime; the fixture pins both.
       runtime: {
+        materialAdmissionAuthority: runtime.materialAdmissionAuthority,
         resolveStructuredAgentSessionCreateIntent: async () => settingsResolved,
         holdWorktreeLifecycle: async () => () => undefined
       } as never,
@@ -84,7 +89,11 @@ describe('the create the seed options land in', () => {
       caller: { callerKey: 'orchestration:dispatch:ctx_1' },
       ...(options ? { options } : {})
     })
-    return prepared.attachParams
+    try {
+      return prepared.attachParams
+    } finally {
+      prepared.releaseWorktreeLifecycle?.()
+    }
   }
 
   it("replaces the saved selection the host resolved with the dispatch's own", async () => {

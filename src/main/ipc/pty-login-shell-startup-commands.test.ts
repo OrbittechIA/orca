@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { describe, expect, it, vi } from 'vitest'
 import {
   loginPreflightExecFileMock,
@@ -216,7 +217,7 @@ describe('registerPtyHandlers', () => {
       spawnMock.mockReturnValue(mockProc.proc)
 
       try {
-        registerPtyHandlers(mainWindow as never)
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
         await handlers.get('pty:spawn')!(null, {
           cols: 80,
           rows: 24,
@@ -247,7 +248,7 @@ describe('registerPtyHandlers', () => {
       spawnMock.mockReturnValue(mockProc.proc)
 
       try {
-        registerPtyHandlers(mainWindow as never)
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
         await handlers.get('pty:spawn')!(null, {
           cols: 80,
           rows: 24,
@@ -279,7 +280,7 @@ describe('registerPtyHandlers', () => {
     spawnMock.mockReturnValue(mockProc.proc)
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -319,7 +320,7 @@ describe('registerPtyHandlers', () => {
       spawnMock.mockReturnValue(mockProc.proc)
 
       try {
-        registerPtyHandlers(mainWindow as never)
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
         await handlers.get('pty:spawn')!(null, {
           cols: 80,
           rows: 24,
@@ -351,7 +352,7 @@ describe('registerPtyHandlers', () => {
     spawnMock.mockReturnValue(mockProc.proc)
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -381,7 +382,7 @@ describe('registerPtyHandlers', () => {
     spawnMock.mockReturnValue(mockProc.proc)
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,

@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { describe, expect, it, vi } from 'vitest'
 import {
   existsSyncMock,
@@ -84,7 +85,7 @@ describe('registerPtyHandlers', () => {
 
     try {
       installDaemonTestProvider({ spawn: providerSpawn })
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const result = (await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -113,7 +114,7 @@ describe('registerPtyHandlers', () => {
 
     try {
       installDaemonTestProvider({ spawn: providerSpawn })
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const result = (await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -140,7 +141,7 @@ describe('registerPtyHandlers', () => {
 
     try {
       installDaemonTestProvider({ spawn: providerSpawn })
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -174,7 +175,7 @@ describe('registerPtyHandlers', () => {
 
     try {
       installDaemonTestProvider({ spawn: providerSpawn })
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const result = (await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -201,7 +202,7 @@ describe('registerPtyHandlers', () => {
 
     try {
       installDaemonTestProvider({ spawn: providerSpawn })
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const result = (await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -226,7 +227,7 @@ describe('registerPtyHandlers', () => {
     }
   })
   it('keeps a missing cwd unchanged without the fallback flag', async () => {
-    registerPtyHandlers(mainWindow as never)
+    registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
     existsSyncMock.mockImplementation((target: string) => target !== '/repo/app/deleted-folder')
     statSyncMock.mockImplementation((target: string) => {
       if (target === '/repo/app/deleted-folder') {
@@ -248,7 +249,7 @@ describe('registerPtyHandlers', () => {
     expect(spawnMock).not.toHaveBeenCalled()
   })
   it('spawns at an existing outside-worktree cwd without falling back (#7685)', async () => {
-    registerPtyHandlers(mainWindow as never)
+    registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
 
     const result = (await handlers.get('pty:spawn')!(null, {
       cols: 80,
@@ -263,7 +264,7 @@ describe('registerPtyHandlers', () => {
     expect(result.startupCwdFallback).toBeUndefined()
   })
   it('ignores the cwd fallback flag for session reattach spawns', async () => {
-    registerPtyHandlers(mainWindow as never)
+    registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
     existsSyncMock.mockImplementation((target: string) => target !== '/repo/app/deleted-folder')
     statSyncMock.mockImplementation((target: string) => {
       if (target === '/repo/app/deleted-folder') {
@@ -305,7 +306,7 @@ describe('registerPtyHandlers', () => {
     })
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
 
       await expect(
         handlers.get('pty:spawn')!(null, {

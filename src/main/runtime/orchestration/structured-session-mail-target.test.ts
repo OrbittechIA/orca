@@ -84,6 +84,9 @@ function probe(extra: Record<string, unknown> = {}): MailTargetProbe {
   return Object.assign(Object.create(MailTargetProbe.prototype), {
     _orchestrationDb: db,
     ptysById: new Map(),
+    ensureOrchestrationFederationRelay:
+      vi.fn<MailTargetProbe['ensureOrchestrationFederationRelay']>(),
+    scheduleRestoredMessageRepoints: vi.fn<() => void>(),
     ...extra
   }) as MailTargetProbe
 }

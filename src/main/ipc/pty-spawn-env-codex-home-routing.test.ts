@@ -1,3 +1,5 @@
+import { createGlobalSettingsFixture } from '../../shared/global-settings-test-fixture'
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { describe, expect, it, vi } from 'vitest'
 import {
   readFileSyncMock,
@@ -221,15 +223,25 @@ describe('registerPtyHandlers', () => {
         return TEST_CODEX_AUTH_JSON
       })
       handlers.clear()
-      registerPtyHandlers(mainWindow as never, undefined, () => TEST_CODEX_HOME, (() => ({
-        codexManagedAccounts: [
-          {
-            id: 'account-1',
-            managedHomePath: TEST_CODEX_HOME,
-            managedHomeRuntime: 'host'
-          }
-        ]
-      })) as never)
+      registerPtyHandlers(
+        mainWindow,
+        createPtyIpcAdmissionRuntime(),
+        () => TEST_CODEX_HOME,
+        () =>
+          createGlobalSettingsFixture({
+            codexManagedAccounts: [
+              {
+                id: 'account-1',
+                email: 'account-1@example.test',
+                managedHomePath: TEST_CODEX_HOME,
+                managedHomeRuntime: 'host',
+                createdAt: 1,
+                updatedAt: 1,
+                lastAuthenticatedAt: 1
+              }
+            ]
+          })
+      )
 
       const spawnPromise = handlers.get('pty:spawn')!(null, {
         cols: 80,
@@ -258,7 +270,7 @@ describe('registerPtyHandlers', () => {
       handlers.clear()
       registerPtyHandlers(
         mainWindow as never,
-        undefined,
+        createPtyIpcAdmissionRuntime(),
         () => TEST_CODEX_HOME,
         (() => ({
           codexManagedAccounts: [
@@ -306,7 +318,7 @@ describe('registerPtyHandlers', () => {
       const onCodexHomePtySpawned = vi.fn()
       registerPtyHandlers(
         mainWindow as never,
-        undefined,
+        createPtyIpcAdmissionRuntime(),
         () => TEST_CODEX_HOME,
         (() => ({
           codexManagedAccounts: [

@@ -1,3 +1,4 @@
+import type { MaterialManifest } from '../../../shared/worktree/material-types'
 import { describe, expect, it, vi } from 'vitest'
 import {
   AGENT_STATUS_STALE_AFTER_MS,
@@ -251,6 +252,10 @@ describe('OrcaRuntimeService', () => {
     const runtime = new OrcaRuntimeService(runtimeStore as never)
     const workerHandle = runtime.preAllocateHandleForPty('pty-worker')
     runtime.setOrchestrationDb({
+      // This dispatch-only double owns no pending material receipts.
+      readPendingMaterialClaims(): MaterialManifest[] {
+        return []
+      },
       getDispatchContext: vi.fn(() => ({
         task_id: 'task_abc123',
         assignee_handle: workerHandle,
@@ -349,6 +354,10 @@ describe('OrcaRuntimeService', () => {
     const runtime = new OrcaRuntimeService(runtimeStore as never)
     const parentHandle = runtime.preAllocateHandleForPty('pty-parent')
     runtime.setOrchestrationDb({
+      // This dispatch-only double owns no pending material receipts.
+      readPendingMaterialClaims(): MaterialManifest[] {
+        return []
+      },
       getDispatchContext: vi.fn(() => undefined),
       getTask: vi.fn(() => ({
         id: 'task_creator123',

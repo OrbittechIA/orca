@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { withDurableRuntimeStore } from '../runtime/runtime-durable-store-fixture'
 import { describe, expect, it, vi } from 'vitest'
 import { spawnMock, registerPtyMock } from './pty-ipc-mock-registry'
@@ -131,6 +132,7 @@ describe('registerPtyHandlers', () => {
       clearSshRemotePtyKillIntent: vi.fn()
     })
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       resolveTerminalPane: vi.fn(() => {
         throw new Error('terminal_not_found')
@@ -228,6 +230,7 @@ describe('registerPtyHandlers', () => {
       getProfiles: vi.fn()
     } as never)
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       resolveTerminalPane: vi.fn(() => ({
         handle: 'term-runtime-owner',
@@ -300,7 +303,7 @@ describe('registerPtyHandlers', () => {
       getDefaultShell: vi.fn(),
       getProfiles: vi.fn()
     } as never)
-    registerPtyHandlers(mainWindow as never)
+    registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
     const leafId = '77777777-7777-4777-8777-777777777777'
     const paneKey = makePaneKey('tab-host-scope', leafId)
     const spawn = (worktreeId: string) =>
@@ -324,7 +327,7 @@ describe('registerPtyHandlers', () => {
   })
   it('settles the pane reservation when a post-spawn step throws so later spawns do not hang', async () => {
     // Why: reservation-leak regression — a post-spawn throw after provider.spawn resolves must reject/clear the reservation, else later spawns for the same pane key hang forever.
-    registerPtyHandlers(mainWindow as never)
+    registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
     const leafId = '44444444-4444-4444-8444-444444444444'
     const spawnArgs = { cols: 80, rows: 24, tabId: 'tab-reservation', leafId }
 

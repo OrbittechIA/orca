@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { describe, expect, it, vi } from 'vitest'
 import { spawnMock } from './pty-ipc-mock-registry'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
@@ -70,7 +71,7 @@ describe('registerPtyHandlers', () => {
     spawnMock.mockReturnValueOnce(firstProc.proc).mockReturnValueOnce(secondProc.proc)
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const firstSpawn = (await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -93,11 +94,15 @@ describe('registerPtyHandlers', () => {
       expect(mainWindow.webContents.send).toHaveBeenCalledTimes(2)
       expect(mainWindow.webContents.send).toHaveBeenNthCalledWith(1, 'pty:data', {
         id: secondSpawn.id,
-        data: 'second-terminal-output'
+        data: 'second-terminal-output',
+        seq: 22,
+        rawLength: 22
       })
       expect(mainWindow.webContents.send).toHaveBeenNthCalledWith(2, 'pty:data', {
         id: firstSpawn.id,
-        data: firstChunk
+        data: firstChunk,
+        seq: 16384,
+        rawLength: 16384
       })
 
       vi.advanceTimersByTime(1)
@@ -105,7 +110,9 @@ describe('registerPtyHandlers', () => {
       expect(mainWindow.webContents.send).toHaveBeenCalledTimes(3)
       expect(mainWindow.webContents.send).toHaveBeenNthCalledWith(3, 'pty:data', {
         id: firstSpawn.id,
-        data: firstRemainder
+        data: firstRemainder,
+        seq: 16388,
+        rawLength: 4
       })
     } finally {
       vi.useRealTimers()
@@ -121,7 +128,7 @@ describe('registerPtyHandlers', () => {
     spawnMock.mockReturnValueOnce(newProc.proc)
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const firstSpawn = (await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -156,18 +163,20 @@ describe('registerPtyHandlers', () => {
       firstProc.emitData(`${firstChunk}tail`)
       secondProc.emitData('second')
       vi.advanceTimersByTime(2)
-      expect(getPtyDataSendCalls()).toEqual([['pty:data', { id: firstSpawn.id, data: firstChunk }]])
+      expect(getPtyDataSendCalls()).toEqual([
+        ['pty:data', { id: firstSpawn.id, data: firstChunk, seq: 16384, rawLength: 16384 }]
+      ])
 
       vi.advanceTimersByTime(2)
       expect(getPtyDataSendCalls().slice(1)).toEqual([
-        ['pty:data', { id: newSpawn.id, data: 'new' }],
-        ['pty:data', { id: secondSpawn.id, data: 'second+append' }]
+        ['pty:data', { id: newSpawn.id, data: 'new', seq: 3, rawLength: 3 }],
+        ['pty:data', { id: secondSpawn.id, data: 'second+append', seq: 13, rawLength: 13 }]
       ])
 
       vi.advanceTimersByTime(1)
       expect(getPtyDataSendCalls().at(-1)).toEqual([
         'pty:data',
-        { id: firstSpawn.id, data: 'tail+same' }
+        { id: firstSpawn.id, data: 'tail+same', seq: 16393, rawLength: 9 }
       ])
     } finally {
       vi.useRealTimers()
@@ -180,7 +189,7 @@ describe('registerPtyHandlers', () => {
     spawnMock.mockReturnValueOnce(firstProc.proc).mockReturnValueOnce(secondProc.proc)
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const firstSpawn = (await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -213,10 +222,10 @@ describe('registerPtyHandlers', () => {
       vi.advanceTimersByTime(2)
 
       expect(mainWindow.webContents.send.mock.calls).toEqual([
-        ['pty:data', { id: firstSpawn.id, data: firstChunk }],
-        ['pty:data', { id: firstSpawn.id, data: 'tail' }],
+        ['pty:data', { id: firstSpawn.id, data: firstChunk, seq: 16384, rawLength: 16384 }],
+        ['pty:data', { id: firstSpawn.id, data: 'tail', seq: 16388, rawLength: 4 }],
         ['pty:exit', { id: firstSpawn.id, code: 0, incarnationId: firstSpawn.incarnationId }],
-        ['pty:data', { id: secondSpawn.id, data: 'next' }]
+        ['pty:data', { id: secondSpawn.id, data: 'next', seq: 4, rawLength: 4 }]
       ])
       expect(getPtyRendererDeliveryDebugSnapshot()).toMatchObject({
         pendingPtyCount: 0,
@@ -236,7 +245,7 @@ describe('registerPtyHandlers', () => {
     spawnMock.mockReturnValueOnce(firstProc.proc).mockReturnValueOnce(detachedProc.proc)
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const firstSpawn = (await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -262,7 +271,9 @@ describe('registerPtyHandlers', () => {
       detachedProc.emitData('must-not-send')
       vi.advanceTimersByTime(2)
 
-      expect(getPtyDataSendCalls()).toEqual([['pty:data', { id: firstSpawn.id, data: 'first' }]])
+      expect(getPtyDataSendCalls()).toEqual([
+        ['pty:data', { id: firstSpawn.id, data: 'first', seq: 5, rawLength: 5 }]
+      ])
       expect(getPtyRendererDeliveryDebugSnapshot()).toMatchObject({
         pendingPtyCount: 0,
         rendererInFlightPtyCount: 0,
@@ -282,7 +293,7 @@ describe('registerPtyHandlers', () => {
     spawnMock.mockReturnValueOnce(firstProc.proc).mockReturnValueOnce(secondProc.proc)
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const firstSpawn = (await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -327,7 +338,9 @@ describe('registerPtyHandlers', () => {
       expect(mainWindow.webContents.send).toHaveBeenCalledTimes(33)
       expect(mainWindow.webContents.send).toHaveBeenNthCalledWith(33, 'pty:data', {
         id: secondSpawn.id,
-        data: 'second-terminal-output'
+        data: 'second-terminal-output',
+        seq: 22,
+        rawLength: 22
       })
 
       ackData(null, { id: firstSpawn.id, charCount: 16 * 1024 })
@@ -336,7 +349,9 @@ describe('registerPtyHandlers', () => {
       expect(mainWindow.webContents.send).toHaveBeenCalledTimes(34)
       expect(mainWindow.webContents.send).toHaveBeenNthCalledWith(34, 'pty:data', {
         id: firstSpawn.id,
-        data: 'x'.repeat(16 * 1024)
+        data: 'x'.repeat(16 * 1024),
+        seq: 33 * 16 * 1024,
+        rawLength: 16 * 1024
       })
       expect(getPtyRendererDeliveryDebugSnapshot()).toMatchObject({
         pendingPtyCount: 1,

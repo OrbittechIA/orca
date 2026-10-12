@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { describe, expect, it, vi } from 'vitest'
 import { spawnMock } from './pty-ipc-mock-registry'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
@@ -84,6 +85,7 @@ describe('registerPtyHandlers', () => {
       acknowledgeDataEvent: vi.fn()
     } as never)
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       noteTerminalSpawnCommand: vi.fn(),
       createPreAllocatedTerminalHandle: vi.fn(() => 'term_remote'),
@@ -114,6 +116,7 @@ describe('registerPtyHandlers', () => {
   it('refreshes captured native Agent Teams env for renderer PTY spawns', async () => {
     const leafId = '11111111-1111-4111-8111-111111111111'
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       createPreAllocatedTerminalHandle: vi.fn(() => 'term_agent_teams'),
       prepareClaudeAgentTeamsLeaderForHandle: vi.fn(async () => ({
@@ -200,6 +203,7 @@ describe('registerPtyHandlers', () => {
   it('threads the validated pane identity into registerPty for a renderer PTY spawn (#7587)', async () => {
     const leafId = '88888888-8888-4888-8888-888888888888'
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       preAllocateHandleForPty: vi.fn(() => 'term_seam'),
       registerPreAllocatedHandleForPty: vi.fn(),
@@ -289,6 +293,8 @@ describe('registerPtyHandlers', () => {
     }
   ])('binds only $label from renderer pty:spawn to runtime authority', async (testCase) => {
     const runtime = new OrcaRuntimeService()
+    // This synthetic provider owns no orchestration ledger or material claims.
+    runtime.materialAdmissionAuthority.readPendingClaims = () => []
     registerPtyHandlers(mainWindow as never, runtime)
     const worktreeId = 'repo-1::/tmp/renderer-authority'
     const tabId = 'tab-renderer-authority'
@@ -339,6 +345,7 @@ describe('registerPtyHandlers', () => {
   })
   it('omits the pane identity from registerPty when the leafId is not a terminal leaf (#7587)', async () => {
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       preAllocateHandleForPty: vi.fn(() => 'term_seam'),
       registerPreAllocatedHandleForPty: vi.fn(),
@@ -372,6 +379,7 @@ describe('registerPtyHandlers', () => {
   it('refreshes native Agent Teams env when captured teammate mode lives in launch args', async () => {
     const leafId = '11111111-1111-4111-8111-111111111111'
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       createPreAllocatedTerminalHandle: vi.fn(() => 'term_agent_teams'),
       prepareClaudeAgentTeamsLeaderForHandle: vi.fn(async () => ({
@@ -447,6 +455,7 @@ describe('registerPtyHandlers', () => {
     } as never)
     const registerPty = vi.fn()
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       createPreAllocatedTerminalHandle: vi.fn(() => 'term_remote'),
       registerPreAllocatedHandleForPty: vi.fn(),
@@ -542,6 +551,7 @@ describe('registerPtyHandlers', () => {
     const teams = new ClaudeAgentTeamsService()
     let handleSeq = 0
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       createPreAllocatedTerminalHandle: vi.fn(() => `term_agent_teams_${++handleSeq}`),
       prepareClaudeAgentTeamsLeaderForHandle: vi.fn(
@@ -607,6 +617,7 @@ describe('registerPtyHandlers', () => {
     const leafId = '33333333-3333-4333-8333-333333333333'
     const teams = new ClaudeAgentTeamsService()
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       createPreAllocatedTerminalHandle: vi.fn(() => 'term_agent_teams_failure'),
       prepareClaudeAgentTeamsLeaderForHandle: vi.fn(

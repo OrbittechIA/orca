@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { describe, expect, it, vi } from 'vitest'
 import { withDurableRuntimeStore } from '../runtime/runtime-durable-store-fixture'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
@@ -116,6 +117,7 @@ describe('registerPtyHandlers', () => {
       getRepos: vi.fn(() => [])
     })
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       resolveTerminalPane: vi.fn(() => {
         throw new Error('terminal_not_found')
@@ -240,6 +242,7 @@ describe('registerPtyHandlers', () => {
       getRepos: vi.fn(() => [])
     })
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       resolveTerminalPane: vi.fn(() => {
         throw new Error('terminal_not_found')
@@ -365,6 +368,7 @@ describe('registerPtyHandlers', () => {
     })
     let runtimeOwnsPane = true
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       resolveTerminalPane: vi.fn(() => {
         if (!runtimeOwnsPane) {

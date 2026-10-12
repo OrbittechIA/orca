@@ -2,6 +2,7 @@ import { openCodeHookServiceModuleMock } from '../ipc/pty-ipc-mock-registry'
 import { settledWriteStub } from './settled-pty-write-stub'
 import { describe, expect, it, vi } from 'vitest'
 import { setPtyHostBindings } from '../ipc/pty-host-bindings'
+import { createPtyIpcAdmissionRuntime } from '../ipc/pty-ipc-spawn-drivers'
 
 const { handleMock, onMock, removeHandlerMock, removeAllListenersMock } = vi.hoisted(() => ({
   handleMock: vi.fn(),
@@ -69,11 +70,20 @@ describe('PTY provider dispatch', () => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
   const mainWindow = {
     isDestroyed: () => false,
-    webContents: { on: vi.fn(), send: vi.fn(), removeListener: vi.fn() }
+    isFocused: () => true,
+    isVisible: () => true,
+    isMinimized: () => false,
+    webContents: {
+      id: 1,
+      isDestroyed: () => false,
+      on: vi.fn(),
+      send: vi.fn(),
+      removeListener: vi.fn()
+    }
   }
   const mainWindowIpcEvent = { sender: mainWindow.webContents }
 
-  function setup(): void {
+  function setup() {
     handlers.clear()
     handleMock.mockReset()
     onMock.mockReset()
@@ -93,7 +103,9 @@ describe('PTY provider dispatch', () => {
         removeAllListeners: removeAllListenersMock
       }
     })
-    registerPtyHandlers(mainWindow as never)
+    const runtime = createPtyIpcAdmissionRuntime()
+    registerPtyHandlers(mainWindow, runtime)
+    return runtime
   }
 
   function createMockProvider(id: string): IPtyProvider {
@@ -143,7 +155,8 @@ describe('PTY provider dispatch', () => {
   })
 
   it('routes to SSH provider when connectionId is set', async () => {
-    setup()
+    const runtime = setup()
+    const preAllocateHandle = vi.spyOn(runtime, 'createPreAllocatedTerminalHandle')
     const mockSshProvider = createMockProvider('ssh-pty-1')
 
     registerSshPtyProvider('conn-123', mockSshProvider)
@@ -155,6 +168,9 @@ describe('PTY provider dispatch', () => {
     })) as { id: string }
 
     expect(result.id).toBe('ssh-pty-1')
+    expect(preAllocateHandle).toHaveBeenCalledTimes(1)
+    const handle = preAllocateHandle.mock.results[0]?.value
+    expect(handle).toMatch(/^term_/)
     // Why: the relay host can be launched from a Claude or structured session too, so the
     // stamps are stripped on the SSH path as well; a remote pane never names a local session. Compared as a set — envToDelete is consumed by
     // membership only, so a reordering of the merge sources must not fail this.
@@ -179,7 +195,12 @@ describe('PTY provider dispatch', () => {
       ].sort()
     )
     expect(mockSshProvider.spawn).toHaveBeenCalledWith(
-      expect.objectContaining({ cols: 80, rows: 24, cwd: undefined, env: undefined })
+      expect.objectContaining({
+        cols: 80,
+        rows: 24,
+        cwd: undefined,
+        env: { ORCA_TERMINAL_HANDLE: handle }
+      })
     )
 
     unregisterSshPtyProvider('conn-123')

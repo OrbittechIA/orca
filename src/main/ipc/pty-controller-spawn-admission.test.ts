@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { describe, expect, it, vi } from 'vitest'
 import {
   openCodeBuildPtyEnvMock,
@@ -73,6 +74,8 @@ describe('registerPtyHandlers', () => {
     const ptyId = 'pty-renderer-early-exit'
     const incarnationId = 'incarnation-renderer-early-exit'
     const runtime = new OrcaRuntimeService()
+    // This synthetic provider owns no orchestration ledger or material claims.
+    runtime.materialAdmissionAuthority.readPendingClaims = () => []
     const registerRuntimePty = vi.spyOn(runtime, 'registerPty')
     const provider = createAgentClaimProvider({
       spawn: vi.fn(async () => {
@@ -175,7 +178,9 @@ describe('registerPtyHandlers', () => {
         recoverFreshSpawnRouting: { value: recoverFreshSpawnRouting }
       })
       setLocalPtyProvider(provider as never)
-      const controller = registerAgentClaimController()
+      const controller = registerAgentClaimController({
+        materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority
+      })
       const worktreeId = 'repo::/tmp/recovered-daemon-routing'
       const spawnArgs = {
         cols: 80,
