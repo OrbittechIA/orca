@@ -182,7 +182,9 @@ afterEach(async () => {
   try {
     await current?.stop()
   } finally {
-    for (const runtime of host.runtimes) runtime.materialReceiptDb()?.close()
+    for (const runtime of host.runtimes) {
+      runtime.materialReceiptDb()?.close()
+    }
     vi.restoreAllMocks()
   }
 })
@@ -193,15 +195,18 @@ it.each(['empty', 'pending', 'absent'] as const)(
     const filename = join(host.root, 'orchestration.db')
     if (kind !== 'absent') {
       const seed = new OrchestrationDb(filename)
-      if (kind === 'pending') seed.beginMutationReceipt(claim)
+      if (kind === 'pending') {
+        seed.beginMutationReceipt(claim)
+      }
       seed.close()
     }
     const relay = vi.spyOn(OrcaRuntimeService.prototype, 'ensureOrchestrationFederationRelay')
     const opening = vi.spyOn(OrcaRuntimeService.prototype, 'getOrchestrationDb')
     host.probe.mockImplementation(async (runtime, stage) => {
       expect(getAppEnvironment().getPath('userData')).toBe(host.root)
-      if (stage === 'register-headless')
+      if (stage === 'register-headless') {
         expect(host.stages).toEqual(['profile-final', 'register-headless'])
+      }
       const permit = await acquireMaterialAdmission(runtime.materialAdmissionAuthority, {
         cwd: '/fixture/other'
       })
@@ -229,10 +234,11 @@ it.each(['empty', 'pending', 'absent'] as const)(
         }
         expect(relay).not.toHaveBeenCalled()
         expect(opening).not.toHaveBeenCalled()
-        if (kind === 'absent')
+        if (kind === 'absent') {
           expect(
             readdirSync(host.root).filter((name) => name.startsWith('orchestration.db'))
           ).toEqual([])
+        }
       } finally {
         boundary.mockRestore()
       }

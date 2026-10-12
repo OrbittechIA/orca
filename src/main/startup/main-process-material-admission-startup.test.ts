@@ -6,6 +6,9 @@ import type { MaterialManifest } from '../../shared/worktree/material-types'
 import { createSqliteMaintenanceFixture } from '../persistence/loading-store/profile-state-maintenance-fixture'
 import { OrchestrationDb } from '../runtime/orchestration/db'
 import { OrcaRuntimeService } from '../runtime/orca-runtime'
+import type * as ClaimIdentity from '../runtime/agent-session-claim-identity'
+import type * as ProfilePaths from '../orca-profiles/profile-storage-paths'
+import type * as DataPaths from '../persistence/loading-store/user-data-path'
 import { StatsCollector, initStatsPath } from '../stats/collector'
 import { mainProcessState as state } from './main-process-state'
 import { initializeMainProcessRuntime } from './main-process-runtime-service'
@@ -32,13 +35,15 @@ vi.mock('../runtime/agent-state-rules/agent-state-rules-live-update', () => ({
   startAgentStateRulesLiveUpdates: vi.fn()
 }))
 vi.mock('../runtime/agent-session-claim-identity', async (original) => ({
-  ...(await original<typeof import('../runtime/agent-session-claim-identity')>()),
+  ...(await original<typeof ClaimIdentity>()),
   loadAgentSessionClaimSigner: () => undefined
 }))
-vi.mock('../orca-profiles/profile-storage-paths', () => ({
+vi.mock('../orca-profiles/profile-storage-paths', async (original) => ({
+  ...(await original<typeof ProfilePaths>()),
   getProfileUserDataPath: () => host.root
 }))
-vi.mock('../persistence/loading-store/user-data-path', () => ({
+vi.mock('../persistence/loading-store/user-data-path', async (original) => ({
+  ...(await original<typeof DataPaths>()),
   getCanonicalUserDataPath: () => host.root
 }))
 vi.mock('../agent-hooks/server', () => ({ agentHookServer: { subscribeEnrichedStatus: vi.fn() } }))
@@ -137,7 +142,9 @@ it.each(['empty', 'pending', 'absent'] as const)(
     const filename = join(host.root, 'orchestration.db')
     if (kind !== 'absent') {
       const seed = new OrchestrationDb(filename)
-      if (kind === 'pending') seed.beginMutationReceipt(claim)
+      if (kind === 'pending') {
+        seed.beginMutationReceipt(claim)
+      }
       seed.close()
     }
     const relay = vi.spyOn(OrcaRuntimeService.prototype, 'ensureOrchestrationFederationRelay')
@@ -147,8 +154,9 @@ it.each(['empty', 'pending', 'absent'] as const)(
     host.exposed.mockImplementationOnce(() => {
       expect(state.runtime).toBeNull()
       // The owner must observe the ledger before any downstream service can use it.
-      if (kind !== 'absent')
+      if (kind !== 'absent') {
         expect(claimsRead).toHaveReturnedWith(kind === 'pending' ? [manifest] : [])
+      }
       expect(opening).not.toHaveBeenCalled()
     })
     runtime = initializeMainProcessRuntime()
