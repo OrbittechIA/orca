@@ -1,8 +1,9 @@
 import type { MaterialManifest } from '../../../shared/worktree/material-types'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import {
   MOCK_GIT_WORKTREES,
   OrcaRuntimeService,
+  OrchestrationDb,
   computeWorktreePathMock,
   ensurePathWithinWorkspaceMock,
   listWorktrees,
@@ -202,19 +203,60 @@ describe('OrcaRuntimeService', () => {
     const runtime = new OrcaRuntimeService(runtimeStore as never)
     const workerHandle = runtime.preAllocateHandleForPty('pty-worker')
     const coordinatorHandle = runtime.preAllocateHandleForPty('pty-coordinator')
-    runtime.setOrchestrationDb({
-      // This dispatch-only double owns no pending material receipts.
-      readPendingMaterialClaims(): MaterialManifest[] {
-        return []
-      },
-      getActiveDispatchForTerminal: vi.fn(() => ({
-        task_id: 'task-1'
-      })),
-      getActiveCoordinatorRun: vi.fn(() => ({
-        id: 'run-1',
-        coordinator_handle: coordinatorHandle
-      }))
-    } as never)
+    const db = new OrchestrationDb(':memory:')
+    onTestFinished(() => db.close())
+    runtime.setOrchestrationDb(
+      Object.assign(db, {
+        // This dispatch-only double owns no pending material receipts.
+        readPendingMaterialClaims(): MaterialManifest[] {
+          return []
+        },
+        hasAnyDispatchContexts: vi.fn(() => true),
+        getActiveDispatchForTerminal: vi.fn<
+          InstanceType<typeof OrchestrationDb>['getActiveDispatchForTerminal']
+        >(() => ({
+          id: 'dispatch-task-1',
+          run_id: 'run-1',
+          task_id: 'task-1',
+          contract_version: 1,
+          launch_token_hash: null,
+          assignee_handle: workerHandle,
+          assignee_pane_key: null,
+          assignee_orca_session_id: null,
+          capability_hash: null,
+          process_incarnation: null,
+          capability_revoked_at: null,
+          retry_of_dispatch_id: null,
+          creator_dispatch_id: null,
+          creator_handle: null,
+          creator_pane_key: null,
+          creator_orca_session_id: null,
+          host_scope: null,
+          status: 'dispatched',
+          failure_count: 0,
+          last_failure: null,
+          termination_reason: null,
+          depth: 0,
+          consumer_generation: 0,
+          dispatched_at: null,
+          completed_at: null,
+          created_at: '2026-01-01T00:00:00.000Z',
+          last_heartbeat_at: null
+        })),
+        getActiveCoordinatorRun: vi.fn<
+          InstanceType<typeof OrchestrationDb>['getActiveCoordinatorRun']
+        >(() => ({
+          id: 'run-1',
+          spec: '',
+          status: 'running',
+          coordinator_handle: coordinatorHandle,
+          poll_interval_ms: 1000,
+          created_at: '2026-01-01T00:00:00.000Z',
+          completed_at: null,
+          scheduler_lost_at: null
+        }))
+      } satisfies Partial<InstanceType<typeof OrchestrationDb>>)
+    )
     runtime.attachWindow(1)
     runtime.syncWindowGraph(1, {
       tabs: [
