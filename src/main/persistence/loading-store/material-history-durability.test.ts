@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { afterEach, expect, it, vi } from 'vitest'
 import { getDefaultPersistedState } from '../../../shared/constants'
 import type { WorktreeMeta } from '../../../shared/worktree/meta-types'
@@ -13,6 +14,43 @@ afterEach(() => {
     close()
   }
   vi.unstubAllEnvs()
+})
+
+it('keeps material history digest bytes canonical for nested keys, arrays and undefined', () => {
+  const expected = createHash('sha256')
+    .update('{"2":"two","10":"ten","a":[null,{"a":"á","z":2},"tail"],"é":true}')
+    .digest('hex')
+  const value = {
+    é: true,
+    a: [undefined, { z: 2, a: 'á', omitted: undefined }, 'tail'],
+    10: 'ten',
+    2: 'two',
+    omitted: undefined
+  }
+  expect(materialHistoryDigest(value)).toBe(expected)
+  expect(
+    materialHistoryDigest({ 2: 'two', 10: 'ten', a: [null, { a: 'á', z: 2 }, 'tail'], é: true })
+  ).toBe(expected)
+  expect(materialHistoryDigest({ ...value, a: value.a.toReversed() })).not.toBe(expected)
+  expect(materialHistoryDigest({ ...value, é: false })).not.toBe(expected)
+  expect(() => materialHistoryDigest({ invalid: 1n })).toThrow(TypeError)
+  expect(() => materialHistoryDigest(undefined)).toThrow(TypeError)
+})
+
+it('keeps sorted material property access and undefined omission unchanged', () => {
+  const reads: string[] = []
+  const value = {
+    get z() {
+      reads.push('z')
+      return 1
+    },
+    get a() {
+      reads.push('a')
+      return undefined
+    }
+  }
+  expect(materialHistoryDigest(value)).toBe(createHash('sha256').update('{"z":1}').digest('hex'))
+  expect(reads).toEqual(['a', 'z', 'z'])
 })
 
 it('persistence digest matches the RPC ledger canonical encoding', () => {
