@@ -237,7 +237,9 @@ export const OrchestrationDb = OrchestrationDbCore as new (
 /** Boot owns this opening; admission only observes an already prepared handle. */
 export function openExistingMaterialLedger(filename: string): OrchestrationDb | null {
   try {
-    lstatSync(filename)
+    if (!lstatSync(filename).isFile()) {
+      throw new Error('E_MATERIAL_ADMISSION_UNVERIFIABLE: ledger_not_regular_file')
+    }
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
       return null

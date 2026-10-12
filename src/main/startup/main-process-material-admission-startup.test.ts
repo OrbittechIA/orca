@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { readdirSync, readFileSync, writeFileSync, symlinkSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { getAppEnvironment } from '../../shared/app-environment'
@@ -196,6 +196,15 @@ it('refuses corrupt storage before publishing the runtime or starting services',
   expect(state.runtime).toBeNull()
   expect(host.exposed).not.toHaveBeenCalled()
   expect(readFileSync(join(host.root, 'orchestration.db'), 'utf8')).toBe('corrupt fixture')
+})
+
+it('refuses a dangling ledger symlink without creating its target or exposing the runtime', () => {
+  const target = join(host.root, 'absent-ledger-target')
+  symlinkSync(target, join(host.root, 'orchestration.db'))
+  expect(() => initializeMainProcessRuntime()).toThrow('ledger_not_regular_file')
+  expect(existsSync(target)).toBe(false)
+  expect(state.runtime).toBeNull()
+  expect(host.exposed).not.toHaveBeenCalled()
 })
 
 it('refuses unverifiable persisted claims instead of erasing UNKNOWN', () => {
