@@ -4,6 +4,7 @@ import path from 'node:path'
 import type { WorktreeMeta } from './meta-types'
 import type { z } from 'zod'
 import { createHash } from 'node:crypto'
+import { isUnknownRecord } from '../unknown-record'
 import type {
   WorktreeMaterialManifest,
   MaterialHistoryAssertionSchema
@@ -58,13 +59,13 @@ function canonicalMaterialValue(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(canonicalMaterialValue)
   }
-  if (!value || typeof value !== 'object') {
+  if (!isUnknownRecord(value)) {
     return value
   }
   const result: Record<string, unknown> = {}
   for (const key of Object.keys(value).sort()) {
-    if (Reflect.get(value, key) !== undefined) {
-      result[key] = canonicalMaterialValue(Reflect.get(value, key))
+    if (value[key] !== undefined) {
+      result[key] = canonicalMaterialValue(value[key])
     }
   }
   return result

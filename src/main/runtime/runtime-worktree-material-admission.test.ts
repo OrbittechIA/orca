@@ -11,9 +11,11 @@ import {
 import { getAppEnvironment } from '../../shared/app-environment'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { createHash } from 'node:crypto'
 import { afterEach, expect, it, vi } from 'vitest'
 import { OrchestrationDb } from './orchestration/db'
-import type { MaterialManifest } from '../../shared/worktree/material-types'
+import { materialHistoryDigest, type MaterialManifest } from '../../shared/worktree/material-types'
 import { captureLocalWorktreeMaterialCensus } from '../persistence/tracking-repos/local-worktree-material-census'
 import { getDefaultPersistedState } from '../../shared/constants'
 import {
@@ -30,12 +32,16 @@ vi.mock(import('node:fs'), async (original) => {
     ...actual,
     // Preserve every native overload while denying only the explicitly armed fixture path.
     lstatSync: new Proxy(actual.lstatSync, {
-      apply(target, receiver, args: Parameters<typeof actual.lstatSync>) {
+      apply(
+        target: typeof actual.lstatSync,
+        _receiver: unknown,
+        args: Parameters<typeof actual.lstatSync>
+      ): ReturnType<typeof actual.lstatSync> {
         const error = typeof args[0] === 'string' ? fsFaults.get(args[0]) : undefined
         if (error) {
           throw error
         }
-        return Reflect.apply(target, receiver, args)
+        return target(...args)
       }
     })
   }
@@ -82,6 +88,57 @@ function harness(db: OrchestrationDb) {
       captureLocalWorktreeMaterialCensus(getDefaultPersistedState('/fixture/profile'), id)
   }
 }
+
+it('keeps material history digest bytes canonical for nested keys, arrays and undefined', () => {
+  const expected = createHash('sha256')
+    .update('{"2":"two","10":"ten","a":[null,{"a":"á","z":2},"tail"],"é":true}')
+    .digest('hex')
+  const value = {
+    é: true,
+    a: [undefined, { z: 2, a: 'á', omitted: undefined }, 'tail'],
+    10: 'ten',
+    2: 'two',
+    omitted: undefined
+  }
+  expect(materialHistoryDigest(value)).toBe(expected)
+  expect(
+    materialHistoryDigest({ 2: 'two', 10: 'ten', a: [null, { a: 'á', z: 2 }, 'tail'], é: true })
+  ).toBe(expected)
+  expect(materialHistoryDigest({ ...value, a: value.a.toReversed() })).not.toBe(expected)
+  expect(materialHistoryDigest({ ...value, é: false })).not.toBe(expected)
+  expect(() => materialHistoryDigest({ invalid: 1n })).toThrow(TypeError)
+  expect(() => materialHistoryDigest(undefined)).toThrow(TypeError)
+})
+
+it('keeps sorted material property access and undefined omission unchanged', () => {
+  const reads: string[] = []
+  const value = {
+    get z() {
+      reads.push('z')
+      return 1
+    },
+    get a() {
+      reads.push('a')
+      return undefined
+    }
+  }
+  expect(materialHistoryDigest(value)).toBe(createHash('sha256').update('{"z":1}').digest('hex'))
+  expect(reads).toEqual(['a', 'z', 'z'])
+})
+
+it('delegates native ledger stat overloads and PathLike inputs without widening the fault', () => {
+  const root = mkdtempSync(join(tmpdir(), 'material-stat-overloads-'))
+  roots.push(root)
+  const numeric = lstatSync(root)
+  const bigint = lstatSync(root, { bigint: true })
+  expect(typeof numeric.size).toBe('number')
+  expect(typeof bigint.size).toBe('bigint')
+  expect(lstatSync(Buffer.from(root)).isDirectory()).toBe(true)
+  expect(lstatSync(pathToFileURL(root), { throwIfNoEntry: true }).isDirectory()).toBe(true)
+  const missing = join(root, 'absent')
+  expect(lstatSync(missing, { throwIfNoEntry: false })).toBeUndefined()
+  expect(lstatSync(missing, { bigint: true, throwIfNoEntry: false })).toBeUndefined()
+})
 
 it('commits the target with the first claim, FULL only for that transaction, and fences after reopen', async () => {
   const root = mkdtempSync(join(tmpdir(), 'material-admission-'))
