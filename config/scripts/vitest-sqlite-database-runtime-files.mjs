@@ -1,5 +1,7 @@
 // Database opening and lifecycle fixtures exercise Node SQLite behavior.
 export const SQLITE_DATABASE_RUNTIME_INCLUDE = [
+  'src/main/startup/main-process-material-admission-startup.test.ts',
+  'src/main/orcad/orcad-material-admission-startup.test.ts',
   'src/main/persistence/loading-store/material-history-durability.test.ts',
   'src/main/runtime/runtime-worktree-material-admission.test.ts',
   'src/main/ai-vault-search/session-search-file-write.test.ts',
