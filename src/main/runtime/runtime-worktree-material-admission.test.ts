@@ -4,6 +4,7 @@ import {
   readFileSync,
   readdirSync,
   mkdirSync,
+  lstatSync,
   symlinkSync,
   unlinkSync
 } from 'node:fs'
@@ -22,8 +23,28 @@ import {
   acquireMaterialMutation
 } from './runtime-worktree-material-admission'
 
+const fsFaults = vi.hoisted(() => new Map<string, Error>())
+vi.mock(import('node:fs'), async (original) => {
+  const actual = await original()
+  const patched = {
+    ...actual,
+    // Preserve every native overload while denying only the explicitly armed fixture path.
+    lstatSync: new Proxy(actual.lstatSync, {
+      apply(target, receiver, args: Parameters<typeof actual.lstatSync>) {
+        const error = typeof args[0] === 'string' ? fsFaults.get(args[0]) : undefined
+        if (error) {
+          throw error
+        }
+        return Reflect.apply(target, receiver, args)
+      }
+    })
+  }
+  return { ...patched, default: patched }
+})
+
 const roots: string[] = []
 afterEach(() => {
+  fsFaults.clear()
   for (const root of roots.splice(0)) {
     rmSync(root, { recursive: true, force: true })
   }
@@ -733,21 +754,32 @@ it.each(['relay', 'repoints'] as const)(
 )
 
 it('fails closed on an unreadable ledger path without opening or activating anything', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'material-unreadable-ledger-'))
+  roots.push(root)
+  const filename = join(root, 'orchestration.db')
+  new OrchestrationDb(filename).close()
+  const before = readFileSync(filename)
+  const path = vi.spyOn(getAppEnvironment(), 'getPath').mockReturnValue(root)
   const runtime = new BootRuntime()
   const denied = Object.assign(new Error('permission denied'), { code: 'EACCES' })
-  const fs = await import('node:fs')
-  const stat = vi.spyOn(fs, 'lstatSync').mockImplementation(() => {
-    throw denied
-  })
+  fsFaults.set(filename, denied)
+  const opening = vi.spyOn(runtime, 'getOrchestrationDb')
   const relay = vi.spyOn(runtime, 'ensureOrchestrationFederationRelay')
   try {
+    expect(lstatSync(root).isDirectory()).toBe(true)
     expect(() => runtime.prepareMaterialAdmissionStorage()).toThrow(denied)
     expect(runtime.materialReceiptDb()).toBeNull()
+    expect(opening).not.toHaveBeenCalled()
     expect(relay).not.toHaveBeenCalled()
     expect(runtime.repoints).not.toHaveBeenCalled()
+    expect(readFileSync(filename)).toEqual(before)
   } finally {
-    stat.mockRestore()
+    fsFaults.clear()
+    path.mockRestore()
+    opening.mockRestore()
+    relay.mockRestore()
   }
+  expect(lstatSync(filename).isFile()).toBe(true)
 })
 
 it('cannot finish an old activation or duplicate repoints after reentrant handle replacement', () => {

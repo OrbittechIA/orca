@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { ProfilePreferences } from '../persistence/loading-store/profile-preferences'
+import type { OrcaRuntimeService } from '../runtime/orca-runtime'
 import { DeviceRegistry } from '../runtime/device-registry'
 import { RuntimeMobileNotificationController } from '../runtime/runtime-mobile-notification-controller'
 import { PushUnregisterOutbox } from '../runtime/push/push-unregister-outbox'
@@ -15,6 +16,7 @@ const state = vi.hoisted(() => ({
   controller: null as RuntimeMobileNotificationController | null,
   registry: null as DeviceRegistry | null,
   rpcStarted: false,
+  prepareMaterialAdmissionStorage: vi.fn<OrcaRuntimeService['prepareMaterialAdmissionStorage']>(),
   profileStartupErrors: new Array<Error>(),
   onSettingsChanged: vi.fn<ProfilePreferences['onSettingsChanged']>(),
   removeSettingsListener: vi.fn(),
@@ -96,6 +98,7 @@ vi.mock('../server/serve-readiness', () => ({
 }))
 vi.mock('../runtime/orca-runtime', () => ({
   OrcaRuntimeService: class {
+    prepareMaterialAdmissionStorage = state.prepareMaterialAdmissionStorage
     getRuntimeId() {
       return 'headless-runtime'
     }
@@ -119,6 +122,7 @@ vi.mock('../runtime/orca-runtime', () => ({
 vi.mock('../runtime/runtime-rpc', () => ({
   OrcaRuntimeRpcServer: class {
     async start() {
+      expect(state.prepareMaterialAdmissionStorage).toHaveBeenCalledOnce()
       state.rpcStarted = true
     }
     async stop() {
@@ -181,6 +185,7 @@ it('starts push after RPC identity is available and stops dispatch on shutdown',
   const { startOrcad } = await import('./orcad-entry')
   const host = await startOrcad({ noPairing: true, json: true })
   try {
+    expect(state.prepareMaterialAdmissionStorage).toHaveBeenCalledOnce()
     const result = await state.controller.registerPushDevice({
       deviceId: phone.deviceId,
       platform: 'android',
@@ -236,6 +241,7 @@ it('serves RPC without waiting for browser discovery', async () => {
   )
   const { startOrcad } = await import('./orcad-entry')
   const host = await startOrcad({ noPairing: true, json: true })
+  expect(state.prepareMaterialAdmissionStorage).toHaveBeenCalledOnce()
   expect(host.managedStop).toMatchObject({
     runtimeId: 'headless-runtime',
     instance: { pid: process.pid, nonce: 'headless-instance' }
