@@ -1,12 +1,19 @@
+import type { MaterialPtyCensus, PtySpawnOptions } from '../providers/pty-provider-contract'
+import { sameEndpointIdentity } from './daemon-endpoint-incarnation'
+import { probeDaemonProcessIdentity } from './daemon-incarnation-evidence'
+import { isPtyIncarnationId } from '../../shared/pty-incarnation'
 import { emitPtyListeners, createPtyExitPayload } from './daemon-pty-listener-emission'
-import { basename } from 'node:path'
+import { basename, isAbsolute } from 'node:path'
 import { existsSync } from 'node:fs'
 import {
   isAgentSessionOwnerBinding,
   type AgentSessionOwnerBinding
 } from '../../shared/agent-session-host-authority'
 import { MAX_CLAIMED_AGENT_PTY_OWNER_ENTRIES } from '../../shared/claimed-agent-pty-owner'
-import { cloneAgentSessionOwnerBinding } from '../../shared/claimed-agent-pty-owner-snapshot'
+import {
+  cloneAgentSessionOwnerBinding,
+  agentSessionClaimKey
+} from '../../shared/claimed-agent-pty-owner-snapshot'
 import { recordAuthenticatedInventory } from './daemon-audit-classifier'
 import { isMissingWindowsNamedPipeError } from './daemon-endpoint-errors'
 import { DaemonPtyProcessInspection } from './daemon-pty-process-inspection'
@@ -17,6 +24,138 @@ import { PtyProcessListAdmission } from '../providers/pty-process-list-admission
 import type { PtyProcessInfo } from '../providers/types'
 
 export abstract class DaemonPtySessionInventory extends DaemonPtyProcessInspection {
+  private materialSpawnEpoch = 0
+  private materialSpawns = 0
+  override async spawn(opts: PtySpawnOptions) {
+    this.materialSpawnEpoch++
+    this.materialSpawns++
+    try {
+      return await super.spawn(opts)
+    } finally {
+      this.materialSpawns--
+    }
+  }
+
+  async observeMaterialCensus({ deadlineMs }: { deadlineMs: number }): Promise<MaterialPtyCensus> {
+    const unknown = (): MaterialPtyCensus => ({
+      state: 'unverifiable',
+      reason: 'daemon_census_unproven'
+    })
+    const epoch = this.materialSpawnEpoch
+    const client = this.client
+    const idle = () =>
+      epoch === this.materialSpawnEpoch &&
+      this.materialSpawns === 0 &&
+      this.pendingSpawnOperationsBySessionId.size === 0 &&
+      this.pendingClaimSpawnOperations.size === 0 &&
+      !this.respawnPromise &&
+      !this.staleBundleReplacementPromise &&
+      !this.writeRecoveryPromise &&
+      client === this.client
+    if (!idle() || Date.now() >= deadlineMs) {
+      return unknown()
+    }
+    try {
+      if (!client.isConnected()) {
+        const exact = this.exactDaemonIncarnation
+        if (!exact) {
+          return unknown()
+        }
+        const proof = await probeDaemonProcessIdentity(exact, {
+          socketPath: this.socketPath,
+          tokenPath: this.tokenPath
+        })
+        const stillCurrent = () =>
+          idle() && !client.isConnected() && exact === this.exactDaemonIncarnation
+        return proof.state === 'gone' && stillCurrent() && Date.now() < deadlineMs
+          ? { state: 'complete', processes: [], stillCurrent }
+          : unknown()
+      }
+      const identity = client.getDaemonIdentity()
+      if (
+        !identity ||
+        !this.lastAuthenticatedIdentity ||
+        !sameEndpointIdentity(identity, this.lastAuthenticatedIdentity)
+      ) {
+        return unknown()
+      }
+      const stillCurrent = () => {
+        const current = client.getDaemonIdentity()
+        return (
+          idle() && client.isConnected() && !!current && sameEndpointIdentity(identity, current)
+        )
+      }
+      const result = await client.request<ListSessionsResult>(
+        'listSessions',
+        undefined,
+        Math.min(5000, Math.max(1, deadlineMs - Date.now()))
+      )
+      if (
+        !stillCurrent() ||
+        !Array.isArray(result.sessions) ||
+        result.sessions.length > 20_000 ||
+        Buffer.byteLength(JSON.stringify(result)) > 8 * 1024 * 1024
+      ) {
+        return unknown()
+      }
+      const admission = new PtyProcessListAdmission()
+      const processes: PtyProcessInfo[] = []
+      const ids = new Set<string>()
+      const claims = new Set<string>()
+      for (const session of result.sessions) {
+        if (
+          !session ||
+          typeof session.sessionId !== 'string' ||
+          ids.has(session.sessionId) ||
+          session.isAlive !== true ||
+          !['created', 'spawning', 'running', 'exiting'].includes(session.state) ||
+          !Number.isSafeInteger(session.pid) ||
+          !session.pid ||
+          session.pid < 1 ||
+          session.wslDistro !== null ||
+          !isPtyIncarnationId(session.incarnationId) ||
+          typeof session.cwd !== 'string' ||
+          !isAbsolute(session.cwd) ||
+          !Array.isArray(session.agentSessionOwners) ||
+          session.agentSessionOwners.length > MAX_CLAIMED_AGENT_PTY_OWNER_ENTRIES ||
+          !session.agentSessionOwners.every(
+            (owner) =>
+              isAgentSessionOwnerBinding(owner) &&
+              owner.phase === 'live' &&
+              owner.ptyId === session.sessionId
+          )
+        ) {
+          return unknown()
+        }
+        ids.add(session.sessionId)
+        for (const owner of session.agentSessionOwners) {
+          const key = agentSessionClaimKey(owner.claim)
+          if (claims.has(key)) {
+            return unknown()
+          }
+          claims.add(key)
+        }
+        const { worktreeId } = parsePtySessionId(session.sessionId)
+        processes.push(
+          admission.admit({
+            id: session.sessionId,
+            incarnationId: session.incarnationId,
+            cwd: session.cwd,
+            rootProcessId: session.pid,
+            title: 'shell',
+            ...(worktreeId ? { worktreeId } : {}),
+            ...(session.terminalHandle ? { terminalHandle: session.terminalHandle } : {}),
+            agentSessionOwners: session.agentSessionOwners.map(cloneAgentSessionOwnerBinding),
+            ...(session.wslDistro !== undefined ? { wslDistro: session.wslDistro } : {})
+          })
+        )
+      }
+      return { state: 'complete', processes, stillCurrent }
+    } catch {
+      return unknown()
+    }
+  }
+
   async listProcesses(opts?: { deadlineMs?: number }): Promise<PtyProcessInfo[]> {
     // Why: snapshotted before the request so ids spawned mid-flight can never
     // be reconciled away below.

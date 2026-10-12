@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { describe, expect, it, vi } from 'vitest'
 import { onMock } from './pty-ipc-mock-registry'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
@@ -111,7 +112,7 @@ describe('registerPtyHandlers', () => {
       // The daemon keeps the PTY at its wide spawn size; the narrow resize is silently dropped (fire-and-forget).
       setupProviderWithAppliedSize({ applied: { cols: 200, rows: 50 } })
       handlers.clear()
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const spawn = await handlers.get('pty:spawn')!(null, { cols: 200, rows: 50, env: {} })
       const id = (spawn as { id: string }).id
 
@@ -139,7 +140,7 @@ describe('registerPtyHandlers', () => {
         getForegroundProcess: vi.fn(async () => null)
       } as never)
       handlers.clear()
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const spawn = await handlers.get('pty:spawn')!(null, { cols: 200, rows: 50, env: {} })
       const id = (spawn as { id: string }).id
       resizeListener()(mainWindowIpcEvent, { id, cols: 80, rows: 24 })
@@ -150,7 +151,7 @@ describe('registerPtyHandlers', () => {
     it('preserves provider-owned null so the renderer re-forwards an unverified size', async () => {
       setupProviderWithAppliedSize({ applied: null, getAppliedSize: async () => null })
       handlers.clear()
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const spawn = await handlers.get('pty:spawn')!(null, { cols: 100, rows: 30, env: {} })
       const id = (spawn as { id: string }).id
       resizeListener()(mainWindowIpcEvent, { id, cols: 80, rows: 24 })
@@ -167,7 +168,7 @@ describe('registerPtyHandlers', () => {
         }
       })
       handlers.clear()
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const spawn = await handlers.get('pty:spawn')!(null, { cols: 100, rows: 30, env: {} })
       const id = (spawn as { id: string }).id
 
@@ -177,7 +178,7 @@ describe('registerPtyHandlers', () => {
     it('preserves cached geometry after a transient renderer attach failure', async () => {
       setupProviderWithTransientAttachFailure()
       handlers.clear()
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const request = { sessionId: 'daemon-existing-size', env: {} }
       await handlers.get('pty:spawn')!(null, { ...request, cols: 200, rows: 50 })
 
@@ -219,7 +220,7 @@ describe('registerPtyHandlers', () => {
     it('clears cached geometry when the provider proves the PTY exited before reply', async () => {
       setupProviderWithTransientAttachFailure(true)
       handlers.clear()
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const request = { sessionId: 'daemon-exited-before-reply', env: {} }
       await handlers.get('pty:spawn')!(null, { ...request, cols: 200, rows: 50 })
 
@@ -235,6 +236,7 @@ describe('registerPtyHandlers', () => {
       const resize = vi.fn()
       setupProviderWithAppliedSize({ applied: { cols: 120, rows: 30 }, resize })
       const runtime = {
+        materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
         setPtyController: vi.fn(),
         createPreAllocatedTerminalHandle: vi.fn(() => null),
         registerPty: vi.fn(),
@@ -266,6 +268,7 @@ describe('registerPtyHandlers', () => {
         }
       })
       const runtime = {
+        materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
         setPtyController: vi.fn(),
         createPreAllocatedTerminalHandle: vi.fn(() => null),
         registerPty: vi.fn(),
@@ -289,6 +292,7 @@ describe('registerPtyHandlers', () => {
       const resizeSpy = vi.fn()
       setupProviderWithAppliedSize({ applied: { cols: 80, rows: 24 }, resize: resizeSpy })
       const runtime = {
+        materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
         setPtyController: vi.fn(),
         createPreAllocatedTerminalHandle: vi.fn(() => null),
         registerPty: vi.fn(),
@@ -337,6 +341,7 @@ describe('registerPtyHandlers', () => {
     it('does not forward host input when viewport reclaim fails', async () => {
       const write = setupProviderWithAppliedSize({ applied: { cols: 80, rows: 24 } })
       const runtime = {
+        materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
         setPtyController: vi.fn(),
         createPreAllocatedTerminalHandle: vi.fn(() => null),
         registerPty: vi.fn(),
@@ -363,6 +368,7 @@ describe('registerPtyHandlers', () => {
       const resizeSpy = vi.fn()
       setupProviderWithAppliedSize({ applied: { cols: 80, rows: 24 }, resize: resizeSpy })
       const runtime = {
+        materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
         setPtyController: vi.fn(),
         createPreAllocatedTerminalHandle: vi.fn(() => null),
         registerPty: vi.fn(),

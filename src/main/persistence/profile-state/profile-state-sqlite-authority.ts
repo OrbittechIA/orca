@@ -1,3 +1,6 @@
+import type { MaterialHistoryAssertion } from '../../../shared/worktree/material-types'
+import { assertMaterialHistoryOnConnection as assertHistory } from '../loading-store/profile-state-authority'
+import { readProfileStateDomainsWithRevisionFromDatabase as readDomains } from './profile-state-domain-reader'
 import { existsSync } from 'node:fs'
 import type {
   ProfileStateAuthority,
@@ -163,6 +166,10 @@ export class ProfileStateSqliteAuthority implements ProfileStateAuthority {
       replacements,
       automationRunsAfter
     }).revision
+  }
+
+  assertMaterialHistory(expected: MaterialHistoryAssertion): void {
+    assertHistory(this.writableDatabase?.db, this.revision, expected, readDomains)
   }
 
   assertCurrentRevision(): void {

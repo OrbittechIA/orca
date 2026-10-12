@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { describe, expect, it, vi } from 'vitest'
 import { spawnMock, openCodeClearPtyMock, piClearPtyMock } from './pty-ipc-mock-registry'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
@@ -455,6 +456,7 @@ describe('registerPtyHandlers', () => {
   })
   it('ignores renderer-provided ORCA_TERMINAL_HANDLE for local PTY spawns', async () => {
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       noteTerminalSpawnCommand: vi.fn(),
       preAllocateHandleForPty: vi.fn(() => 'term_trusted'),
@@ -483,6 +485,7 @@ describe('registerPtyHandlers', () => {
       value: 'win32'
     })
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       noteTerminalSpawnCommand: vi.fn(),
       preAllocateHandleForPty: vi.fn(() => 'term_wsl'),
@@ -536,6 +539,7 @@ describe('registerPtyHandlers', () => {
       value: 'win32'
     })
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       preAllocateHandleForPty: vi.fn(() => 'term_wsl'),
       onPtySpawned: vi.fn(),

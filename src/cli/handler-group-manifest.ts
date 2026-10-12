@@ -74,6 +74,9 @@ export const HANDLER_GROUPS: readonly HandlerGroup[] = [
   {
     name: 'worktree',
     keys: [
+      'worktree material-plan',
+      'worktree material-restore',
+      'worktree material-show',
       'worktree ps',
       'worktree list',
       'worktree show',

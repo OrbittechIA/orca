@@ -55,7 +55,11 @@ async function settle(): Promise<void> {
 function harness() {
   const current = { value: A }
   const launchPreparation = deferred<string>()
-  const prepareCodexStructuredLaunch = vi.fn(() => launchPreparation.promise)
+  const launchPreparationEntered = deferred<void>()
+  const prepareCodexStructuredLaunch = vi.fn(() => {
+    launchPreparationEntered.resolve()
+    return launchPreparation.promise
+  })
   const runtime = new OrcaRuntimeService(
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the create path reads getRepo/getSettings off the store; the fixture pins those.
     {
@@ -115,6 +119,7 @@ function harness() {
     runtime,
     current,
     launchPreparation,
+    launchPreparationEntered: launchPreparationEntered.promise,
     prepareCodexStructuredLaunch,
     attach,
     prepare,
@@ -149,7 +154,7 @@ describe('structured create holds the workspace lifecycle from resolution throug
     // full target is re-resolved under the hold immediately before attach.
     const h = harness()
     const preparing = h.prepare()
-    await settle()
+    await h.launchPreparationEntered
     expect(h.prepareCodexStructuredLaunch).toHaveBeenCalledTimes(1)
     h.current.value = B
     h.launchPreparation.resolve('/home/codex')

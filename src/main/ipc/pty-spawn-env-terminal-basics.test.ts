@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { withFreshOmpLaunch } from '../../shared/omp-fresh-launch'
 import { describe, expect, it, vi } from 'vitest'
 import { piBuildPtyEnvMock, spawnMock } from './pty-ipc-mock-registry'
@@ -340,7 +341,13 @@ describe('registerPtyHandlers', () => {
         stripAuthEnv: false,
         provenance: 'managed:account-1'
       }))
-      registerPtyHandlers(mainWindow as never, undefined, undefined, undefined, prepareClaudeAuth)
+      registerPtyHandlers(
+        mainWindow,
+        createPtyIpcAdmissionRuntime(),
+        undefined,
+        undefined,
+        prepareClaudeAuth
+      )
 
       const spawnResult = (await handlers.get('pty:spawn')!(null, {
         cols: 80,
@@ -382,7 +389,7 @@ describe('registerPtyHandlers', () => {
       const paneKey = makePaneKey(tabId, leafId)
       handlers.clear()
       // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the suite's mock BrowserWindow, widened the same way every other registerPtyHandlers call in this file does; the handler only touches webContents.send.
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow as never, createPtyIpcAdmissionRuntime())
       await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -500,7 +507,7 @@ describe('registerPtyHandlers', () => {
       }))
       registerPtyHandlers(
         mainWindow as never,
-        undefined,
+        createPtyIpcAdmissionRuntime(),
         selectedHome,
         undefined,
         undefined,
@@ -537,7 +544,7 @@ describe('registerPtyHandlers', () => {
       })
       registerPtyHandlers(
         mainWindow as never,
-        undefined,
+        createPtyIpcAdmissionRuntime(),
         selectedHome,
         undefined,
         undefined,
@@ -573,7 +580,7 @@ describe('registerPtyHandlers', () => {
       const systemHome = '/Users/example/.codex'
       registerPtyHandlers(
         mainWindow as never,
-        undefined,
+        createPtyIpcAdmissionRuntime(),
         selectedHome,
         undefined,
         undefined,
@@ -610,7 +617,7 @@ describe('registerPtyHandlers', () => {
       const selectedHome = vi.fn(() => '/managed/current/home')
       registerPtyHandlers(
         mainWindow as never,
-        undefined,
+        createPtyIpcAdmissionRuntime(),
         selectedHome,
         undefined,
         undefined,

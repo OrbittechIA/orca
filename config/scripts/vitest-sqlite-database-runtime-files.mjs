@@ -1,5 +1,9 @@
 // Database opening and lifecycle fixtures exercise Node SQLite behavior.
 export const SQLITE_DATABASE_RUNTIME_INCLUDE = [
+  'src/main/startup/main-process-material-admission-startup.test.ts',
+  'src/main/orcad/orcad-material-admission-startup.test.ts',
+  'src/main/persistence/loading-store/material-history-durability.test.ts',
+  'src/main/runtime/runtime-worktree-material-admission.test.ts',
   'src/main/ai-vault-search/session-search-file-write.test.ts',
   'src/main/ai-vault-search/session-search-live-transcript.test.ts',
   'src/main/ai-vault/session-scanner-devin-contention.test.ts',
@@ -157,6 +161,7 @@ export const SQLITE_DATABASE_RUNTIME_INCLUDE = [
   'src/main/runtime/rpc/methods/orchestration/worker/workers-new-worktree.test.ts',
   'src/main/runtime/rpc/methods/orchestration/worker/workers-recovery.test.ts',
   'src/main/runtime/rpc/methods/structured-worker-stop-receipt.test.ts',
+  'src/main/runtime/rpc/methods/worktree-material.test.ts',
   'src/main/runtime/rpc/orchestration-11745-regression-verification.test.ts',
   'src/main/runtime/rpc/orchestration-commit-notify-characterization.test.ts',
   'src/main/runtime/rpc/orchestration-contract-fence.test.ts',

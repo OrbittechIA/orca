@@ -1,3 +1,4 @@
+import type { MaterialPtyCensus } from '../../../providers/pty-provider-contract'
 import { ptyOwnership } from '../provider/ownership-state'
 import { getProvider, localProvider, registeredPtyProviders } from '../provider/registry'
 import {
@@ -68,4 +69,27 @@ export async function listProcessesFromRuntimeController(
     }
   }
   return (await listProcessesWithHostScopeFromRuntimeController(deps, opts)).processes
+}
+
+export async function observeMaterialCensusFromRuntimeController(options: {
+  deadlineMs: number
+}): Promise<MaterialPtyCensus> {
+  const providers = registeredPtyProviders().filter((entry) => entry.connectionId === null)
+  const provider = providers.length === 1 ? providers[0].provider : null
+  const unknown: MaterialPtyCensus = {
+    state: 'unverifiable',
+    reason: 'local_provider_census_unproven'
+  }
+  if (!provider?.observeMaterialCensus) {
+    return unknown
+  }
+  const observed = await provider.observeMaterialCensus(options)
+  if (observed.state !== 'complete') {
+    return observed
+  }
+  const stillCurrent = () => {
+    const current = registeredPtyProviders().filter((entry) => entry.connectionId === null)
+    return current.length === 1 && current[0].provider === provider && observed.stillCurrent()
+  }
+  return stillCurrent() ? { ...observed, stillCurrent } : unknown
 }

@@ -1,0 +1,88 @@
+---
+title: Historical worktree material
+description: Plan exact historical Git material and inspect durable material receipts.
+---
+
+The material boundary restores a missing local checkout only when its historical Git administration,
+metadata and process census can all be proved. It does not adopt a writer, start an agent, settle a
+mission or transfer custody. A merged review does not erase historical effects. An older runtime may
+report an unknown method; never substitute ordinary create or another request to bypass that refusal.
+
+```sh
+orca worktree material-plan --manifest manifest.json --json
+orca worktree material-restore --manifest manifest.json --request-id <uuid> --json
+orca worktree material-show --request-id <uuid> --json
+```
+
+PLAN and SHOW are observational. They do not open a cold record store, connect or respawn a daemon,
+reconcile leases or mutate metadata. An unavailable, opaque, ambiguous or oversized census remains
+unverifiable. A ready PLAN still requires a new check under the restore admission window.
+
+The strict manifest contains `schemaVersion: 1`, `repo: "id:<id>"`, credential-free `canonicalSource`
+(remote host/path), `executionHostId`, `worktreeId`, absolute `path`, `branch`, full 40-character `head`
+and `tree`, nullable positive `linkedIssue` and `linkedReview`, nullable UUID `historicalInstanceId`,
+bounded `runId`, `capsuleSHA256` and `expectedMetadataDigest`. RESTORE additionally requires
+`expectedCatalogDigest` and `expectedPlanDigest` from the exact PLAN. Digests use canonical JSON and
+lowercase SHA-256. Run and capsule remain evidence, never lifecycle authority.
+
+The manifest reader admits one unchanged regular UTF-8 JSON file, at most 16 KiB, with no duplicate
+keys. It rejects symlinks and special files before opening, uses nonblocking/no-follow flags and
+checks inode, size and timestamps after reading. An invalid request UUID fails before file access.
+
+The metadata census accounts for legacy rows, every canonical row, host-qualified aliases and valid
+retained history. It never picks an alias winner. Unknown ownership, orphan identities without a
+proved locator, contradictory representations, more than 20,000 entries or more than 8 MiB deny the
+plan. Neighbor UI edits do not change ownership CAS; relocation or identity changes do.
+
+Local PTY observation covers current and preserved legacy adapters. It reads authenticated inventory
+without connection, retry, respawn, cache reconciliation or audit publication. A cold adapter supplies
+absence only through exact-incarnation death evidence. In-flight spawn, incomplete ownership, WSL or
+unknown process namespace, duplicate owners and an opaque structured record store prevent proof.
+Structured process evidence is checked for all local owners; expiry alone is never death evidence.
+`coverage.processes: complete` means this managed PTY and structured-record scope only. It does not
+prove absence of arbitrary or orphan processes under the UID; consumers must supply their own proof.
+
+RESTORE commits caller, request ID, method, payload hash and the entire target/CAS tuple atomically
+in the existing durable mutation ledger before filesystem effects. The initial claim and a proved effect-free release use FULL
+synchronous durability. Pending claims conflict across callers and UUIDs, by physical path overlap or
+repo/ref. Ordinary create, terminal, structured session and desktop entrypoints check these claims,
+including after ordinary reopening of the ledger. Admission observes an already open connection;
+absence of the database file is proved without opening SQLite. An existing cold database refuses with
+`cold_claim_reader_unavailable` until the normal database owner opens it. No observation starts relay,
+repoints or migrations. Admission is held through effects. Distinct proven paths stay eligible even
+when an unrelated metadata census is opaque; unresolved aliases and unreadable claims fail closed. A related ordinary operation or unresolved target already
+in progress makes a new restore fail before a claim is written; no exclusive waiter can deadlock a
+renderer IPC continuation.
+
+The Git route uses the exact historical admin/index and `checkout-index --all`, without force,
+reset, prune, branch creation, hooks or ordinary-create setup. The target directory and `.git` link
+are created exclusively. Admin, index and branch evidence are checked again. Unsupported transforms,
+unsafe paths, symlink/gitlink entries, partial clone, fsmonitor, filter configuration and attribute files
+are refused. Global attributes and autocrlf are disabled for the admitted plain-blob checkout.
+A historical instance without a proved UUID remains unsupported before any material effect.
+
+The complete bounded metadata snapshot and original representations are persisted under the old
+canonical identity. The existing profile writer then asserts the three history domains and the same
+revision in one bounded read transaction, returning an ACK only. Unsupported readback, revision drift,
+inconsistent ACK or metadata drift prevents publication. Only after that ACK is a new material instance
+published. The old canonical history survives alias rotation and pruning; public worktree projection
+does not expose it. Source/automation execution provenance does not transfer to the new instance.
+
+A completed RESTORE returns a strict historical receipt containing the manifest, request ID, old/new
+material instances, admin/index/history digests, complete coverage and `writerConfirmed: false`.
+SHOW returns this receipt only to its recorded caller, without opening cold SQLite or minting a caller.
+It never certifies current material or custody. Pending, malformed or uncertain outcomes have
+`retryAllowed: false`; use SHOW and PLAN only. Exceptions after possible effects, including failure to
+persist the final receipt, are UNKNOWN and retain the original claim. A handler that finishes with
+a proved pre-effect failure releases only its own exact pending claim durably and returns a known
+refusal. A transport timeout alone is not that proof. A competing target reservation refuses before
+creating a new claim; it does not classify the new request as UNKNOWN. Never repeat RESTORE under a new
+UUID to escape a pending outcome. Original provider/dispatch evidence remains a separate settlement gate.
+
+The admin binding hashes local configuration and, when `extensions.worktreeConfig` is enabled,
+the historical admin's bounded `config.worktree` bytes. With that extension disabled the worktree
+slot repeats the local listing; with it enabled and the file proved absent the slot is empty.
+Effective global/system configuration is checked separately for unsafe features. A different safe
+HOME configuration therefore does not change the receipt's physical binding. Index bytes remain
+unchanged within the APP mutation; later consumers must independently prove tree entries and flags
+when observing a stat-only index refresh, without using that as permission to repeat RESTORE.

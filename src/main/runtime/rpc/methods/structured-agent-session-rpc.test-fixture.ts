@@ -17,12 +17,12 @@ export {
   STATUS_SESSION,
   statusFeedInstance
 } from './structured-agent-session-rpc-status.test-fixture'
-import type { OrcaRuntimeService } from '../../orca-runtime'
+import { OrcaRuntimeService } from '../../orca-runtime'
 import {
   AGENT_SESSION_PENDING_SEND_RESULT_RUNTIME_CAPABILITY,
   STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY
 } from '../../../../shared/protocol-version'
-import type { RpcAnyMethodDeclaration, RpcRequest, RpcResponse } from '../core'
+import type { RpcAnyMethodDeclaration, RpcResponse } from '../core'
 import { RpcDispatcher } from '../dispatcher'
 import { STRUCTURED_AGENT_SESSION_METHODS } from './structured-agent-session'
 import { recordingStructuredAgentSessionLogger } from '../../../native-chat/agent-session-wire/structured-agent-session-logger-test-support'
@@ -65,10 +65,6 @@ export function attachParams(overrides: Record<string, unknown> = {}) {
     providerHandle: { kind: 'codex', threadId: 'thread-1' },
     ...overrides
   }
-}
-
-function request(method: string, params: unknown): RpcRequest {
-  return { id: 'request-1', authToken: 'token', method, params }
 }
 
 export const hostCalls: Record<string, ReturnType<typeof vi.fn>> = {}
@@ -222,7 +218,11 @@ export function dispatcher(
       creatorDeviceId: null
     }))
   })
+  const admissionRuntime = new OrcaRuntimeService()
+  // This fake provider owns no orchestration ledger; the session journal remains real.
+  admissionRuntime.materialAdmissionAuthority.readPendingClaims = () => []
   const runtime = {
+    materialAdmissionAuthority: admissionRuntime.materialAdmissionAuthority,
     getRuntimeId: () => 'runtime-1',
     getClientSettings: () => ({ experimentalNativeChat: true }),
     registerSubscriptionCleanup: vi.fn(),
@@ -263,7 +263,7 @@ export async function callStreamingWithReplies(
 ): Promise<{ first: RpcResponse; replies: RpcResponse[] }> {
   const replies: RpcResponse[] = []
   await dispatcher(runtimeOverrides, methods).dispatchStreaming(
-    request(method, params),
+    { id: 'request-1', authToken: 'token', method, params },
     (raw) => replies.push(JSON.parse(raw) as RpcResponse),
     client
   )
@@ -302,7 +302,7 @@ export async function openStream(
 ): Promise<RpcResponse[]> {
   const replies: RpcResponse[] = []
   await dispatcher().dispatchStreaming(
-    request(method, params),
+    { id: 'request-1', authToken: 'token', method, params },
     (raw) => replies.push(JSON.parse(raw) as RpcResponse),
     client
   )

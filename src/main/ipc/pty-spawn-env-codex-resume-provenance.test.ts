@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { spawnMock } from './pty-ipc-mock-registry'
 import { posixOnlyIt, TEST_MANAGED_ROOT } from './pty-ipc-test-constants'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { prepareCodexSessionResume } from '../codex/codex-session-resume-preparation'
 import { POSIX_SHELL_STARTUP_COMMAND_ENV } from '../pty/posix-shell-startup-command'
 import { registerPtyHandlers, setLocalPtyProvider, type PrepareCodexSessionResume } from './pty'
@@ -92,7 +93,7 @@ describe('registerPtyHandlers', () => {
         const selectedHomeMock = vi.fn(() => selectedHome)
         registerPtyHandlers(
           mainWindow as never,
-          undefined,
+          createPtyIpcAdmissionRuntime(),
           selectedHomeMock,
           undefined,
           undefined,
@@ -357,6 +358,7 @@ describe('registerPtyHandlers', () => {
         // has to hold there too even though it has no channel for the notice.
         const daemonSpawn = setupResumeDaemonProvider()
         const runtime = {
+          materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
           setPtyController: vi.fn(),
           registerPty: vi.fn(),
           noteTerminalSpawnCommand: vi.fn(),

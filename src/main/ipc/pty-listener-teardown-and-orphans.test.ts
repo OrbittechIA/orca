@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { describe, expect, it, vi } from 'vitest'
 import {
   existsSyncMock,
@@ -72,7 +73,7 @@ describe('registerPtyHandlers', () => {
     try {
       process.env.SHELL = '/bin/bash'
 
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -126,7 +127,7 @@ describe('registerPtyHandlers', () => {
     }
     spawnMock.mockReturnValue(proc)
 
-    registerPtyHandlers(mainWindow as never)
+    registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
     const spawnResult = (await handlers.get('pty:spawn')!(null, {
       cols: 80,
       rows: 24
@@ -157,7 +158,7 @@ describe('registerPtyHandlers', () => {
     }
     spawnMock.mockReturnValue(proc)
 
-    registerPtyHandlers(mainWindow as never)
+    registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
     const spawnResult = (await handlers.get('pty:spawn')!(null, {
       cols: 80,
       rows: 24
@@ -209,6 +210,7 @@ describe('registerPtyHandlers', () => {
       pid: 12345
     }
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       noteTerminalSpawnCommand: vi.fn(),
       onPtySpawned: vi.fn(),
@@ -254,6 +256,7 @@ describe('registerPtyHandlers', () => {
       pid: 12345
     }
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       noteTerminalSpawnCommand: vi.fn(),
       onPtySpawned: vi.fn(),
@@ -359,6 +362,7 @@ describe('registerPtyHandlers', () => {
       pid: 12345
     }
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       onPtySpawned: vi.fn(),
       onPtyData: vi.fn(),
@@ -421,6 +425,7 @@ describe('registerPtyHandlers', () => {
       pid: 12345
     }
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       onPtySpawned: vi.fn(),
       onPtyData: vi.fn(),
@@ -468,6 +473,7 @@ describe('registerPtyHandlers', () => {
     const killSpyA = vi.fn()
     const killSpyB = vi.fn()
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       onPtySpawned: vi.fn(),
       onPtyData: vi.fn(),
@@ -542,7 +548,7 @@ describe('registerPtyHandlers', () => {
     }
     spawnMock.mockReturnValue(proc)
 
-    registerPtyHandlers(mainWindow as never)
+    registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
     const spawnResult = (await handlers.get('pty:spawn')!(null, {
       cols: 80,
       rows: 24

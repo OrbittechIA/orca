@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { describe, expect, it, vi } from 'vitest'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
 import { PtyWriteUnavailableError } from '../providers/pty-write-unavailable-error'
@@ -81,7 +82,7 @@ describe('pty:writeUnavailable renderer-liveness guard', () => {
           throw new PtyWriteUnavailableError('daemon generation lost')
         })
       })
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const id = await spawnDaemonPty()
 
       getPtyWriteListener()(mainWindowIpcEvent, { id, data: 'x' })
@@ -106,7 +107,7 @@ describe('pty:writeUnavailable renderer-liveness guard', () => {
           throw new PtyWriteUnavailableError('daemon generation lost')
         })
       })
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const id = await spawnDaemonPty()
 
       getPtyWriteListener()(mainWindowIpcEvent, {

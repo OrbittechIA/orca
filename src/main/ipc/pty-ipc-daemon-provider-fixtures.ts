@@ -1,3 +1,5 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
+import type { PtyIpcTestMainWindow } from './pty-ipc-suite-environment'
 import { vi } from 'vitest'
 import type { TuiAgent } from '../../shared/tui-agent'
 import { registerPtyHandlers, setLocalPtyProvider } from './pty'
@@ -16,7 +18,7 @@ export type DaemonSpawnCall = {
 /** Daemon-backed provider doubles for the "daemon-active provider" spawn-env suites. */
 export function createDaemonActiveProviderFixtures(ctx: {
   handlers: IpcHandlerMap
-  mainWindow: unknown
+  mainWindow: PtyIpcTestMainWindow
 }) {
   const { handlers, mainWindow } = ctx
   function setupDaemonAdapter(
@@ -129,8 +131,8 @@ export function createDaemonActiveProviderFixtures(ctx: {
     try {
       handlers.clear()
       registerPtyHandlers(
-        mainWindow as never,
-        undefined,
+        mainWindow,
+        createPtyIpcAdmissionRuntime(),
         getSelectedCodexHomePath,
         getSettings as never
       )

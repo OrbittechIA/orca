@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { PtyBindingPersistenceOperations } from '../persistence/loading-store/pty-binding-persistence'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { setupPtyIpcSuite, type PtyIpcSuiteFixtures } from './pty-ipc-test-harness'
@@ -223,6 +224,7 @@ function installRestartHarness(
     retirePtyBinding: bindingOperations.retirePtyBinding.bind(bindingOperations)
   })
   const runtime = {
+    materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
     setPtyController: vi.fn(),
     resolveTerminalPane: vi.fn(() => {
       throw new Error('terminal_not_found')

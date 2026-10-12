@@ -10,6 +10,7 @@ import type { TuiAgent } from '../../shared/tui-agent'
 import { LEGACY_TERMINAL_SHIM_REMOTE_ENV_KEYS } from '../pty/legacy-terminal-shim-dir'
 import { wslHookRelayManager } from '../agent-hooks/wsl-hook-relay-manager'
 import { registerPtyHandlers } from './pty'
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 
 vi.mock('electron', () => import('./pty-ipc-mock-registry').then((m) => m.electronModuleMock()))
 vi.mock('fs', () => import('./pty-ipc-mock-registry').then((m) => m.fsModuleMock()))
@@ -74,8 +75,8 @@ describe('registerPtyHandlers', () => {
         const systemHome = '/Users/example/.codex'
         handlers.clear()
         registerPtyHandlers(
-          mainWindow as never,
-          undefined,
+          mainWindow,
+          createPtyIpcAdmissionRuntime(),
           selectedHome,
           undefined,
           undefined,

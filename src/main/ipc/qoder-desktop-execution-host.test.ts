@@ -7,6 +7,7 @@ import {
   unregisterSshPtyProvider,
   getLocalPtyProvider
 } from './pty'
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { isCommandOnPath } from './preflight-command-exec'
 import { detectWslCommandsOnPath } from './preflight-wsl-agent-detection'
 import type * as FsPromises from 'node:fs/promises'
@@ -85,7 +86,14 @@ describe('desktop Qoder execution-host selection', () => {
   })
   async function spawn(args: Partial<PtySpawnIpcArgs> = {}, store?: Store) {
     const providerSpawn = setupDaemonAdapter()
-    registerPtyHandlers(mainWindow, undefined, undefined, undefined, undefined, store)
+    registerPtyHandlers(
+      mainWindow,
+      createPtyIpcAdmissionRuntime(),
+      undefined,
+      undefined,
+      undefined,
+      store
+    )
     const result = await handlers.get('pty:spawn')!(null, {
       cols: 80,
       rows: 24,
@@ -257,7 +265,7 @@ describe('desktop Qoder execution-host selection', () => {
       mux.mockReturnValue(
         host === 'missing' ? null : { isDisposed: () => host === 'disposed', request }
       )
-      registerPtyHandlers(mainWindow)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       try {
         const pending = handlers.get('pty:spawn')!(null, {
           cols: 80,

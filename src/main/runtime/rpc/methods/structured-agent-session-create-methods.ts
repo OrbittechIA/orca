@@ -1,3 +1,4 @@
+import { withMaterialAdmission } from '../../runtime-worktree-material-admission'
 import { agentSessionRefusalError } from '../../../../shared/agent-session-wire-refusals'
 // `agentSession.create` / `createSupport`, split out so the method table stays under the
 // file-size limit. Both carry the scoped Work Item Start admission: a create that declares
@@ -102,109 +103,123 @@ export const STRUCTURED_AGENT_SESSION_CREATE_METHODS = [
     name: 'agentSession.create',
     permission: 'workspace',
     params: CreateParams,
-    handler: async (params, ctx) => {
-      requireStructuredAgentAudience(ctx, params.agent)
-      const launchOrigin = 'worktree' in params ? params.launchOrigin : undefined
-      if (launchOrigin) {
-        await ensureHostInstalled(ctx, {
-          sessionId: params.envelope.sessionId,
-          launchOrigin
-        })
-      }
-      const reconcilesDurableSession = Boolean(
-        launchOrigin && canAccessWorkItemStartStructuredSession(ctx, params.envelope.sessionId)
-      )
-      const existingRecord = launchOrigin
-        ? getStructuredAgentSessionHost()?.deps?.store?.getRecord?.(params.envelope.sessionId)
-        : null
-      // Uma sessão já existente que este chamador não alcança nunca é recriada: recriar
-      // seria o segundo writer que este caminho existe para impedir.
-      if (existingRecord && !reconcilesDurableSession) {
-        throw agentSessionRefusalError('structured_agent_session_unsupported', {
-          reason: 'clientCapabilityMissing'
-        })
-      }
-      const scopedAdmission =
-        'worktree' in params &&
-        launchOrigin &&
-        !reconcilesDurableSession &&
-        supportsWorkItemStartStructuredSessionCreate(ctx, launchOrigin)
-          ? await resolveWorkItemStartStructuredCreateAuthority(ctx, params.worktree)
-          : null
-      const admitted = launchOrigin
-        ? scopedAdmission !== null || reconcilesDurableSession
-        : supportsStructuredSessions(ctx)
-      if (!admitted) {
-        throw agentSessionRefusalError('structured_agent_session_unsupported', {
-          reason: 'clientCapabilityMissing'
-        })
-      }
-      if (params.envelope.expectedRuntimeFence !== null) {
-        throw agentSessionRefusalError('agent_session_operation_invalid', {
-          reason: 'requestMalformed'
-        })
-      }
-      const persistedLaunchAuthority = reconcilesDurableSession
-        ? existingRecord?.launchAuthority
-        : undefined
-      // Everything up to `attach` is pre-commit, and answers with a refusal rather than a throw so
-      // a client can tell "nothing was created" from "the outcome is unknown".
-      const prepared = await resolveUncommittedStructuredCreate(async () => {
-        if ('worktree' in params) {
-          const intentFingerprint = structuredAgentSessionCreateIntentFingerprint(params)
-          const conflict = agentSessionFingerprintConflict(params.envelope, intentFingerprint)
-          if (conflict) {
-            return { refusal: conflict }
-          }
-          return prepareStructuredAgentSessionCreateForWorktree({
-            runtime: ctx.runtime,
-            ensureHost: async () => {
-              await ensureHostInstalled(ctx, {
-                sessionId: params.envelope.sessionId,
-                launchOrigin: params.launchOrigin
-              })
-              return requireStructuredCreateHost(
-                ctx,
-                params.launchOrigin,
-                params.envelope.sessionId
-              )
+    handler: async (params, ctx) =>
+      withMaterialAdmission(
+        ctx.runtime.materialAdmissionAuthority,
+        'worktree' in params
+          ? { selector: params.worktree }
+          : {
+              selector: params.location.workspaceId,
+              executionHostId: params.location.executionHostId
             },
-            envelope: params.envelope,
-            worktree: params.worktree,
-            agent: params.agent,
+        async () => {
+          requireStructuredAgentAudience(ctx, params.agent)
+          const launchOrigin = 'worktree' in params ? params.launchOrigin : undefined
+          if (launchOrigin) {
+            await ensureHostInstalled(ctx, {
+              sessionId: params.envelope.sessionId,
+              launchOrigin
+            })
+          }
+          const reconcilesDurableSession = Boolean(
+            launchOrigin && canAccessWorkItemStartStructuredSession(ctx, params.envelope.sessionId)
+          )
+          const existingRecord = launchOrigin
+            ? getStructuredAgentSessionHost()?.deps?.store?.getRecord?.(params.envelope.sessionId)
+            : null
+          // Uma sessão já existente que este chamador não alcança nunca é recriada: recriar
+          // seria o segundo writer que este caminho existe para impedir.
+          if (existingRecord && !reconcilesDurableSession) {
+            throw agentSessionRefusalError('structured_agent_session_unsupported', {
+              reason: 'clientCapabilityMissing'
+            })
+          }
+          const scopedAdmission =
+            'worktree' in params &&
+            launchOrigin &&
+            !reconcilesDurableSession &&
+            supportsWorkItemStartStructuredSessionCreate(ctx, launchOrigin)
+              ? await resolveWorkItemStartStructuredCreateAuthority(ctx, params.worktree)
+              : null
+          const admitted = launchOrigin
+            ? scopedAdmission !== null || reconcilesDurableSession
+            : supportsStructuredSessions(ctx)
+          if (!admitted) {
+            throw agentSessionRefusalError('structured_agent_session_unsupported', {
+              reason: 'clientCapabilityMissing'
+            })
+          }
+          if (params.envelope.expectedRuntimeFence !== null) {
+            throw agentSessionRefusalError('agent_session_operation_invalid', {
+              reason: 'requestMalformed'
+            })
+          }
+          const persistedLaunchAuthority = reconcilesDurableSession
+            ? existingRecord?.launchAuthority
+            : undefined
+          // Everything up to `attach` is pre-commit, and answers with a refusal rather than a throw so
+          // a client can tell "nothing was created" from "the outcome is unknown".
+          const prepared = await resolveUncommittedStructuredCreate(async () => {
+            if ('worktree' in params) {
+              const intentFingerprint = structuredAgentSessionCreateIntentFingerprint(params)
+              const conflict = agentSessionFingerprintConflict(params.envelope, intentFingerprint)
+              if (conflict) {
+                return { refusal: conflict }
+              }
+              return prepareStructuredAgentSessionCreateForWorktree({
+                runtime: ctx.runtime,
+                ensureHost: async () => {
+                  await ensureHostInstalled(ctx, {
+                    sessionId: params.envelope.sessionId,
+                    launchOrigin: params.launchOrigin
+                  })
+                  return requireStructuredCreateHost(
+                    ctx,
+                    params.launchOrigin,
+                    params.envelope.sessionId
+                  )
+                },
+                envelope: params.envelope,
+                worktree: params.worktree,
+                agent: params.agent,
+                caller: callerFor(ctx),
+                ...(params.resumeFrom ? { resumeFrom: params.resumeFrom } : {}),
+                ...(params.tabId ? { tabId: params.tabId } : {}),
+                ...(params.launchOrigin ? { launchOrigin: params.launchOrigin } : {}),
+                ...(scopedAdmission
+                  ? {
+                      launchAuthority: scopedAdmission.launchAuthority,
+                      expectedWorktreeTarget: scopedAdmission.worktreeTarget
+                    }
+                  : persistedLaunchAuthority
+                    ? { launchAuthority: persistedLaunchAuthority }
+                    : {})
+              })
+            }
+            const { host, attachParams, materialAdmission } = await resolveClientSuppliedAttach(
+              params,
+              ctx
+            )
+            // A client-supplied location names no workspace record to hold or re-check.
+            return {
+              host,
+              attachParams,
+              tab: null,
+              materialAdmission,
+              releaseWorktreeLifecycle: () => materialAdmission.release(),
+              expectedWorktreeTarget: null
+            }
+          })
+          if ('refusal' in prepared) {
+            return { ok: false, refusal: prepared.refusal }
+          }
+          return commitStructuredAgentSessionCreate({
+            runtime: ctx.runtime,
             caller: callerFor(ctx),
-            ...(params.resumeFrom ? { resumeFrom: params.resumeFrom } : {}),
-            ...(params.tabId ? { tabId: params.tabId } : {}),
-            ...(params.launchOrigin ? { launchOrigin: params.launchOrigin } : {}),
-            ...(scopedAdmission
-              ? {
-                  launchAuthority: scopedAdmission.launchAuthority,
-                  expectedWorktreeTarget: scopedAdmission.worktreeTarget
-                }
-              : persistedLaunchAuthority
-                ? { launchAuthority: persistedLaunchAuthority }
-                : {})
+            prepared,
+            activate: true
           })
         }
-        const { host, attachParams } = await resolveClientSuppliedAttach(params, ctx)
-        // A client-supplied location names no workspace record to hold or re-check.
-        return {
-          host,
-          attachParams,
-          tab: null,
-          releaseWorktreeLifecycle: () => {},
-          expectedWorktreeTarget: null
-        }
-      })
-      if ('refusal' in prepared) {
-        return { ok: false, refusal: prepared.refusal }
-      }
-      return commitStructuredAgentSessionCreate({
-        runtime: ctx.runtime,
-        caller: callerFor(ctx),
-        prepared,
-        activate: true
-      })
-    }
+      )
   })
 ]

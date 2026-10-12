@@ -2,11 +2,13 @@ import { describe, expect, it, vi } from 'vitest'
 import { join } from 'node:path'
 import {
   readFileSyncMock,
+  spawnMock,
   recordCodexPaneAccountMock,
   forgetCodexPaneAccountMock
 } from './pty-ipc-mock-registry'
 import { TEST_CODEX_HOME, TEST_CODEX_AUTH_JSON, TEST_MANAGED_ROOT } from './pty-ipc-test-constants'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { registerPtyHandlers, setLocalPtyProvider } from './pty'
 
 vi.mock('electron', () => import('./pty-ipc-mock-registry').then((m) => m.electronModuleMock()))
@@ -62,6 +64,19 @@ const SHARED_ROLLOUT = join(MANAGED_SHARED_HOME, 'sessions', '2026', '07', '20',
 describe('registerPtyHandlers', () => {
   const { handlers, mainWindow } = setupPtyIpcSuite()
 
+  it('refuses an unverifiable fixture ledger before spawning or attributing a Codex pane', async () => {
+    const runtime = createPtyIpcAdmissionRuntime()
+    runtime.materialAdmissionAuthority.readPendingClaims = () => null
+    registerPtyHandlers(mainWindow, runtime)
+
+    await expect(
+      handlers.get('pty:spawn')!(null, { cols: 80, rows: 24, launchAgent: 'codex' })
+    ).rejects.toThrow('E_MATERIAL_ADMISSION_UNVERIFIABLE')
+    expect(spawnMock).not.toHaveBeenCalled()
+    expect(recordCodexPaneAccountMock).not.toHaveBeenCalled()
+    expect(forgetCodexPaneAccountMock).not.toHaveBeenCalled()
+  })
+
   it('records a launch env CODEX_HOME pane under the shared home', async () => {
     const previousCodexHome = process.env.CODEX_HOME
     process.env.CODEX_HOME = '/process/custom-codex-home'
@@ -80,7 +95,7 @@ describe('registerPtyHandlers', () => {
       const getSettings = vi.fn().mockReturnValue({ activeCodexManagedAccountId: null })
       registerPtyHandlers(
         mainWindow as never,
-        undefined,
+        createPtyIpcAdmissionRuntime(),
         () => TEST_CODEX_HOME,
         getSettings as never
       )
@@ -127,7 +142,7 @@ describe('registerPtyHandlers', () => {
     const resolveHome = vi.fn(() => MANAGED_CURRENT_HOME)
     registerPtyHandlers(
       mainWindow as never,
-      undefined,
+      createPtyIpcAdmissionRuntime(),
       resolveHome,
       (() => ({
         codexManagedAccounts: [
@@ -188,7 +203,7 @@ describe('registerPtyHandlers', () => {
     })
     registerPtyHandlers(
       mainWindow as never,
-      undefined,
+      createPtyIpcAdmissionRuntime(),
       vi.fn(() => MANAGED_CURRENT_HOME),
       getSettings as never,
       undefined,
@@ -240,7 +255,7 @@ describe('registerPtyHandlers', () => {
     })
     registerPtyHandlers(
       mainWindow as never,
-      undefined,
+      createPtyIpcAdmissionRuntime(),
       vi.fn(() => MANAGED_CURRENT_HOME),
       getSettings as never,
       undefined,
@@ -289,6 +304,7 @@ describe('registerPtyHandlers', () => {
       getForegroundProcess: vi.fn(async () => null)
     } as never)
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       registerPty: vi.fn(),
       noteTerminalSpawnCommand: vi.fn(),
@@ -359,6 +375,7 @@ describe('registerPtyHandlers', () => {
       getForegroundProcess: vi.fn(async () => null)
     } as never)
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       registerPty: vi.fn(),
       noteTerminalSpawnCommand: vi.fn(),

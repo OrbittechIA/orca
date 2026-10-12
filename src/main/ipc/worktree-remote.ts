@@ -1,3 +1,7 @@
+import {
+  withMaterialAdmission,
+  type MaterialAdmissionHold
+} from '../runtime/runtime-worktree-material-admission'
 /* eslint-disable max-lines */
 // Why: worktree create helpers (local + remote) split out of worktrees.ts; the cohesive create flow runs this file just over the per-file line limit.
 
@@ -2201,13 +2205,34 @@ export function createLocalWorktree(
   // create that fails after that point — include copy, push target, terminal startup — must still
   // arm the replacement. Fires exactly once, after startup on the success path.
   const rearm: PreparationRearmHolder = { fire: () => {} }
-  return worktreeCreateGit
-    .run(() => performLocalWorktreeCreate(args, repo, store, mainWindow, rearm, timing, runtime))
-    .finally(() => {
-      // Closes the create's measured window first, so its own re-arm is not counted against it.
-      timing.finish()
-      rearm.fire()
-    })
+  return withMaterialAdmission(
+    runtime?.materialAdmissionAuthority,
+    {
+      creatingWorktree: true,
+      repoId: repo.id,
+      branch: args.branchNameOverride,
+      executionHostId: repo.executionHostId
+    },
+    (material) =>
+      worktreeCreateGit
+        .run(() =>
+          performLocalWorktreeCreate(
+            args,
+            repo,
+            store,
+            mainWindow,
+            rearm,
+            timing,
+            runtime,
+            material
+          )
+        )
+        .finally(() => {
+          // Closes the create's measured window first, so its own re-arm is not counted against it.
+          timing.finish()
+          rearm.fire()
+        })
+  )
 }
 
 async function performLocalWorktreeCreate(
@@ -2217,7 +2242,8 @@ async function performLocalWorktreeCreate(
   mainWindow: BrowserWindow,
   rearm: PreparationRearmHolder,
   timing: WorktreeCreateTimingRecorder,
-  runtime?: OrcaRuntimeService
+  runtime?: OrcaRuntimeService,
+  material?: MaterialAdmissionHold
 ): Promise<CreateWorktreeResult> {
   const settings = store.getSettings()
   const worktreePathSettings = getWorktreePathSettings(
@@ -2554,6 +2580,12 @@ async function performLocalWorktreeCreate(
     )
   }
 
+  material?.revalidate({
+    repoId: repo.id,
+    branch: branchName,
+    cwd: worktreePath,
+    executionHostId: repo.executionHostId
+  })
   assertAttachableParentWorkspace(
     store,
     args.parentWorkspace,
@@ -2612,6 +2644,12 @@ async function performLocalWorktreeCreate(
   try {
     addResult =
       (await timing.time('git_worktree_add', async () => {
+        material?.revalidate({
+          repoId: repo.id,
+          branch: branchName,
+          cwd: worktreePath,
+          executionHostId: repo.executionHostId
+        })
         if (sparseDirectories.length === 0 && !checkoutExistingBranch) {
           const prepared = await consumePreparedWorktreeCreate({
             repoPath: repo.path,

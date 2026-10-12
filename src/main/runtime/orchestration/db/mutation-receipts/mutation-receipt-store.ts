@@ -1,3 +1,4 @@
+import type { MaterialReceiptClaim } from '../../../../../shared/worktree/material-types'
 import { randomBytes } from 'node:crypto'
 import type { MutationReceiptRow } from '../../types'
 import { OrchestrationError } from '../../orchestration-error'
@@ -151,16 +152,11 @@ export function getOrCreateLocalMutationCallerFingerprint(this: OrchestrationDb)
 
 export function beginMutationReceipt(
   this: OrchestrationDb,
-  params: {
-    callerFingerprint: string
-    requestId: string
-    method: string
-    payloadHash: string
+  params: MaterialReceiptClaim
+): { disposition: 'started' | 'pending' | 'completed'; row: MutationReceiptRow } {
+  if (params.method === 'worktree.materialRestore') {
+    return this.beginMaterialMutationReceipt(params)
   }
-):
-  | { disposition: 'started'; row: MutationReceiptRow }
-  | { disposition: 'pending'; row: MutationReceiptRow }
-  | { disposition: 'completed'; row: MutationReceiptRow } {
   this.db.exec('BEGIN IMMEDIATE')
   try {
     const existing = this.getMutationReceipt(params.callerFingerprint, params.requestId)
@@ -189,6 +185,10 @@ export function beginMutationReceipt(
     this.db.exec('ROLLBACK')
     throw error
   }
+}
+
+export function readPendingMaterialClaims(this: OrchestrationDb) {
+  return this.materialPendingTargets()
 }
 
 export function completeMutationReceipt(
@@ -286,6 +286,7 @@ export function getMutationReceipt(
 }
 
 export type MutationReceiptStoreMethods = {
+  readPendingMaterialClaims: typeof readPendingMaterialClaims
   getLocalMutationCallerFingerprint: typeof getLocalMutationCallerFingerprint
   findMutationReceipts: typeof findMutationReceipts
   findMutationReceiptsByBaseHash: typeof findMutationReceiptsByBaseHash
@@ -299,6 +300,7 @@ export type MutationReceiptStoreMethods = {
 
 export function attachMutationReceiptStore(ctor: { prototype: object }): void {
   Object.assign(ctor.prototype, {
+    readPendingMaterialClaims,
     getLocalMutationCallerFingerprint,
     findMutationReceipts,
     findMutationReceiptsByBaseHash,

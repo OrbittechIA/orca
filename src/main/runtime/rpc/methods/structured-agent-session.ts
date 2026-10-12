@@ -1,3 +1,4 @@
+import { acquireMaterialAdmission } from '../../runtime-worktree-material-admission'
 import { STRUCTURED_AGENT_SESSION_CREATE_METHODS } from './structured-agent-session-create-methods'
 // `agentSession.*` — the structured session RPC surface.
 //
@@ -67,28 +68,43 @@ export async function resolveClientSuppliedAttach(
   params: z.infer<typeof AttachParams>,
   ctx: RpcContext
 ) {
-  await ensureHostInstalled(ctx, params.agent)
-  const host = requireHost(ctx, params.agent)
-  if (!host.supportsCreate(params.location, params.agent)) {
-    throw agentSessionRefusalError('structured_agent_session_unsupported', {
-      reason: 'hostUnsupported'
-    })
+  const materialAdmission = await acquireMaterialAdmission(ctx.runtime.materialAdmissionAuthority, {
+    selector: params.location.workspaceId,
+    executionHostId: params.location.executionHostId
+  })
+  try {
+    await ensureHostInstalled(ctx, params.agent)
+    const host = requireHost(ctx, params.agent)
+    if (!host.supportsCreate(params.location, params.agent)) {
+      throw agentSessionRefusalError('structured_agent_session_unsupported', {
+        reason: 'hostUnsupported'
+      })
+    }
+    const { agent: _attachAgent, provider: _attachProvider, ...attachWithoutAgent } = params
+    const attachParams = {
+      ...attachWithoutAgent,
+      provider: params.provider as 'claude' | 'codex',
+      agent: params.agent as 'claude' | 'codex'
+    } as AgentSessionAttachParams
+    materialAdmission.revalidate()
+    return { host, attachParams, materialAdmission }
+  } catch (error) {
+    materialAdmission.release()
+    throw error
   }
-  const { agent: _attachAgent, provider: _attachProvider, ...attachWithoutAgent } = params
-  const attachParams = {
-    ...attachWithoutAgent,
-    provider: params.provider as 'claude' | 'codex',
-    agent: params.agent as 'claude' | 'codex'
-  } as AgentSessionAttachParams
-  return { host, attachParams }
 }
 
 async function attachClientSuppliedLocation(
   params: z.infer<typeof AttachParams>,
   ctx: RpcContext
 ): Promise<unknown> {
-  const { host, attachParams } = await resolveClientSuppliedAttach(params, ctx)
-  return host.attach(callerFor(ctx), attachParams)
+  const { host, attachParams, materialAdmission } = await resolveClientSuppliedAttach(params, ctx)
+  try {
+    materialAdmission.revalidate()
+    return await host.attach(callerFor(ctx), attachParams)
+  } finally {
+    materialAdmission.release()
+  }
 }
 
 export const STRUCTURED_AGENT_SESSION_METHODS = [

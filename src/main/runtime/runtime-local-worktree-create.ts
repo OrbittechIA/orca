@@ -1,3 +1,9 @@
+import {
+  withMaterialAdmission,
+  materialAdmissionContext,
+  type MaterialAdmissionHold,
+  type MaterialAdmissionRequest
+} from './runtime-worktree-material-admission'
 import { worktreeCreateGit } from '../git/worktree-create-git-executor'
 import { shouldRunSetupForCreate } from '../effective-hook-config'
 import { getEffectiveHooks } from '../hooks'
@@ -30,7 +36,7 @@ import {
 } from '../worktree-create-timing'
 
 type RuntimeLocalWorktreeCreateArgs<T> = {
-  request: RuntimeManagedWorktreeCreateArgs
+  request: RuntimeManagedWorktreeCreateArgs & MaterialAdmissionRequest
   repo: Repo
   store: Store
   createdWithAgent: RuntimeManagedWorktreeCreateArgs['createdWithAgent']
@@ -57,10 +63,25 @@ type RuntimeLocalWorktreeCreateArgs<T> = {
 }
 
 export function createRuntimeLocalManagedWorktree<T>(args: RuntimeLocalWorktreeCreateArgs<T>) {
-  return worktreeCreateGit.run(() => performRuntimeLocalWorktreeCreate(args))
+  return withMaterialAdmission(
+    args.request[materialAdmissionContext],
+    {
+      creatingWorktree: true,
+      repoId: args.repo.id,
+      branch: args.request.branchNameOverride,
+      executionHostId: args.repo.executionHostId
+    },
+    async (hold) =>
+      await worktreeCreateGit.run<Awaited<ReturnType<typeof performRuntimeLocalWorktreeCreate<T>>>>(
+        () => performRuntimeLocalWorktreeCreate(args, hold)
+      )
+  )
 }
 
-async function performRuntimeLocalWorktreeCreate<T>(args: RuntimeLocalWorktreeCreateArgs<T>) {
+async function performRuntimeLocalWorktreeCreate<T>(
+  args: RuntimeLocalWorktreeCreateArgs<T>,
+  material: MaterialAdmissionHold
+) {
   const { request, repo, store } = args
   const settings = store.getSettings()
   const pathSettings = getWorktreePathSettings(repo, settings, getWorktreeMirrorDistro(store, repo))
@@ -127,6 +148,12 @@ async function performRuntimeLocalWorktreeCreate<T>(args: RuntimeLocalWorktreeCr
       hostedReviewExecutionContext: args.hostedReviewExecutionContext
     })
   )
+  material.revalidate({
+    repoId: repo.id,
+    branch: candidate.branchName,
+    cwd: candidate.worktreePath,
+    executionHostId: repo.executionHostId
+  })
   const git = await createRuntimeLocalGitWorktree({
     request,
     repo,

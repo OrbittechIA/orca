@@ -40,6 +40,29 @@ export const CORE_COMMAND_SPECS: CommandSpec[] = [
   },
   ...REPO_COMMAND_SPECS,
   {
+    path: ['worktree', 'material-plan'],
+    summary: 'Inspect exact historical material without changes',
+    usage: 'orca worktree material-plan --manifest <file> [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'manifest'],
+    notes: ['Material evidence does not confirm a writer, dispatch or settlement.']
+  },
+  {
+    path: ['worktree', 'material-restore'],
+    summary: 'Check the durable exact-material restoration boundary',
+    usage: 'orca worktree material-restore --manifest <file> --request-id <uuid> [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'manifest', 'request-id'],
+    notes: [
+      'Restores the missing checkout and publishes a new material instance after exact PLAN, census and durable claim checks. UNKNOWN outcomes require material-show; never repeat RESTORE.',
+      'Never substitute ordinary create, force or prune. Inspect the same request with material-show.'
+    ]
+  },
+  {
+    path: ['worktree', 'material-show'],
+    summary: 'Inspect your historical material request without retrying it',
+    usage: 'orca worktree material-show --request-id <uuid> [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'request-id']
+  },
+  {
     path: ['worktree', 'list'],
     summary: 'List Orca-managed worktrees',
     usage: 'orca worktree list [--repo <selector>] [--limit <n>] [--json]',

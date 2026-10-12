@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { describe, expect, it, vi } from 'vitest'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
 import { makePaneKey } from '../../shared/stable-pane-id'
@@ -516,7 +517,7 @@ describe('registerPtyHandlers', () => {
           getProfiles: vi.fn()
         } as never)
         handlers.clear()
-        registerPtyHandlers(mainWindow as never)
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
         const prevFlag = process.env.ORCA_FEATURE_REMOTE_AGENT_HOOKS
         process.env.ORCA_FEATURE_REMOTE_AGENT_HOOKS = '0'
         try {
@@ -576,7 +577,7 @@ describe('registerPtyHandlers', () => {
           getProfiles: vi.fn()
         } as never)
         handlers.clear()
-        registerPtyHandlers(mainWindow as never)
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
         const prevFlag = process.env.ORCA_FEATURE_REMOTE_AGENT_HOOKS
         delete process.env.ORCA_FEATURE_REMOTE_AGENT_HOOKS
         try {

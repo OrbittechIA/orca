@@ -149,6 +149,7 @@ vi.mock('./worktree-logic', async (importOriginal) => {
 
 import { registerWorktreeHandlers } from './worktrees'
 import { resetRetirementCollisionKeyCacheForTests } from '../worktree-name-retirement'
+import { OrcaRuntimeService } from '../runtime/orca-runtime'
 
 type HandlerMap = Record<string, (_event: unknown, args: unknown) => unknown>
 
@@ -298,7 +299,11 @@ describe('registerWorktreeHandlers – Windows path handling', () => {
 
     // Why: createLocalWorktree routes `git fetch` through
     // `runtime.fetchRemoteWithCache` (§3.3 Lifecycle). Stub it for path tests.
+    const runtime = new OrcaRuntimeService()
+    // The synthetic Git provider has no orchestration ledger or material claims.
+    runtime.materialAdmissionAuthority.readPendingClaims = () => []
     const runtimeStub = {
+      materialAdmissionAuthority: runtime.materialAdmissionAuthority,
       resolveRemoteTrackingBase: vi.fn().mockResolvedValue(null),
       hasRemoteTrackingRef: vi.fn().mockResolvedValue(false),
       getOrStartRemoteTrackingBaseRefresh: vi.fn().mockResolvedValue({ ok: true }),

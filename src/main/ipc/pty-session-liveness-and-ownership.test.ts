@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { describe, expect, it, vi } from 'vitest'
 import { onMock } from './pty-ipc-mock-registry'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
@@ -416,7 +417,7 @@ describe('registerPtyHandlers', () => {
     registerSshPtyProvider('ssh-1', provider as never)
     registerPtyHandlers(
       mainWindow as never,
-      undefined,
+      createPtyIpcAdmissionRuntime(),
       undefined,
       undefined,
       undefined,

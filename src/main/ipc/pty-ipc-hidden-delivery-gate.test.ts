@@ -1,3 +1,5 @@
+import { createGlobalSettingsFixture } from '../../shared/global-settings-test-fixture'
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { describe, expect, it, vi } from 'vitest'
 import { spawnMock } from './pty-ipc-mock-registry'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
@@ -68,6 +70,7 @@ describe('registerPtyHandlers', () => {
     it('foregrounds a preserved daemon PTY after handler recreation loses sync memory', async () => {
       const daemon = installObservableDaemonTestProvider()
       const firstRuntime = {
+        materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
         setPtyController: vi.fn(),
         hasRawTerminalViewSubscriber: vi.fn(() => false),
         createPreAllocatedTerminalHandle: vi.fn(() => null),
@@ -111,6 +114,7 @@ describe('registerPtyHandlers', () => {
     it('drops hidden PTY data after model ingestion and emits one out-of-band restore marker', async () => {
       vi.useFakeTimers()
       const runtime = {
+        materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
         setPtyController: vi.fn(),
         registerPty: vi.fn(),
         noteTerminalSpawnCommand: vi.fn(),
@@ -176,7 +180,7 @@ describe('registerPtyHandlers', () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
       const daemon = installObservableDaemonTestProvider()
       try {
-        registerPtyHandlers(mainWindow as never)
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
         const result = (await handlers.get('pty:spawn')!(null, {
           cols: 80,
           rows: 24,
@@ -217,7 +221,7 @@ describe('registerPtyHandlers', () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
       const daemon = installObservableDaemonTestProvider()
       try {
-        registerPtyHandlers(mainWindow as never)
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
         const result = (await handlers.get('pty:spawn')!(null, {
           cols: 80,
           rows: 24,
@@ -259,7 +263,7 @@ describe('registerPtyHandlers', () => {
       spawnMock.mockReturnValue(mockProc.proc)
 
       try {
-        registerPtyHandlers(mainWindow as never)
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
         const spawnResult = (await handlers.get('pty:spawn')!(null, {
           cols: 80,
           rows: 24,
@@ -279,7 +283,8 @@ describe('registerPtyHandlers', () => {
         expect(mainWindow.webContents.send).toHaveBeenCalledTimes(1)
         expect(mainWindow.webContents.send).toHaveBeenCalledWith('pty:modelRestoreNeeded', {
           id: spawnResult.id,
-          reason: 'hidden-drop'
+          reason: 'hidden-drop',
+          markerSeq: 13
         })
       } finally {
         vi.useRealTimers()
@@ -291,7 +296,7 @@ describe('registerPtyHandlers', () => {
       spawnMock.mockReturnValue(mockProc.proc)
 
       try {
-        registerPtyHandlers(mainWindow as never)
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
         const spawnResult = (await handlers.get('pty:spawn')!(null, {
           cols: 80,
           rows: 24,
@@ -307,7 +312,9 @@ describe('registerPtyHandlers', () => {
         vi.advanceTimersByTime(2)
         expect(mainWindow.webContents.send).toHaveBeenCalledWith('pty:data', {
           id: spawnResult.id,
-          data: 'sidecar bytes'
+          data: 'sidecar bytes',
+          seq: 13,
+          rawLength: 13
         })
 
         setInterest(null, { id: spawnResult.id, interested: false })
@@ -317,7 +324,8 @@ describe('registerPtyHandlers', () => {
         expect(mainWindow.webContents.send).toHaveBeenCalledTimes(1)
         expect(mainWindow.webContents.send).toHaveBeenCalledWith('pty:modelRestoreNeeded', {
           id: spawnResult.id,
-          reason: 'hidden-drop'
+          reason: 'hidden-drop',
+          markerSeq: 24
         })
       } finally {
         vi.useRealTimers()
@@ -329,7 +337,7 @@ describe('registerPtyHandlers', () => {
       spawnMock.mockReturnValue(mockProc.proc)
 
       try {
-        registerPtyHandlers(mainWindow as never)
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
         const spawnResult = (await handlers.get('pty:spawn')!(null, {
           cols: 80,
           rows: 24,
@@ -363,7 +371,8 @@ describe('registerPtyHandlers', () => {
 
         expect(mainWindow.webContents.send).toHaveBeenCalledWith('pty:modelRestoreNeeded', {
           id: spawnResult.id,
-          reason: 'hidden-drop'
+          reason: 'hidden-drop',
+          markerSeq: 25
         })
         expect(getPtyRendererDeliveryDebugSnapshot()).toMatchObject({
           pendingPtyCount: 0,
@@ -383,7 +392,9 @@ describe('registerPtyHandlers', () => {
       spawnMock.mockReturnValue(mockProc.proc)
 
       try {
-        registerPtyHandlers(mainWindow as never, undefined, undefined, (() => settings) as never)
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime(), undefined, () =>
+          createGlobalSettingsFixture(settings)
+        )
         const spawnResult = (await handlers.get('pty:spawn')!(null, {
           cols: 80,
           rows: 24,
@@ -399,7 +410,9 @@ describe('registerPtyHandlers', () => {
         expect(mainWindow.webContents.send).toHaveBeenCalledTimes(1)
         expect(mainWindow.webContents.send).toHaveBeenCalledWith('pty:data', {
           id: spawnResult.id,
-          data: 'still delivered'
+          data: 'still delivered',
+          seq: 15,
+          rawLength: 15
         })
       } finally {
         vi.useRealTimers()
@@ -411,14 +424,14 @@ describe('registerPtyHandlers', () => {
         vi.useFakeTimers()
         const mockProc = createMockProc()
         spawnMock.mockReturnValue(mockProc.proc)
-        const settings = {
+        const settings = createGlobalSettingsFixture({
           terminalHiddenDeliveryGate: true,
           terminalMainSideEffectAuthority: true
-        }
+        })
         settings[settingName] = false
 
         try {
-          registerPtyHandlers(mainWindow as never, undefined, undefined, (() => settings) as never)
+          registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime(), undefined, () => settings)
           const spawnResult = (await handlers.get('pty:spawn')!(null, {
             cols: 80,
             rows: 24,
@@ -440,7 +453,8 @@ describe('registerPtyHandlers', () => {
 
           expect(mainWindow.webContents.send).toHaveBeenCalledWith('pty:modelRestoreNeeded', {
             id: spawnResult.id,
-            reason: 'hidden-drop'
+            reason: 'hidden-drop',
+            markerSeq: 27
           })
           expect(getPtyRendererDeliveryDebugSnapshot()).toMatchObject({
             pendingPtyCount: 0,
@@ -457,7 +471,7 @@ describe('registerPtyHandlers', () => {
       spawnMock.mockReturnValue(mockProc.proc)
 
       try {
-        registerPtyHandlers(mainWindow as never)
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
         const spawnResult = (await handlers.get('pty:spawn')!(null, {
           cols: 80,
           rows: 24,
@@ -474,7 +488,8 @@ describe('registerPtyHandlers', () => {
         expect(mainWindow.webContents.send).toHaveBeenCalledTimes(1)
         expect(mainWindow.webContents.send).toHaveBeenCalledWith('pty:modelRestoreNeeded', {
           id: spawnResult.id,
-          reason: 'hidden-drop'
+          reason: 'hidden-drop',
+          markerSeq: 20
         })
         vi.advanceTimersByTime(2)
         expect(mainWindow.webContents.send).toHaveBeenCalledTimes(1)
@@ -489,7 +504,7 @@ describe('registerPtyHandlers', () => {
       spawnMock.mockReturnValue(mockProc.proc)
 
       try {
-        registerPtyHandlers(mainWindow as never)
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
         const spawnResult = (await handlers.get('pty:spawn')!(null, {
           cols: 80,
           rows: 24,
@@ -508,14 +523,17 @@ describe('registerPtyHandlers', () => {
         expect(mainWindow.webContents.send).toHaveBeenCalledTimes(2)
         expect(mainWindow.webContents.send).toHaveBeenLastCalledWith('pty:modelRestoreNeeded', {
           id: spawnResult.id,
-          reason: 'unhide'
+          reason: 'unhide',
+          markerSeq: 20
         })
 
         mockProc.emitData('visible again')
         vi.advanceTimersByTime(2)
         expect(mainWindow.webContents.send).toHaveBeenLastCalledWith('pty:data', {
           id: spawnResult.id,
-          data: 'visible again'
+          data: 'visible again',
+          seq: 33,
+          rawLength: 13
         })
       } finally {
         vi.useRealTimers()
@@ -527,7 +545,7 @@ describe('registerPtyHandlers', () => {
       spawnMock.mockReturnValue(mockProc.proc)
 
       try {
-        registerPtyHandlers(mainWindow as never)
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
         const spawnResult = (await handlers.get('pty:spawn')!(null, {
           cols: 80,
           rows: 24,
@@ -550,7 +568,7 @@ describe('registerPtyHandlers', () => {
       spawnMock.mockReturnValue(mockProc.proc)
 
       try {
-        registerPtyHandlers(mainWindow as never)
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
         const spawnResult = (await handlers.get('pty:spawn')!(null, {
           cols: 80,
           rows: 24,
@@ -578,7 +596,7 @@ describe('registerPtyHandlers', () => {
       spawnMock.mockReturnValue(mockProc.proc)
 
       try {
-        registerPtyHandlers(mainWindow as never)
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
         const spawnResult = (await handlers.get('pty:spawn')!(null, {
           cols: 80,
           rows: 24,
@@ -599,7 +617,8 @@ describe('registerPtyHandlers', () => {
         expect(mainWindow.webContents.send).toHaveBeenCalledTimes(2)
         expect(mainWindow.webContents.send).toHaveBeenLastCalledWith('pty:modelRestoreNeeded', {
           id: spawnResult.id,
-          reason: 'unhide'
+          reason: 'unhide',
+          markerSeq: 20
         })
       } finally {
         vi.useRealTimers()
@@ -608,6 +627,7 @@ describe('registerPtyHandlers', () => {
     it('keeps drop memory across a renderer reload while clearing hidden/interest state', async () => {
       vi.useFakeTimers()
       const runtime = {
+        materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
         setPtyController: vi.fn(),
         registerPty: vi.fn(),
         noteTerminalSpawnCommand: vi.fn(),
@@ -661,6 +681,7 @@ describe('registerPtyHandlers', () => {
     it('clears leaked delivery interest on renderer reload so the gate re-engages', async () => {
       vi.useFakeTimers()
       const runtime = {
+        materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
         setPtyController: vi.fn(),
         registerPty: vi.fn(),
         noteTerminalSpawnCommand: vi.fn(),

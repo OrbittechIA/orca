@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { spawnMock } from './pty-ipc-mock-registry'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
 import { registerPtyHandlers, getPtyRendererDeliveryDebugSnapshot } from './pty'
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 
 vi.mock('electron', () => import('./pty-ipc-mock-registry').then((m) => m.electronModuleMock()))
 vi.mock('fs', () => import('./pty-ipc-mock-registry').then((m) => m.fsModuleMock()))
@@ -69,7 +70,7 @@ describe('registerPtyHandlers', () => {
     }
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const bulkSpawns: { id: string }[] = []
       for (const _proc of bulkProcs) {
         bulkSpawns.push(
@@ -152,7 +153,7 @@ describe('registerPtyHandlers', () => {
     }
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       for (const _proc of bulkProcs) {
         await handlers.get('pty:spawn')!(null, {
           cols: 80,
@@ -193,7 +194,7 @@ describe('registerPtyHandlers', () => {
       finalProc.emitExit(0)
 
       expect(mainWindow.webContents.send.mock.calls).toEqual([
-        ['pty:data', { id: finalSpawn.id, data: 'final-tail' }],
+        ['pty:data', { id: finalSpawn.id, data: 'final-tail', seq: 10, rawLength: 10 }],
         ['pty:exit', { id: finalSpawn.id, code: 0, incarnationId: finalSpawn.incarnationId }]
       ])
       expect(getPtyRendererDeliveryDebugSnapshot()).toMatchObject({
@@ -211,7 +212,7 @@ describe('registerPtyHandlers', () => {
     spawnMock.mockReturnValue(proc.proc)
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const spawn = (await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -248,7 +249,7 @@ describe('registerPtyHandlers', () => {
     }
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const spawns: { id: string }[] = []
       for (const _proc of procs) {
         spawns.push(
@@ -283,7 +284,9 @@ describe('registerPtyHandlers', () => {
         'pty:data',
         {
           id: spawns[activeIndex]!.id,
-          data: 'active-output'
+          data: 'active-output',
+          seq: 13,
+          rawLength: 13
         }
       ])
       expect(getPtyRendererDeliveryDebugSnapshot()).toMatchObject({
@@ -302,7 +305,7 @@ describe('registerPtyHandlers', () => {
     spawnMock.mockReturnValue(activeProc.proc)
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const activeSpawn = (await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -331,7 +334,9 @@ describe('registerPtyHandlers', () => {
       expect(mainWindow.webContents.send).toHaveBeenCalledTimes(33)
       expect(mainWindow.webContents.send).toHaveBeenNthCalledWith(33, 'pty:data', {
         id: activeSpawn.id,
-        data: 'x'.repeat(16 * 1024)
+        data: 'x'.repeat(16 * 1024),
+        seq: 528 * 1024,
+        rawLength: 16 * 1024
       })
       expect(getPtyRendererDeliveryDebugSnapshot()).toMatchObject({
         pendingChars: 240 * 1024,

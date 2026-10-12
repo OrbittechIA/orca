@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { describe, expect, it, vi } from 'vitest'
 import { spawnMock } from './pty-ipc-mock-registry'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
@@ -67,7 +68,7 @@ describe('registerPtyHandlers', () => {
     spawnMock.mockReturnValue(mockProc.proc)
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const spawnResult = (await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -83,7 +84,9 @@ describe('registerPtyHandlers', () => {
       vi.advanceTimersByTime(1)
       expect(mainWindow.webContents.send).toHaveBeenCalledWith('pty:data', {
         id: spawnResult.id,
-        data: 'background output'
+        data: 'background output',
+        seq: 17,
+        rawLength: 17
       })
     } finally {
       vi.useRealTimers()
@@ -95,7 +98,7 @@ describe('registerPtyHandlers', () => {
     spawnMock.mockReturnValue(mockProc.proc)
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const spawnResult = (await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -109,7 +112,9 @@ describe('registerPtyHandlers', () => {
       vi.advanceTimersByTime(2)
       expect(mainWindow.webContents.send).toHaveBeenCalledWith('pty:data', {
         id: spawnResult.id,
-        data: 'visible output'
+        data: 'visible output',
+        seq: 14,
+        rawLength: 14
       })
 
       mainWindow.webContents.send.mockClear()
@@ -121,7 +126,9 @@ describe('registerPtyHandlers', () => {
       expect(mainWindow.webContents.send).toHaveBeenCalledWith('pty:data', {
         id: spawnResult.id,
         data: '\x1b[2Khidden-width redraw',
-        background: true
+        background: true,
+        seq: 37,
+        rawLength: 23
       })
     } finally {
       vi.useRealTimers()
@@ -133,7 +140,7 @@ describe('registerPtyHandlers', () => {
     spawnMock.mockReturnValue(mockProc.proc)
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const spawnResult = (await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -154,7 +161,9 @@ describe('registerPtyHandlers', () => {
       expect(mainWindow.webContents.send).toHaveBeenCalledWith('pty:data', {
         id: spawnResult.id,
         data: 'reload-gap output',
-        background: true
+        background: true,
+        seq: 17,
+        rawLength: 17
       })
 
       mainWindow.webContents.send.mockClear()
@@ -164,7 +173,9 @@ describe('registerPtyHandlers', () => {
 
       expect(mainWindow.webContents.send).toHaveBeenCalledWith('pty:data', {
         id: spawnResult.id,
-        data: 'visible output'
+        data: 'visible output',
+        seq: 31,
+        rawLength: 14
       })
     } finally {
       vi.useRealTimers()
@@ -176,7 +187,7 @@ describe('registerPtyHandlers', () => {
     spawnMock.mockReturnValue(mockProc.proc)
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const spawnResult = (await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -235,7 +246,9 @@ describe('registerPtyHandlers', () => {
       vi.advanceTimersByTime(8)
       expect(mainWindow.webContents.send).toHaveBeenCalledWith('pty:data', {
         id: spawnResult.id,
-        data: 'post-reload output'
+        data: 'post-reload output',
+        seq: 614_418,
+        rawLength: 18
       })
       expect(getPtyRendererDeliveryDebugSnapshot()).toMatchObject({
         rendererInFlightChars: 'post-reload output'.length,
@@ -252,7 +265,7 @@ describe('registerPtyHandlers', () => {
     spawnMock.mockReturnValue(mockProc.proc)
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const spawnResult = (await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -291,7 +304,9 @@ describe('registerPtyHandlers', () => {
       vi.advanceTimersByTime(8)
       expect(mainWindow.webContents.send).toHaveBeenCalledWith('pty:data', {
         id: spawnResult.id,
-        data: 'post-subframe output'
+        data: 'post-subframe output',
+        seq: 614_420,
+        rawLength: 20
       })
       expect(getPtyRendererDeliveryDebugSnapshot()).toMatchObject({
         rendererPtyDispatcherReady: true,
@@ -307,7 +322,7 @@ describe('registerPtyHandlers', () => {
     spawnMock.mockReturnValue(mockProc.proc)
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const spawnResult = (await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -350,7 +365,9 @@ describe('registerPtyHandlers', () => {
       vi.advanceTimersByTime(8)
       expect(mainWindow.webContents.send).toHaveBeenCalledWith('pty:data', {
         id: spawnResult.id,
-        data: 'post-reconcile output'
+        data: 'post-reconcile output',
+        seq: 614_421,
+        rawLength: 21
       })
 
       // A straggler ACK from the dead page is clamped and cannot underflow the reconciled counters below zero.
@@ -366,7 +383,7 @@ describe('registerPtyHandlers', () => {
     spawnMock.mockReturnValue(mockProc.proc)
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const spawnResult = (await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -398,7 +415,9 @@ describe('registerPtyHandlers', () => {
       vi.advanceTimersByTime(8)
       expect(mainWindow.webContents.send).toHaveBeenCalledWith('pty:data', {
         id: spawnResult.id,
-        data: redraw
+        data: redraw,
+        seq: 13,
+        rawLength: 13
       })
     } finally {
       vi.useRealTimers()
@@ -410,7 +429,7 @@ describe('registerPtyHandlers', () => {
     spawnMock.mockReturnValue(mockProc.proc)
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const spawnResult = (await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -435,7 +454,9 @@ describe('registerPtyHandlers', () => {
       vi.advanceTimersByTime(8)
       expect(mainWindow.webContents.send).toHaveBeenCalledWith('pty:data', {
         id: spawnResult.id,
-        data: 'post-reload output'
+        data: 'post-reload output',
+        seq: 18,
+        rawLength: 18
       })
       expect(getPtyRendererDeliveryDebugSnapshot()).toMatchObject({
         rendererPtyDispatcherReady: true,

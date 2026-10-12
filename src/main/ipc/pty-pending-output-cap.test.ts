@@ -1,3 +1,5 @@
+import { createGlobalSettingsFixture } from '../../shared/global-settings-test-fixture'
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { describe, expect, it, vi } from 'vitest'
 import { spawnMock } from './pty-ipc-mock-registry'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
@@ -64,7 +66,7 @@ describe('registerPtyHandlers', () => {
     spawnMock.mockReturnValue(mockProc.proc)
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const spawn = (await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -110,7 +112,9 @@ describe('registerPtyHandlers', () => {
       vi.advanceTimersByTime(2)
       expect(mainWindow.webContents.send).toHaveBeenCalledWith('pty:data', {
         id: spawn.id,
-        data: 'back to normal'
+        data: 'back to normal',
+        seq: 3_825_678,
+        rawLength: 14
       })
     } finally {
       errorSpy.mockRestore()
@@ -124,7 +128,7 @@ describe('registerPtyHandlers', () => {
     spawnMock.mockReturnValue(mockProc.proc)
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const spawn = (await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -168,9 +172,9 @@ describe('registerPtyHandlers', () => {
 
     try {
       // 50k-row scrollback ⇒ 6 MB pending cap instead of the 2 MB floor.
-      registerPtyHandlers(mainWindow as never, undefined, undefined, (() => ({
-        terminalScrollbackRows: 50_000
-      })) as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime(), undefined, () =>
+        createGlobalSettingsFixture({ terminalScrollbackRows: 50_000 })
+      )
       await handlers.get('pty:spawn')!(null, { cols: 80, rows: 24, cwd: '/tmp' })
       mainWindow.webContents.send.mockClear()
 

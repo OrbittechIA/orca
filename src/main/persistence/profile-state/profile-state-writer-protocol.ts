@@ -1,3 +1,5 @@
+import type { MaterialHistoryAssertion } from '../../../shared/worktree/material-types'
+import { MaterialHistoryAssertionSchema } from '../../../shared/rpc-contract/worktree-material-params'
 import type { ProfileStateDomainReplacement } from '../loading-store/profile-state-authority'
 import { isRecord } from './profile-state-document-validation'
 
@@ -17,6 +19,11 @@ export type ProfileStateWriterCommand =
       command: 'write-automation'
       replacements: readonly ProfileStateDomainReplacement[]
       runPayloads: readonly string[]
+    }
+  | {
+      command: 'assert-material-history'
+      expectedRevision: number
+      expected: MaterialHistoryAssertion
     }
   | { command: 'assert-revision' | 'close' }
   | { command: 'export-json' | 'export-latest'; targetPath: string }
@@ -68,6 +75,12 @@ export function isProfileStateWriterRequest(value: unknown): value is ProfileSta
   switch (value.command) {
     case 'write-state':
       return value.payload instanceof Uint8Array
+    case 'assert-material-history':
+      return (
+        Object.keys(value).length === 4 &&
+        isProfileStateRevision(value.expectedRevision) &&
+        MaterialHistoryAssertionSchema.safeParse(value.expected).success
+      )
     case 'assert-revision':
     case 'close':
       return true

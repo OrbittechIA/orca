@@ -34,7 +34,7 @@ import { getStructuredAgentSessionHost } from '../native-chat/agent-session-wire
 import { importLegacyTranscriptIntoJournal } from '../native-chat/agent-session-journal/journal-legacy-import'
 import type { AgentSessionJournal } from '../native-chat/agent-session-journal/journal-store'
 import { createTrackedJournalOpener } from '../native-chat/agent-session-journal/journal-host-database-test-support'
-import type { OrcaRuntimeService } from './orca-runtime'
+import { OrcaRuntimeService } from './orca-runtime'
 import { readPersistedTestAgentSessionStoreText } from './agent-session-record-store-test-harness'
 import type { RpcRequest, RpcResponse } from './rpc/core'
 import { RpcDispatcher } from './rpc/dispatcher'
@@ -319,7 +319,11 @@ beforeEach(async () => {
   codexOverrideReads = 0
   configuredCodexProfile = 'configured'
   shellEnvironmentPolicy = { inheritAll: true, names: [] }
+  const admissionRuntime = new OrcaRuntimeService()
+  // This fake provider owns no orchestration ledger; the session journal remains real.
+  admissionRuntime.materialAdmissionAuthority.readPendingClaims = () => []
   const runtime = {
+    materialAdmissionAuthority: admissionRuntime.materialAdmissionAuthority,
     getRuntimeId: () => 'runtime-1',
     getClientSettings: () => ({ experimentalNativeChat: true }),
     getStructuredAgentSessionCreateSupport: async () => ({ supported: true }),

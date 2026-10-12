@@ -1,3 +1,5 @@
+import { createGlobalSettingsFixture } from '../../shared/global-settings-test-fixture'
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { describe, expect, it, vi } from 'vitest'
 import { existsSyncMock, accessSyncMock, spawnMock } from './pty-ipc-mock-registry'
 import { posixOnlyIt, makeDeferred } from './pty-ipc-test-constants'
@@ -67,6 +69,7 @@ describe('registerPtyHandlers', () => {
     // terminal-query-authority.md §races: hidden-at-spawn marks the PTY before byte one, closing the spawn-time DA1-loss window.
     function createRuntimeMock() {
       return {
+        materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
         setPtyController: vi.fn(),
         registerPty: vi.fn(),
         noteTerminalSpawnCommand: vi.fn(),
@@ -84,8 +87,10 @@ describe('registerPtyHandlers', () => {
       vi.useFakeTimers()
       const runtime = createRuntimeMock()
       const daemon = installObservableDaemonTestProvider()
+      const spawnEntered = makeDeferred()
       const spawnGate = makeDeferred()
       daemon.spawn.mockImplementation(async (options: { sessionId?: string }) => {
+        spawnEntered.resolve()
         await spawnGate.promise
         return { id: options.sessionId ?? 'daemon-pty' }
       })
@@ -97,8 +102,8 @@ describe('registerPtyHandlers', () => {
           sessionId: 'daemon-session',
           initiallyHidden: true
         }) as Promise<{ id: string }>
-        // Let the handler run up to the awaited provider.spawn.
-        await Promise.resolve()
+        // Wait for provider entry while its response remains blocked.
+        await spawnEntered.promise
         mainWindow.webContents.send.mockClear()
 
         // Daemon PTYs can emit prompt bytes before spawn() resolves, so the pre-spawn mark must already gate them.
@@ -129,7 +134,7 @@ describe('registerPtyHandlers', () => {
     it('clears the pre-spawn hidden mark when the spawn fails', async () => {
       const daemon = installObservableDaemonTestProvider()
       daemon.spawn.mockRejectedValue(new Error('spawn exploded'))
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
 
       await expect(
         handlers.get('pty:spawn')!(null, {
@@ -148,7 +153,7 @@ describe('registerPtyHandlers', () => {
       const mockProc = createMockProc()
       spawnMock.mockReturnValue(mockProc.proc)
       try {
-        registerPtyHandlers(mainWindow as never)
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
         const spawnResult = (await handlers.get('pty:spawn')!(null, {
           cols: 80,
           rows: 24,
@@ -164,7 +169,8 @@ describe('registerPtyHandlers', () => {
         expect(mainWindow.webContents.send).toHaveBeenCalledTimes(1)
         expect(mainWindow.webContents.send).toHaveBeenCalledWith('pty:modelRestoreNeeded', {
           id: spawnResult.id,
-          reason: 'hidden-drop'
+          reason: 'hidden-drop',
+          markerSeq: 11
         })
       } finally {
         vi.useRealTimers()
@@ -175,7 +181,7 @@ describe('registerPtyHandlers', () => {
       const mockProc = createMockProc()
       spawnMock.mockReturnValue(mockProc.proc)
       try {
-        registerPtyHandlers(mainWindow as never)
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
         const spawnResult = (await handlers.get('pty:spawn')!(null, {
           cols: 80,
           rows: 24,
@@ -189,7 +195,9 @@ describe('registerPtyHandlers', () => {
 
         expect(mainWindow.webContents.send).toHaveBeenCalledWith('pty:data', {
           id: spawnResult.id,
-          data: 'visible output'
+          data: 'visible output',
+          seq: 14,
+          rawLength: 14
         })
       } finally {
         vi.useRealTimers()
@@ -219,6 +227,8 @@ describe('registerPtyHandlers', () => {
           terminalModelQueryAuthority: true
         })
       } as never)
+      // This synthetic provider owns no orchestration ledger or material claims.
+      runtime.materialAdmissionAuthority.readPendingClaims = () => []
 
       registerPtyHandlers(mainWindow as never, runtime as never)
       const result = (await handlers.get('pty:spawn')!(null, {
@@ -241,7 +251,7 @@ describe('registerPtyHandlers', () => {
     spawnMock.mockReturnValue(mockProc.proc)
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const spawnResult = (await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -255,7 +265,8 @@ describe('registerPtyHandlers', () => {
       expect(mainWindow.webContents.send).toHaveBeenCalledTimes(1)
       expect(mainWindow.webContents.send).toHaveBeenCalledWith('pty:modelRestoreNeeded', {
         id: spawnResult.id,
-        reason: 'pending-cap'
+        reason: 'pending-cap',
+        markerSeq: 3 * 1024 * 1024
       })
 
       // A second overflow before the entry drains must not re-mark.
@@ -285,7 +296,9 @@ describe('registerPtyHandlers', () => {
       spawnMock.mockReturnValue(mockProc.proc)
 
       try {
-        registerPtyHandlers(mainWindow as never, undefined, undefined, (() => settings) as never)
+        registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime(), undefined, () =>
+          createGlobalSettingsFixture(settings)
+        )
         const spawnResult = (await handlers.get('pty:spawn')!(null, {
           cols: 80,
           rows: 24,
@@ -317,7 +330,7 @@ describe('registerPtyHandlers', () => {
     spawnMock.mockReturnValue(mockProc.proc)
 
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const spawnResult = (await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -338,7 +351,9 @@ describe('registerPtyHandlers', () => {
       vi.advanceTimersByTime(2)
       expect(mainWindow.webContents.send).toHaveBeenCalledWith('pty:data', {
         id: spawnResult.id,
-        data: 'stale redraw'
+        data: 'stale redraw',
+        seq: 12,
+        rawLength: 12
       })
     } finally {
       vi.useRealTimers()
@@ -355,7 +370,7 @@ describe('registerPtyHandlers', () => {
     try {
       process.env.SHELL = '/opt/homebrew/bin/bash'
 
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const result = await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -399,7 +414,7 @@ describe('registerPtyHandlers', () => {
     try {
       process.env.SHELL = '/opt/homebrew/bin/bash'
 
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,

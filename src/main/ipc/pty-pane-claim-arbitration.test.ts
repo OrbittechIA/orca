@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { describe, expect, it, vi } from 'vitest'
 import { spawnMock } from './pty-ipc-mock-registry'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
@@ -458,6 +459,7 @@ describe('registerPtyHandlers', () => {
     }
     let controller: RuntimeSpawnController | null = null
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn((value) => {
         controller = value
       }),

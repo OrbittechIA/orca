@@ -169,6 +169,7 @@ export class RpcStreamingDispatcher {
               legacyCoordinator?.mutationCallerFingerprint ??
               authenticatedCallerFingerprint,
             recordMutationReceipt: mutation?.recordReceipt,
+            markMutationEffectPossible: mutation?.markEffectPossible,
             orchestrationMutation: mutation?.identity,
             pairing: options?.pairing,
             sendBinary: options?.sendBinary,

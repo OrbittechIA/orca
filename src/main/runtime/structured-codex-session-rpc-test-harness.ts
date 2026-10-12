@@ -20,7 +20,7 @@ import {
   type RuntimeCapability
 } from '../../shared/protocol-version'
 import { attachFingerprintFields } from '../native-chat/agent-session-wire/structured-agent-session-attach'
-import type { OrcaRuntimeService } from './orca-runtime'
+import { OrcaRuntimeService } from './orca-runtime'
 import type { RpcRequest, RpcResponse } from './rpc/core'
 import { RpcDispatcher } from './rpc/dispatcher'
 import { STRUCTURED_AGENT_SESSION_METHODS } from './rpc/methods/structured-agent-session'
@@ -227,7 +227,11 @@ export async function openStructuredCodexRpcHarness(
     openCodexConnection: codex.openConnection,
     readProcessStartTime: async () => 1_700_000_000_000
   })
+  const admissionRuntime = new OrcaRuntimeService()
+  // This fake provider owns no orchestration ledger; the session journal remains real.
+  admissionRuntime.materialAdmissionAuthority.readPendingClaims = () => []
   const runtime = {
+    materialAdmissionAuthority: admissionRuntime.materialAdmissionAuthority,
     getRuntimeId: () => 'runtime-1',
     getClientSettings: () => ({ experimentalStructuredNativeChat: true }),
     holdWorktreeLifecycle: (worktreeId: string, host?: string | null) =>

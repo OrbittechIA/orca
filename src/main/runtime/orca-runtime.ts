@@ -1,3 +1,31 @@
+import { isFloatingWorkspaceSelector } from '../../shared/floating-workspace-worktree'
+import { getDefaultFloatingWorkspacePath } from '../ipc/floating-workspace-directory'
+import { join } from 'node:path'
+import { getAppEnvironment } from '../../shared/app-environment'
+import type { TerminalCreateOptions } from './orca-runtime-create-terminal-dependencies'
+import type { Worktree } from '../../shared/worktree/types'
+import { restoreMaterialGit } from './runtime-worktree-material-git'
+import { MaterialRestoredReceipt } from '../../shared/rpc-contract/worktree-material-params'
+import {
+  materialAdmissionContext,
+  withMaterialAdmission,
+  withTerminalMaterialAdmission,
+  withMaterialRestoreAdmission,
+  type MaterialAdmissionHold,
+  type MaterialAdmissionAuthority
+} from './runtime-worktree-material-admission'
+import type { RuntimeManagedWorktreeCreateArgs } from './runtime-managed-worktree-create-types'
+import {
+  planWorktreeMaterial,
+  inspectWorktreeMaterial,
+  observeMaterialProcessAbsence,
+  materialAuthorityFence,
+  type MaterialAuthority
+} from './runtime-worktree-material'
+import {
+  readAvailableMaterialClaims,
+  type MaterialManifest
+} from '../../shared/worktree/material-types'
 import { installRuntimeLinearCommandSurface } from './runtime-linear-command-surface'
 import { OrcaRuntimeWithMigrationCatalog } from './orca-runtime-migration-catalog'
 import type { RuntimeCommandSurfaceHost } from './orca-runtime-core'
@@ -23,6 +51,180 @@ class OrcaRuntimeService extends OrcaRuntimeWithMigrationCatalog {
     // module registers the generation bump at load; a headless host never loads it.
     registerDetectedWorktreeScanInvalidation()
     registerWorktreeChangeInvalidator((repoId) => this.invalidateWorktreeCatalog(repoId))
+  }
+
+  readonly materialAdmissionAuthority: MaterialAdmissionAuthority = {
+    getExistingDb: () => this.getOrchestrationDbIfAvailable(),
+    readPendingClaims: () =>
+      readAvailableMaterialClaims(
+        this.getOrchestrationDbIfAvailable(),
+        join(getAppEnvironment().getPath('userData'), 'orchestration.db')
+      ),
+    captureCensus: (id) => this.store?.captureLocalWorktreeMaterialCensus?.(id) ?? null
+  }
+
+  override createManagedWorktree(args: RuntimeManagedWorktreeCreateArgs) {
+    return withMaterialAdmission(this.materialAdmissionAuthority, { creatingWorktree: true }, () =>
+      super.createManagedWorktree(
+        Object.assign({}, args, { [materialAdmissionContext]: this.materialAdmissionAuthority })
+      )
+    )
+  }
+
+  override createTerminal(selector?: string, opts: TerminalCreateOptions = {}, created?: Worktree) {
+    const observedSelector =
+      selector ?? this.store?.getWorkspaceSession?.()?.activeWorktreeId ?? undefined
+    return withTerminalMaterialAdmission(
+      this.materialAdmissionAuthority,
+      { selector: observedSelector, cwd: opts.cwd },
+      getDefaultFloatingWorkspacePath,
+      (hold) => super.createTerminal(selector, opts, created, hold)
+    )
+  }
+
+  async admitDesktopMaterial(
+    selector: string | undefined,
+    opts: TerminalCreateOptions,
+    created: Worktree | undefined,
+    material: MaterialAdmissionHold
+  ) {
+    // Pin the observed default workspace before asking the renderer, which otherwise selects
+    // its active tab later. Its PTY entrypoint independently revalidates the final cwd as well.
+    const desktopSelector =
+      material.selector ??
+      selector ??
+      this.store?.getWorkspaceSession?.()?.activeWorktreeId ??
+      undefined
+    material.revalidate(
+      isFloatingWorkspaceSelector(desktopSelector)
+        ? undefined
+        : { selector: desktopSelector, cwd: opts.cwd }
+    )
+    const desktopWorkspace = desktopSelector
+      ? await this.resolveTerminalWorkspaceLaunchScope(desktopSelector, created)
+      : null
+    if (desktopWorkspace) {
+      material.revalidate({
+        selector: desktopWorkspace.id,
+        cwd:
+          this.resolveWorkspaceTerminalStartupCwd(desktopWorkspace, opts.cwd) ??
+          desktopWorkspace.path,
+        connectionId: desktopWorkspace.connectionId
+      })
+    } else {
+      material.revalidate()
+    }
+    return desktopWorkspace ? `id:${desktopWorkspace.id}` : desktopSelector
+  }
+
+  private materialAuthority(manifest: MaterialManifest): MaterialAuthority {
+    return {
+      repos: this.store?.getRepos() ?? [],
+      census: this.store?.captureLocalWorktreeMaterialCensus?.(manifest.worktreeId) ?? null,
+      observePty: this.ptyController?.observeMaterialCensus?.bind(this.ptyController),
+      peekStructured: peekOpenedAgentSessionRecordStore,
+      historyReadback: this.store?.supportsMaterialHistoryReadback?.() === true
+    }
+  }
+
+  planMaterial(manifest: MaterialManifest) {
+    return planWorktreeMaterial(this.materialAuthority(manifest), manifest)
+  }
+
+  restoreMaterial(manifest: MaterialManifest, requestId: string, markEffectPossible: () => void) {
+    return withMaterialRestoreAdmission(
+      this.materialAdmissionAuthority,
+      manifest,
+      requestId,
+      async () => {
+        const release = await this.holdWorktreeLifecycleExclusively(
+          manifest.worktreeId,
+          Date.now() + 30_000,
+          'local'
+        )
+        try {
+          const store = this.store
+          const ptyController = this.ptyController
+          const admitted = this.materialAuthority(manifest)
+          let fence = materialAuthorityFence(admitted, manifest)
+          const observed = await inspectWorktreeMaterial(admitted, manifest)
+          if (
+            !observed.plan.materializable ||
+            !observed.repo ||
+            !observed.git?.adminDigest ||
+            !observed.git.indexDigest ||
+            !observed.stillCurrent ||
+            !store?.runDurableMutation ||
+            !store.stageMaterialHistory ||
+            !store.publishMaterialIdentity
+          ) {
+            throw new Error(observed.plan.code)
+          }
+          let currentProcessProof = observed.stillCurrent
+          const assertMetadata = () => {
+            if (this.store !== store || this.ptyController !== ptyController) {
+              throw new Error('E_MATERIAL_CAS_CONFLICT')
+            }
+            return fence(this.materialAuthority(manifest))
+          }
+          const assertCurrent = async () => {
+            const proof = await observeMaterialProcessAbsence(assertMetadata(), manifest)
+            if (!proof?.()) {
+              throw new Error('E_MATERIAL_CENSUS_UNVERIFIABLE')
+            }
+            assertMetadata()
+            currentProcessProof = proof
+          }
+          const assertPublication = () => {
+            assertMetadata()
+            if (!currentProcessProof()) {
+              throw new Error('E_MATERIAL_CENSUS_UNVERIFIABLE')
+            }
+          }
+          await restoreMaterialGit(
+            observed.repo.path,
+            manifest,
+            observed.git,
+            markEffectPossible,
+            assertCurrent
+          )
+          const history = await store.runDurableMutation(
+            () => {
+              const history = store.stageMaterialHistory!(manifest, requestId)
+              fence = materialAuthorityFence(this.materialAuthority(manifest), manifest)
+              assertPublication()
+              return { value: history }
+            },
+            { revalidate: assertPublication }
+          )
+          await assertCurrent()
+          const instanceId = await store.runDurableMutation(
+            () => ({ value: store.publishMaterialIdentity!(history) }),
+            { materialHistory: history, revalidate: assertPublication }
+          )
+          return MaterialRestoredReceipt.parse({
+            schemaVersion: 1,
+            state: 'restored',
+            requestId,
+            manifest,
+            adminDigest: observed.git.adminDigest,
+            indexDigest: observed.git.indexDigest,
+            historyDigest: history.historyDigest,
+            historicalInstanceId: manifest.historicalInstanceId,
+            instanceId,
+            coverage: observed.plan.coverage,
+            retryAllowed: false,
+            writerConfirmed: false
+          })
+        } finally {
+          release()
+        }
+      }
+    )
+  }
+
+  materialReceiptDb() {
+    return this.getOrchestrationDbIfAvailable()
   }
 
   /** Whether a window owns the layout and can show a launch's tab ahead of its process. */

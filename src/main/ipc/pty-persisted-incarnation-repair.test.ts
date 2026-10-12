@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { withDurableRuntimeStore } from '../runtime/runtime-durable-store-fixture'
 import { describe, expect, it, vi } from 'vitest'
 import { statSyncMock } from './pty-ipc-mock-registry'
@@ -89,6 +90,7 @@ describe('registerPtyHandlers', () => {
       getProfiles: vi.fn()
     } as never)
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       resolveTerminalPane: vi.fn(() => {
         throw new Error('terminal_not_found')
@@ -296,6 +298,7 @@ describe('registerPtyHandlers', () => {
         getRepos: vi.fn(() => [])
       })
       const runtime = {
+        materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
         setPtyController: vi.fn(),
         resolveTerminalPane: vi.fn(() => {
           throw new Error('terminal_not_found')
@@ -448,6 +451,7 @@ describe('registerPtyHandlers', () => {
       getRepos: vi.fn(() => [])
     })
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       resolveTerminalPane: vi.fn(() => {
         throw new Error('terminal_not_found')

@@ -1,3 +1,4 @@
+import { executeMaterialRestoreRequest } from './methods/worktree-material'
 import { createHash } from 'node:crypto'
 import {
   isDurableMutation,
@@ -99,6 +100,9 @@ export class OrchestrationMutationExecutor {
           )}`
         : basePayloadHash
     const identity = { callerFingerprint, requestId, method: request.method, payloadHash }
+    if (request.method === 'worktree.materialRestore') {
+      return executeMaterialRestoreRequest(this.runtime, this.inFlight, identity, params, invoke)
+    }
     const atomicWorkerAcceptance =
       request.method === 'orchestration.workerStart' ||
       request.method === 'orchestration.federationAttachStart'
@@ -202,7 +206,9 @@ export class OrchestrationMutationExecutor {
           'operation_unknown',
           recovery
             ? `Worker start ${requestId} was accepted as Dispatch ${recovery.dispatchId} before restart. Inspect that Dispatch; do not start another worker.`
-            : `Mutation ${requestId} may have been accepted before restart. Retry inspection or recovery with the same request ID.`,
+            : request.method === 'worktree.materialRestore'
+              ? `Material ${requestId} has an unknown outcome. Use worktree material-show; never retry restoration.`
+              : `Mutation ${requestId} may have been accepted before restart. Retry inspection or recovery with the same request ID.`,
           recovery
             ? {
                 requestId,

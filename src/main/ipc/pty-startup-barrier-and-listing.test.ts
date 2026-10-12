@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { describe, expect, it, vi } from 'vitest'
 import { spawnMock } from './pty-ipc-mock-registry'
 import { makeDeferred } from './pty-ipc-test-constants'
@@ -62,6 +63,7 @@ describe('registerPtyHandlers', () => {
   it('does not flag droppedBacklog for ordinary small output under the cap', async () => {
     vi.useFakeTimers()
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       registerPty: vi.fn(),
       onPtySpawned: vi.fn(),
@@ -173,7 +175,7 @@ describe('registerPtyHandlers', () => {
     } as never)
     registerPtyHandlers(
       mainWindow as never,
-      undefined,
+      createPtyIpcAdmissionRuntime(),
       undefined,
       undefined,
       undefined,
@@ -199,7 +201,7 @@ describe('registerPtyHandlers', () => {
     })
   })
   it('lists sessions from both local and SSH providers', async () => {
-    registerPtyHandlers(mainWindow as never)
+    registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
     const sshListProcesses = vi.fn(async () => [
       { id: 'remote-pty', cwd: '/remote', title: 'ssh-shell' },
       { id: 'closing-pty', cwd: '/remote', title: 'ssh-shell', exiting: true as const }

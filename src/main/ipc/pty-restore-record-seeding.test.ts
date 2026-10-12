@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { describe, expect, it, vi } from 'vitest'
 import {
   clearAgentHookPaneStateMock,
@@ -97,6 +98,7 @@ describe('registerPtyHandlers', () => {
       getForegroundProcess: vi.fn(async () => null)
     } as never)
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       noteTerminalSpawnCommand: vi.fn(),
       seedHeadlessTerminal: vi.fn(),
@@ -146,6 +148,7 @@ describe('registerPtyHandlers', () => {
       getForegroundProcess: vi.fn(async () => null)
     } as never)
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       noteTerminalSpawnCommand: vi.fn(),
       seedHeadlessTerminal: vi.fn(),
@@ -197,6 +200,8 @@ describe('registerPtyHandlers', () => {
       getSettings: () => ({ workspaceDir: '/tmp/workspaces' }),
       getProjects: () => []
     } as never)
+    // This synthetic provider owns no orchestration ledger or material claims.
+    runtime.materialAdmissionAuthority.readPendingClaims = () => []
     runtime.attachWindow(1)
     // The restored window graph still knows the persisted ptyId binding.
     runtime.syncWindowGraph(1, {
@@ -259,6 +264,7 @@ describe('registerPtyHandlers', () => {
       getForegroundProcess: vi.fn(async () => null)
     } as never)
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       noteTerminalSpawnCommand: vi.fn(),
       seedHeadlessTerminal: vi.fn(),
@@ -314,6 +320,7 @@ describe('registerPtyHandlers', () => {
       getForegroundProcess: vi.fn(async () => null)
     } as never)
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       noteTerminalSpawnCommand: vi.fn(),
       seedHeadlessTerminal: vi.fn(),
@@ -360,6 +367,8 @@ describe('registerPtyHandlers', () => {
       getProjects: () => [],
       persistPtyBinding: vi.fn()
     } as never)
+    // This synthetic provider owns no orchestration ledger or material claims.
+    runtime.materialAdmissionAuthority.readPendingClaims = () => []
     // Why: selector resolution shells out to git for real repos; prime the
     // resolved-worktree cache so this headless fixture resolves offline.
     //
@@ -415,7 +424,7 @@ describe('registerPtyHandlers', () => {
     expect(read.tail).toContain('headless reattach history')
   })
   it('upgrades legacy numeric pane keys when the spawn metadata proves the stable leaf', async () => {
-    registerPtyHandlers(mainWindow as never)
+    registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
     const leafId = '11111111-1111-4111-8111-111111111111'
     const stablePaneKey = makePaneKey('tab-1', leafId)
     await handlers.get('pty:spawn')!(null, {
@@ -474,7 +483,7 @@ describe('registerPtyHandlers', () => {
     )
   })
   it('stamps a reminted $$ pane key as the metadata-proven canonical key', async () => {
-    registerPtyHandlers(mainWindow as never)
+    registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
     const leafId = '11111111-1111-4111-8111-111111111111'
     const stablePaneKey = makePaneKey('tab-1', leafId)
     const remintedPaneKey = '$$MFRGGZDFMY:L$$'
@@ -512,7 +521,7 @@ describe('registerPtyHandlers', () => {
     )
   })
   it('aliases a reminted env token only onto this spawn metadata pane', async () => {
-    registerPtyHandlers(mainWindow as never)
+    registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
     const leafId = '22222222-2222-4222-8222-222222222222'
     const claimedPaneKey = makePaneKey('tab-2', leafId)
     const remintedPaneKey = '$$MFRGGZDFMY:L$$'
@@ -552,7 +561,8 @@ describe('registerPtyHandlers', () => {
     )
   })
   it('does not let an old PTY teardown clear a newer pane-key owner', async () => {
-    registerPtyHandlers(mainWindow as never)
+    const runtime = createPtyIpcAdmissionRuntime()
+    registerPtyHandlers(mainWindow, runtime)
     const leafId = '11111111-1111-4111-8111-111111111111'
     const stablePaneKey = makePaneKey('tab-1', leafId)
 
@@ -564,6 +574,9 @@ describe('registerPtyHandlers', () => {
       leafId,
       env: { ORCA_PANE_KEY: stablePaneKey }
     })) as { id: string }
+    // The runtime observes death before the old provider's deferred cleanup arrives.
+    await runtime.onPtyExit(first.id, 0, undefined, { providerExitObserved: true })
+    expect(getPtyIdForPaneKey(stablePaneKey)).toBe(first.id)
     const second = (await handlers.get('pty:spawn')!(null, {
       cols: 80,
       rows: 24,
@@ -573,6 +586,7 @@ describe('registerPtyHandlers', () => {
       env: { ORCA_PANE_KEY: stablePaneKey }
     })) as { id: string }
 
+    expect(second.id).not.toBe(first.id)
     expect(getPtyIdForPaneKey(stablePaneKey)).toBe(second.id)
     clearAgentHookPaneStateMock.mockClear()
     clearProviderPtyState(first.id)
@@ -585,7 +599,7 @@ describe('registerPtyHandlers', () => {
     expect(clearAgentHookPaneStateMock).toHaveBeenCalledWith(stablePaneKey)
   })
   it('does not let restart-era alias cleanup clear a newer pane-key owner', async () => {
-    registerPtyHandlers(mainWindow as never)
+    registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
     const leafId = '11111111-1111-4111-8111-111111111111'
     const stablePaneKey = makePaneKey('tab-1', leafId)
 

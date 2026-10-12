@@ -1,3 +1,4 @@
+import { withMaterialAdmission } from '../../../runtime/runtime-worktree-material-admission'
 import { rejectPaneSpawnReservation, reserveIdlePaneSpawn } from '../pane/spawn-reservation'
 import { ptySizes } from '../delivery/visibility-state'
 import {
@@ -37,71 +38,85 @@ function restoreProvisionalPtySize(ctx: PtyIpcSpawnState): void {
 }
 
 export async function runPtyIpcSpawn(deps: PtySpawnIpcDeps, args: PtySpawnIpcArgs) {
-  const ctx = createPtyIpcSpawnState(deps, args)
-  const replacedPaneKey =
-    args.replacesPtyId !== undefined ? resolveEarlyPaneSpawnReservationKey(args) : null
-  if (replacedPaneKey) {
-    // Why: hold the pane across the stop, so a spawn for it arriving meanwhile (a hidden tab
-    // revealed mid-restart) joins the replacement instead of reattaching the owner being stopped.
-    ctx.paneSpawnReservation = await reserveIdlePaneSpawn(replacedPaneKey)
-    ctx.paneSpawnReservationKey = replacedPaneKey
+  const actual = {
+    selector: args.worktreeId,
+    executionHostId: args.connectionId ? undefined : 'local',
+    cwd: deps.resolvePtySpawnStartupCwd(args.worktreeId, args.cwd),
+    connectionId: args.connectionId
   }
-  try {
-    if (args.replacesPtyId !== undefined) {
-      ctx.replacedPaneOwner = await stopReplacedPaneOwner(deps, {
-        replacesPtyId: args.replacesPtyId,
-        paneKey: resolveEarlyPaneKey(args),
-        worktreeId: args.worktreeId,
-        connectionId: args.connectionId
-      })
+  return withMaterialAdmission(
+    deps.runtime?.materialAdmissionAuthority,
+    actual,
+    async (material) => {
+      const ctx = createPtyIpcSpawnState(deps, args)
+      const replacedPaneKey =
+        args.replacesPtyId !== undefined ? resolveEarlyPaneSpawnReservationKey(args) : null
+      if (replacedPaneKey) {
+        // Why: hold the pane across the stop, so a spawn for it arriving meanwhile (a hidden tab
+        // revealed mid-restart) joins the replacement instead of reattaching the owner being stopped.
+        ctx.paneSpawnReservation = await reserveIdlePaneSpawn(replacedPaneKey)
+        ctx.paneSpawnReservationKey = replacedPaneKey
+      }
+      try {
+        material.revalidate({ ...actual, cwd: ctx.cwd || actual.cwd })
+        if (args.replacesPtyId !== undefined) {
+          ctx.replacedPaneOwner = await stopReplacedPaneOwner(deps, {
+            replacesPtyId: args.replacesPtyId,
+            paneKey: resolveEarlyPaneKey(args),
+            worktreeId: args.worktreeId,
+            connectionId: args.connectionId
+          })
+        }
+        triggerPtySpawnPushTargetMaterialization(deps, args)
+        const early = await beginPtyIpcSpawn(ctx)
+        if (early) {
+          return early
+        }
+        await preparePtyIpcSpawnPreflight(ctx)
+        await assemblePtyIpcSpawnEnv(ctx)
+        await preparePtyIpcQoderCommand(ctx)
+        const earlyReserved = await buildPtyIpcSpawnOptions(ctx).catch((error: unknown) => {
+          restoreProvisionalPtySize(ctx)
+          throw error
+        })
+        if (earlyReserved) {
+          // Why: this request lost the pane to the reservation winner, so its
+          // pre-allocated leader handle never binds to a PTY. Nothing else can
+          // evict the team env assembly created for it — exit/close cleanup keys
+          // off handleByPtyId — so every lost race would leak one team forever.
+          releaseAbandonedAgentTeamsLeader(ctx)
+          return earlyReserved
+        }
+        material.revalidate({ ...actual, cwd: ctx.cwd || actual.cwd })
+        await executePtyIpcSpawn(ctx)
+        return await commitPtyIpcSpawn(ctx)
+      } catch (err) {
+        releaseAbandonedAgentTeamsLeader(ctx)
+        if (ctx.preSpawnHiddenMarkId !== null) {
+          ctx.deps.transitionSpawnHiddenRendererPtyDeliveryState(ctx.preSpawnHiddenMarkId, false)
+        }
+        if (ctx.pendingRegistrationPtyId) {
+          deps.runtime?.cancelPendingPtyRegistration?.(
+            ctx.pendingRegistrationPtyId,
+            ctx.rejectedRegistrationCandidate?.incarnationId
+          )
+          ctx.pendingRegistrationPtyId = null
+        }
+        if (ctx.replacedPaneOwner) {
+          await releaseStoppedPaneBinding(deps.store, ctx.replacedPaneOwner)
+        }
+        // Why: once the reservation is created, any later throw —
+        // spawn failure, persist failure, or a post-spawn helper such as
+        // seedHeadlessTerminal/registerPty/track — must settle it. Otherwise
+        // it lingers in paneSpawnReservationsByOwnerKey and every future spawn
+        // for this pane awaits a promise that never resolves. reject is a
+        // no-op once the reservation has already resolved.
+        rejectPaneSpawnReservation(ctx.paneSpawnReservationKey, ctx.paneSpawnReservation, err)
+        throw err
+      } finally {
+        ctx.releaseWorktreeSpawn?.()
+        ctx.finishTerminalInstall()
+      }
     }
-    triggerPtySpawnPushTargetMaterialization(deps, args)
-    const early = await beginPtyIpcSpawn(ctx)
-    if (early) {
-      return early
-    }
-    await preparePtyIpcSpawnPreflight(ctx)
-    await assemblePtyIpcSpawnEnv(ctx)
-    await preparePtyIpcQoderCommand(ctx)
-    const earlyReserved = await buildPtyIpcSpawnOptions(ctx).catch((error: unknown) => {
-      restoreProvisionalPtySize(ctx)
-      throw error
-    })
-    if (earlyReserved) {
-      // Why: this request lost the pane to the reservation winner, so its
-      // pre-allocated leader handle never binds to a PTY. Nothing else can
-      // evict the team env assembly created for it — exit/close cleanup keys
-      // off handleByPtyId — so every lost race would leak one team forever.
-      releaseAbandonedAgentTeamsLeader(ctx)
-      return earlyReserved
-    }
-    await executePtyIpcSpawn(ctx)
-    return await commitPtyIpcSpawn(ctx)
-  } catch (err) {
-    releaseAbandonedAgentTeamsLeader(ctx)
-    if (ctx.preSpawnHiddenMarkId !== null) {
-      ctx.deps.transitionSpawnHiddenRendererPtyDeliveryState(ctx.preSpawnHiddenMarkId, false)
-    }
-    if (ctx.pendingRegistrationPtyId) {
-      deps.runtime?.cancelPendingPtyRegistration?.(
-        ctx.pendingRegistrationPtyId,
-        ctx.rejectedRegistrationCandidate?.incarnationId
-      )
-      ctx.pendingRegistrationPtyId = null
-    }
-    if (ctx.replacedPaneOwner) {
-      await releaseStoppedPaneBinding(deps.store, ctx.replacedPaneOwner)
-    }
-    // Why: once the reservation is created, any later throw —
-    // spawn failure, persist failure, or a post-spawn helper such as
-    // seedHeadlessTerminal/registerPty/track — must settle it. Otherwise
-    // it lingers in paneSpawnReservationsByOwnerKey and every future spawn
-    // for this pane awaits a promise that never resolves. reject is a
-    // no-op once the reservation has already resolved.
-    rejectPaneSpawnReservation(ctx.paneSpawnReservationKey, ctx.paneSpawnReservation, err)
-    throw err
-  } finally {
-    ctx.releaseWorktreeSpawn?.()
-    ctx.finishTerminalInstall()
-  }
+  )
 }

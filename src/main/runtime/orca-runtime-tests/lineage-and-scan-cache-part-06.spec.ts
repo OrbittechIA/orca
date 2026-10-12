@@ -1,8 +1,10 @@
-import { describe, expect, it, vi } from 'vitest'
+import type { MaterialManifest } from '../../../shared/worktree/material-types'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import {
   AGENT_STATUS_STALE_AFTER_MS,
   MOCK_GIT_WORKTREES,
   OrcaRuntimeService,
+  OrchestrationDb,
   computeWorktreePathMock,
   ensurePathWithinWorkspaceMock,
   listWorktrees,
@@ -250,13 +252,48 @@ describe('OrcaRuntimeService', () => {
     }
     const runtime = new OrcaRuntimeService(runtimeStore as never)
     const workerHandle = runtime.preAllocateHandleForPty('pty-worker')
-    runtime.setOrchestrationDb({
-      getDispatchContext: vi.fn(() => ({
-        task_id: 'task_abc123',
-        assignee_handle: workerHandle,
-        status: 'completed'
-      }))
-    } as never)
+    const db = new OrchestrationDb(':memory:')
+    onTestFinished(() => db.close())
+    runtime.setOrchestrationDb(
+      Object.assign(db, {
+        // This dispatch-only double owns no pending material receipts.
+        readPendingMaterialClaims(): MaterialManifest[] {
+          return []
+        },
+        hasAnyDispatchContexts: vi.fn(() => true),
+        getDispatchContext: vi.fn<InstanceType<typeof OrchestrationDb>['getDispatchContext']>(
+          () => ({
+            id: 'dispatch-task_abc123',
+            run_id: 'run-1',
+            task_id: 'task_abc123',
+            contract_version: 1,
+            launch_token_hash: null,
+            assignee_handle: workerHandle,
+            assignee_pane_key: null,
+            assignee_orca_session_id: null,
+            capability_hash: null,
+            process_incarnation: null,
+            capability_revoked_at: null,
+            retry_of_dispatch_id: null,
+            creator_dispatch_id: null,
+            creator_handle: null,
+            creator_pane_key: null,
+            creator_orca_session_id: null,
+            host_scope: null,
+            status: 'completed',
+            failure_count: 0,
+            last_failure: null,
+            termination_reason: null,
+            depth: 0,
+            consumer_generation: 0,
+            dispatched_at: null,
+            completed_at: '2026-01-01T00:00:00.000Z',
+            created_at: '2026-01-01T00:00:00.000Z',
+            last_heartbeat_at: null
+          })
+        )
+      } satisfies Partial<InstanceType<typeof OrchestrationDb>>)
+    )
     runtime.attachWindow(1)
     runtime.syncWindowGraph(1, {
       tabs: [
@@ -348,13 +385,40 @@ describe('OrcaRuntimeService', () => {
     }
     const runtime = new OrcaRuntimeService(runtimeStore as never)
     const parentHandle = runtime.preAllocateHandleForPty('pty-parent')
-    runtime.setOrchestrationDb({
-      getDispatchContext: vi.fn(() => undefined),
-      getTask: vi.fn(() => ({
-        id: 'task_creator123',
-        created_by_terminal_handle: parentHandle
-      }))
-    } as never)
+    const db = new OrchestrationDb(':memory:')
+    onTestFinished(() => db.close())
+    runtime.setOrchestrationDb(
+      Object.assign(db, {
+        // This dispatch-only double owns no pending material receipts.
+        readPendingMaterialClaims(): MaterialManifest[] {
+          return []
+        },
+        getDispatchContext: vi.fn(() => undefined),
+        getTask: vi.fn(
+          (): NonNullable<ReturnType<InstanceType<typeof OrchestrationDb>['getTask']>> => ({
+            id: 'task_creator123',
+            run_id: 'run-1',
+            parent_id: null,
+            created_by_terminal_handle: parentHandle,
+            created_by_pane_key: null,
+            created_by_process_incarnation: null,
+            created_by_run_generation: null,
+            task_title: null,
+            display_name: null,
+            spec: '',
+            status: 'pending',
+            deps: '[]',
+            result: null,
+            created_at: '2026-01-01T00:00:00.000Z',
+            completed_at: null,
+            creator_dispatch_id: null,
+            creator_dispatch_run_id: null,
+            creator_dispatch_pane_key: null,
+            creator_dispatch_process_incarnation: null
+          })
+        )
+      } satisfies Partial<InstanceType<typeof OrchestrationDb>>)
+    )
     runtime.attachWindow(1)
     runtime.syncWindowGraph(1, {
       tabs: [

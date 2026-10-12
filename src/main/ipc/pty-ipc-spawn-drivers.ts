@@ -1,24 +1,24 @@
+import type { PtyIpcTestMainWindow } from './pty-ipc-suite-environment'
+import { OrcaRuntimeService } from '../runtime/orca-runtime'
 import { vi } from 'vitest'
 import type { TuiAgent } from '../../shared/tui-agent'
 import { registerPtyHandlers } from './pty'
 import { accessSyncMock, spawnMock, statSyncMock } from './pty-ipc-mock-registry'
 import { BUNDLED_CLI_PATH, BUNDLED_RESOURCES_PATH } from './pty-ipc-test-constants'
 
-type IpcHandlerMap = Map<string, (_event: unknown, args: unknown) => unknown>
-
-/** The mocked BrowserWindow the suites hand these drivers; only webContents is exercised. */
-type MockMainWindow = {
-  webContents: {
-    on: ReturnType<typeof vi.fn>
-    send: ReturnType<typeof vi.fn>
-    removeListener: ReturnType<typeof vi.fn>
-  }
+export function createPtyIpcAdmissionRuntime() {
+  const runtime = new OrcaRuntimeService()
+  // These provider fixtures have no orchestration ledger. Keep the real admission/hold logic.
+  runtime.materialAdmissionAuthority.readPendingClaims = () => []
+  return runtime
 }
+
+type IpcHandlerMap = Map<string, (_event: unknown, args: unknown) => unknown>
 
 /** pty:spawn drivers shared by the split pty IPC suites. */
 export function createPtyIpcSpawnDrivers(ctx: {
   handlers: IpcHandlerMap
-  mainWindow: MockMainWindow
+  mainWindow: PtyIpcTestMainWindow
   createMockProc: () => { emitData: (data: string) => void }
 }) {
   const { handlers, mainWindow, createMockProc } = ctx
@@ -59,8 +59,8 @@ export function createPtyIpcSpawnDrivers(ctx: {
       // Clear previously registered handlers so re-registration doesn't accumulate stale state.
       handlers.clear()
       registerPtyHandlers(
-        mainWindow as never,
-        undefined,
+        mainWindow,
+        createPtyIpcAdmissionRuntime(),
         getSelectedCodexHomePath,
         getSettings as never
       )
@@ -92,7 +92,7 @@ export function createPtyIpcSpawnDrivers(ctx: {
     command?: string
   }): Promise<[string, string[], { cwd: string; env: Record<string, string> }]> {
     handlers.clear()
-    registerPtyHandlers(mainWindow as never)
+    registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
     await handlers.get('pty:spawn')!(null, {
       cols: 80,
       rows: 24,
@@ -145,7 +145,7 @@ export function createPtyIpcSpawnDrivers(ctx: {
   async function spawnAndSaturateRendererDeliveryGate(
     mockProc: ReturnType<typeof createMockProc>
   ): Promise<{ id: string }> {
-    registerPtyHandlers(mainWindow as never)
+    registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
     const spawnResult = (await handlers.get('pty:spawn')!(null, {
       cols: 80,
       rows: 24,

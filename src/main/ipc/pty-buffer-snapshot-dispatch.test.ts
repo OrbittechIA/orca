@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { describe, expect, it, vi } from 'vitest'
 import { onMock, spawnMock, trackMock, classifyErrorMock } from './pty-ipc-mock-registry'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
@@ -61,7 +62,7 @@ describe('registerPtyHandlers', () => {
     // Why: telemetry-plan.md§Agent launch semantics — agent_started fires only after provider.spawn resolves; a malformed payload must not emit a silent event.
     it('emits agent_started after a successful spawn when telemetry is supplied', async () => {
       handlers.clear()
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -79,13 +80,13 @@ describe('registerPtyHandlers', () => {
     })
     it('does not emit agent_started when telemetry is omitted (bare-shell tab)', async () => {
       handlers.clear()
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       await handlers.get('pty:spawn')!(null, { cols: 80, rows: 24 })
       expect(trackMock).not.toHaveBeenCalled()
     })
     it('drops the event when any telemetry field is outside its closed enum', async () => {
       handlers.clear()
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -114,7 +115,7 @@ describe('registerPtyHandlers', () => {
       } as never)
       classifyErrorMock.mockReturnValue({ error_class: 'unknown' })
       handlers.clear()
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       await expect(
         handlers.get('pty:spawn')!(null, {
           cols: 80,
@@ -422,6 +423,7 @@ describe('registerPtyHandlers', () => {
       const mockProc = createMockProc()
       spawnMock.mockReturnValue(mockProc.proc)
       const runtime = {
+        materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
         setPtyController: vi.fn(),
         registerPty: vi.fn(),
         noteTerminalSpawnCommand: vi.fn(),

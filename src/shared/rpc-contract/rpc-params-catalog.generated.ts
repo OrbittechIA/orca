@@ -554,6 +554,11 @@ import { UpdaterCheckParams } from './updater-params'
 import { WorkspacePortKillParams, WorkspacePortScanParams } from './workspace-ports-params'
 import { WorktreeCreate, WorktreePrefetchCreateBase } from './worktree-create-params'
 import {
+  WorktreeMaterialPlan,
+  WorktreeMaterialRestore,
+  WorktreeMaterialShow
+} from './worktree-material-params'
+import {
   WorktreeActivate,
   WorktreeDetectedListParams,
   WorktreeForceDeleteBranch,
@@ -1242,6 +1247,9 @@ export const RPC_PARAMS_BY_METHOD = {
   'worktree.lineageList': null,
   'worktree.list': WorktreeListParams,
   'worktree.listRetiredNames': WorktreeDetectedListParams,
+  'worktree.materialPlan': WorktreeMaterialPlan,
+  'worktree.materialRestore': WorktreeMaterialRestore,
+  'worktree.materialShow': WorktreeMaterialShow,
   'worktree.persistSortOrder': WorktreeSortOrder,
   'worktree.prefetchCreateBase': WorktreePrefetchCreateBase,
   'worktree.ps': WorktreePsParams,

@@ -1,4 +1,5 @@
 // @ts-nocheck -- mechanically split from OrcaRuntimeService; behavior is covered by AST equivalence and characterization tests.
+import type { MaterialAdmissionHold } from './runtime-worktree-material-admission'
 import { OrcaRuntimeWithTerminalCreateDeduplication } from './orca-runtime-terminal-create-deduplication'
 import * as dependencies from './orca-runtime-create-terminal-dependencies'
 import { createDesktopTerminal } from './orca-runtime-create-terminal-desktop'
@@ -11,30 +12,38 @@ export class OrcaRuntimeWithCreateTerminal extends OrcaRuntimeWithTerminalCreate
     worktreeSelector?: string,
     opts: dependencies.TerminalCreateOptions = {},
     // Internal creation evidence; RPC and preload callers never supply it.
-    created?: dependencies.Worktree
+    created?: dependencies.Worktree,
+    material?: MaterialAdmissionHold
   ): Promise<dependencies.RuntimeTerminalCreate> {
+    // The concrete runtime acquires and releases this internal hold before delegating.
     if (opts.startupAgent && worktreeSelector === undefined) {
       throw new Error(`startupAgent ${opts.startupAgent} requires a workspace selector.`)
     }
-    const callerColors = dependencies.normalizeColorQueryReplyColors(opts.terminalColorQueryReplies)
+    const colors = dependencies.normalizeColorQueryReplyColors(opts.terminalColorQueryReplies)
     // Older paired clients report their theme only at creation.
-    if (callerColors) {
-      dependencies.setPairedViewerColors(callerColors)
+    if (colors) {
+      dependencies.setPairedViewerColors(colors)
     }
     const presentation = dependencies.resolveTerminalPresentation(opts)
     const requiresRendererFocus = opts.presentation === 'focused' || opts.focus === true
-    const availableAuthoritativeWindow = this.getAvailableAuthoritativeWindow()
-    const rendererWindow = opts.rendererBacked === true ? availableAuthoritativeWindow : null
+    const authoritativeWindow = this.getAvailableAuthoritativeWindow()
     const shouldCreateInBackground =
       worktreeSelector !== undefined &&
       (Boolean(opts.agentSessionClaim) ||
         (!requiresRendererFocus && opts.rendererBacked !== true) ||
-        availableAuthoritativeWindow === null)
+        authoritativeWindow === null)
     if (shouldCreateInBackground) {
       if (!this.ptyController?.spawn) {
         throw new Error('runtime_unavailable')
       }
-      const workspace = await this.resolveTerminalWorkspaceLaunchScope(worktreeSelector, created)
+      const pinned = material.selector ?? worktreeSelector
+      const workspace = await this.resolveTerminalWorkspaceLaunchScope(pinned, created)
+      const binding = {
+        selector: workspace.id,
+        cwd: workspace.path,
+        connectionId: workspace.connectionId
+      }
+      material.revalidate(binding)
       const launchOpts = await this.resolveAgentTerminalCreateOptions(workspace, opts)
       const reportPtySpawnCommitted = createPtySpawnCommitReporter(launchOpts.onPtySpawnCommitted)
       const cwd =
@@ -42,25 +51,23 @@ export class OrcaRuntimeWithCreateTerminal extends OrcaRuntimeWithTerminalCreate
       let preAllocatedHandle =
         launchOpts.preAllocatedHandle ?? this.createPreAllocatedTerminalHandle()
       let { tabId, leafId, paneKey } = dependencies.allocateTerminalPaneIdentity(launchOpts)
-      const claimedStablePaneCreate = this.ptyController.claimStablePaneCreate?.({
+      let claimedStablePaneCreate = this.ptyController.claimStablePaneCreate?.({
         worktreeId: workspace.id,
         connectionId: workspace.connectionId,
         tabId,
         leafId
       })
-      let stablePaneCreateReleased = false
       const releaseStablePaneCreate = (): void => {
-        if (stablePaneCreateReleased) {
-          return
-        }
-        stablePaneCreateReleased = true
-        claimedStablePaneCreate?.()
+        const release = claimedStablePaneCreate
+        claimedStablePaneCreate = undefined
+        release?.()
       }
       try {
         if (launchOpts.signal?.aborted) {
           throw new Error('client_disconnected')
         }
-        const adoptedBeforeLaunch = await this.ptyController.adoptStablePane?.({
+        material.revalidate({ ...binding, cwd })
+        const pane = {
           cols: 120,
           rows: 40,
           cwd,
@@ -69,7 +76,8 @@ export class OrcaRuntimeWithCreateTerminal extends OrcaRuntimeWithTerminalCreate
           preAllocatedHandle,
           tabId,
           leafId
-        })
+        }
+        const adoptedBeforeLaunch = await this.ptyController.adoptStablePane?.(pane)
         const launchToken = launchOpts.launchConfig
           ? (launchOpts.launchToken ?? dependencies.randomUUID())
           : undefined
@@ -77,38 +85,33 @@ export class OrcaRuntimeWithCreateTerminal extends OrcaRuntimeWithTerminalCreate
           ...launchOpts.env,
           ...(launchToken ? { ORCA_AGENT_LAUNCH_TOKEN: launchToken } : {})
         }
-        let agentTeamsPlan: Awaited<ReturnType<typeof dependencies.buildClaudeAgentTeamsLaunchPlan>>
-        let sequencedStartupCommand: string | undefined
-        let effectiveLaunchConfig = launchOpts.launchConfig
-        try {
-          const agentTeams = await buildRuntimeAgentTeamsLaunchPlan({
-            launchConfig: launchOpts.launchConfig,
-            command: launchOpts.command,
-            claudeAgentTeamsSourceCommand: launchOpts.claudeAgentTeamsSourceCommand,
-            claudeAgentTeamsMode: this.store?.getSettings?.().claudeAgentTeamsMode,
-            baseEnv: { ...process.env, ...baseEnv },
-            adoptedBeforeLaunch,
-            createTeamEnv: (shimDir, shimBin) =>
-              this.claudeAgentTeams.createLaunchEnv({
-                leaderHandle: preAllocatedHandle,
-                baseEnv: { ...process.env, ...baseEnv },
-                shimDir,
-                shimBin
-              }).env
-          })
-          agentTeamsPlan = agentTeams.plan
-          sequencedStartupCommand = agentTeams.sequencedStartupCommand
-          effectiveLaunchConfig = agentTeams.effectiveLaunchConfig
-        } catch (error) {
-          releaseStablePaneCreate?.()
-          throw error
-        }
+        const {
+          plan: agentTeamsPlan,
+          sequencedStartupCommand,
+          effectiveLaunchConfig
+        } = await buildRuntimeAgentTeamsLaunchPlan({
+          launchConfig: launchOpts.launchConfig,
+          command: launchOpts.command,
+          claudeAgentTeamsSourceCommand: launchOpts.claudeAgentTeamsSourceCommand,
+          claudeAgentTeamsMode: this.store?.getSettings?.().claudeAgentTeamsMode,
+          baseEnv: { ...process.env, ...baseEnv },
+          adoptedBeforeLaunch,
+          createTeamEnv: (shimDir, shimBin) =>
+            this.claudeAgentTeams.createLaunchEnv({
+              leaderHandle: preAllocatedHandle,
+              baseEnv: { ...process.env, ...baseEnv },
+              shimDir,
+              shimBin
+            }).env
+        })
         const env = await this.buildTerminalWorkspaceEnv(
           workspace,
           {
             ...baseEnv,
             ...(sequencedStartupCommand
-              ? { [dependencies.SETUP_AGENT_SEQUENCE_STARTUP_COMMAND_ENV]: sequencedStartupCommand }
+              ? {
+                  [dependencies.SETUP_AGENT_SEQUENCE_STARTUP_COMMAND_ENV]: sequencedStartupCommand
+                }
               : {})
           },
           paneKey,
@@ -122,11 +125,13 @@ export class OrcaRuntimeWithCreateTerminal extends OrcaRuntimeWithTerminalCreate
         let result: Awaited<ReturnType<NonNullable<dependencies.RuntimePtyController['spawn']>>>
         try {
           const { launchAgent } = launchOpts
-          launchOpts.onPtySpawnDispatched?.({ launchConfig: effectiveLaunchConfig, launchAgent })
+          material.revalidate({ ...binding, cwd })
+          launchOpts.onPtySpawnDispatched?.({
+            launchConfig: effectiveLaunchConfig,
+            launchAgent
+          })
           result = await this.ptyController.spawn({
-            cols: 120,
-            rows: 40,
-            cwd,
+            ...pane,
             command: sequencedStartupCommand
               ? launchOpts.command
               : (agentTeamsPlan?.command ?? launchOpts.command),
@@ -140,11 +145,6 @@ export class OrcaRuntimeWithCreateTerminal extends OrcaRuntimeWithTerminalCreate
             ),
             resumeProviderSession: launchOpts.resumeProviderSession,
             telemetry: launchOpts.telemetry,
-            connectionId: workspace.connectionId,
-            worktreeId: workspace.id,
-            preAllocatedHandle,
-            tabId,
-            leafId,
             ...(launchOpts.shellOverride ? { shellOverride: launchOpts.shellOverride } : {}),
             ...(terminalColorQueryReplies ? { terminalColorQueryReplies } : {}),
             terminalKittyKeyboardProtocol: launchOpts.terminalKittyKeyboardProtocol,
@@ -292,14 +292,15 @@ export class OrcaRuntimeWithCreateTerminal extends OrcaRuntimeWithTerminalCreate
         releaseStablePaneCreate()
       }
     }
+    const selected = await this.admitDesktopMaterial(worktreeSelector, opts, created, material)
     // The renderer owns this spawn, so this process cannot see when it is requested.
     opts.onPtySpawnDispatched?.()
-    return createDesktopTerminal(
+    return await createDesktopTerminal(
       this,
-      worktreeSelector,
+      selected,
       opts,
       presentation,
-      rendererWindow,
+      opts.rendererBacked === true ? authoritativeWindow : null,
       created
     )
   }

@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { describe, expect, it, vi } from 'vitest'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
 import { makePaneKey } from '../../shared/stable-pane-id'
@@ -71,6 +72,7 @@ describe('pty spawn placement threading', () => {
     const store = { persistPtyBinding: vi.fn(async () => true) }
     let controller: RuntimeSpawnController | null = null
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn((value) => {
         controller = value
       }),

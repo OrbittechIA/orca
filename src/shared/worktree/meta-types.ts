@@ -16,6 +16,20 @@ import type { DiffComment, MobileDiffReviewState } from '../diff-comment-types'
 
 // ─── Worktree metadata (persisted user-authored fields only) ─────────
 export type WorktreeMeta = {
+  /** Retained before any material instance rotation; never projected to public worktree JSON. */
+  materialHistory?: {
+    schemaVersion: 1
+    worktreeId?: string
+    representations?: {
+      legacy: boolean
+      canonicalKeys: string[]
+      aliases: Record<string, string[]>
+    }
+    requestId: string
+    historicalInstanceId: string | null
+    metadataDigest: string
+    snapshot: WorktreeMeta
+  }
   /** Immutable per-workspace-instance ID used to reject stale lineage after path reuse. */
   instanceId?: string
   /** See Worktree.projectId. Persisted for project-first workspace ownership. */

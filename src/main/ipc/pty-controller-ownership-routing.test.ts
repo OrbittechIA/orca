@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { describe, expect, it, vi } from 'vitest'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
 import type { AgentSessionOwnerBinding } from '../../shared/agent-session-host-authority'
@@ -409,6 +410,7 @@ describe('registerPtyHandlers', () => {
       clearSshRemotePtyKillIntent: vi.fn()
     }
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       createPreAllocatedTerminalHandle: vi.fn(() => 'term_renderer_exited'),
       preAllocateHandleForPty: vi.fn(() => 'term_renderer_exited'),

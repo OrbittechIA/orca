@@ -5,6 +5,7 @@ import { setupPtyIpcSuite } from './pty-ipc-test-harness'
 import { createDaemonActiveProviderFixtures } from './pty-ipc-daemon-provider-fixtures'
 import { ManagedCodexHomeTemporarilyUnavailableError } from '../codex-accounts/host-codex-managed-home-ownership'
 import { registerPtyHandlers } from './pty'
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 
 vi.mock('electron', () => import('./pty-ipc-mock-registry').then((m) => m.electronModuleMock()))
 vi.mock('fs', () => import('./pty-ipc-mock-registry').then((m) => m.fsModuleMock()))
@@ -80,7 +81,11 @@ describe('registerPtyHandlers Codex launch refusal on an unreadable managed home
   const { setupDaemonAdapter } = createDaemonActiveProviderFixtures({ handlers, mainWindow })
 
   function makeRuntime() {
+    const admissionRuntime = createPtyIpcAdmissionRuntime()
     return {
+      materialAdmissionAuthority: admissionRuntime.materialAdmissionAuthority,
+      createPreAllocatedTerminalHandle:
+        admissionRuntime.createPreAllocatedTerminalHandle.bind(admissionRuntime),
       setPtyController: vi.fn(),
       registerPty: vi.fn(),
       noteTerminalSpawnCommand: vi.fn(),
@@ -96,7 +101,7 @@ describe('registerPtyHandlers Codex launch refusal on an unreadable managed home
       env?: NodeJS.ProcessEnv,
       context?: { unavailableManagedHomePath?: string; launchesCodex?: boolean }
     ) => string | null,
-    runtime?: ReturnType<typeof makeRuntime>,
+    runtime: ReturnType<typeof makeRuntime> = makeRuntime(),
     prepareCodexSessionResume?: () => Promise<never>
   ): void {
     handlers.clear()

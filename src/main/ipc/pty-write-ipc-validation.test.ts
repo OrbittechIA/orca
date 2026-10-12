@@ -1,3 +1,5 @@
+import { createGlobalSettingsFixture } from '../../shared/global-settings-test-fixture'
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { describe, expect, it, vi } from 'vitest'
 import { spawnMock, recordCodexPaneAccountMock } from './pty-ipc-mock-registry'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
@@ -68,7 +70,7 @@ describe('registerPtyHandlers', () => {
   it('acknowledges pty writes only for owned PTYs', async () => {
     const mockProc = createMockProc()
     spawnMock.mockReturnValue(mockProc.proc)
-    registerPtyHandlers(mainWindow as never)
+    registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
     const result = (await handlers.get('pty:spawn')!(null, {
       cols: 80,
       rows: 24
@@ -94,7 +96,7 @@ describe('registerPtyHandlers', () => {
       throw new PtyWriteUnavailableError('daemon generation lost')
     })
     installDaemonTestProvider({ write })
-    registerPtyHandlers(mainWindow as never)
+    registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
     const result = (await handlers.get('pty:spawn')!(null, {
       cols: 80,
       rows: 24
@@ -111,7 +113,7 @@ describe('registerPtyHandlers', () => {
   it('rejects malformed and cross-window pty write IPC before provider writes', async () => {
     const mockProc = createMockProc()
     spawnMock.mockReturnValue(mockProc.proc)
-    registerPtyHandlers(mainWindow as never)
+    registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
     const result = (await handlers.get('pty:spawn')!(null, {
       cols: 80,
       rows: 24
@@ -136,7 +138,7 @@ describe('registerPtyHandlers', () => {
   it('silently drops writes to a live PTY after ownership loss until pty:listSessions rebuilds it (frozen-terminal repro)', async () => {
     const mockProc = createMockProc()
     spawnMock.mockReturnValue(mockProc.proc)
-    registerPtyHandlers(mainWindow as never)
+    registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
     const result = (await handlers.get('pty:spawn')!(null, {
       cols: 80,
       rows: 24
@@ -159,7 +161,7 @@ describe('registerPtyHandlers', () => {
   it('chunks large acknowledged pty writes before provider writes', async () => {
     const mockProc = createMockProc()
     spawnMock.mockReturnValue(mockProc.proc)
-    registerPtyHandlers(mainWindow as never)
+    registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
     const result = (await handlers.get('pty:spawn')!(null, {
       cols: 80,
       rows: 24
@@ -179,7 +181,7 @@ describe('registerPtyHandlers', () => {
   it('yields while validating accepted large acknowledged pty writes before provider writes', async () => {
     const mockProc = createMockProc()
     spawnMock.mockReturnValue(mockProc.proc)
-    registerPtyHandlers(mainWindow as never)
+    registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
     const result = (await handlers.get('pty:spawn')!(null, {
       cols: 80,
       rows: 24
@@ -202,7 +204,7 @@ describe('registerPtyHandlers', () => {
   it('rejects oversized acknowledged pty writes before provider writes', async () => {
     const mockProc = createMockProc()
     spawnMock.mockReturnValue(mockProc.proc)
-    registerPtyHandlers(mainWindow as never)
+    registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
     const result = (await handlers.get('pty:spawn')!(null, {
       cols: 80,
       rows: 24
@@ -233,6 +235,7 @@ describe('registerPtyHandlers', () => {
       getForegroundProcess: vi.fn(async () => null)
     } as never)
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       noteTerminalSpawnCommand: vi.fn(),
       getPtyOutputSequence: vi.fn().mockReturnValue(7),
@@ -271,6 +274,7 @@ describe('registerPtyHandlers', () => {
       getForegroundProcess: vi.fn(async () => null)
     } as never)
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       noteTerminalSpawnCommand: vi.fn(),
       getPtyOutputSequence: vi.fn().mockReturnValue(7),
@@ -309,6 +313,7 @@ describe('registerPtyHandlers', () => {
       getForegroundProcess: vi.fn(async () => null)
     } as never)
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn(),
       noteTerminalSpawnCommand: vi.fn(),
       // 7 at spawn start, 20 at reconcile: bytes arrived during the spawn RPC.
@@ -348,8 +353,9 @@ describe('registerPtyHandlers', () => {
       listProcesses: vi.fn(async () => []),
       getForegroundProcess: vi.fn(async () => null)
     } as never)
-    const getSettings = vi.fn().mockReturnValue({ activeCodexManagedAccountId: 'account-a' })
-    registerPtyHandlers(mainWindow as never, undefined, undefined, getSettings as never)
+    const settings = createGlobalSettingsFixture({ activeCodexManagedAccountId: 'account-a' })
+    const getSettings = vi.fn(() => settings)
+    registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime(), undefined, getSettings)
 
     const nativeCodexEnv = { CODEX_HOME: '', ORCA_CODEX_HOME: '' }
     await handlers.get('pty:spawn')!(null, { cols: 80, rows: 24, env: nativeCodexEnv })
@@ -384,7 +390,7 @@ describe('registerPtyHandlers', () => {
       listProcesses: vi.fn(async () => []),
       getForegroundProcess: vi.fn(async () => null)
     } as never)
-    registerPtyHandlers(mainWindow as never)
+    registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
 
     try {
       await handlers.get('pty:spawn')!(null, { cols: 80, rows: 24, sessionId: 'pty-wsl' })

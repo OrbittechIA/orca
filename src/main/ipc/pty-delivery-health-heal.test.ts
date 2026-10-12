@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { describe, expect, it, vi } from 'vitest'
 import { spawnMock } from './pty-ipc-mock-registry'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
@@ -73,11 +74,17 @@ describe('registerPtyHandlers', () => {
       isFocused: () => true,
       isVisible: () => true,
       isMinimized: () => false,
-      webContents: { on: vi.fn(), send: vi.fn(), removeListener: vi.fn() }
+      webContents: {
+        id: 1,
+        isDestroyed: () => destroyed,
+        on: vi.fn(),
+        send: vi.fn(),
+        removeListener: vi.fn()
+      }
     }
 
     try {
-      registerPtyHandlers(destroyableWindow as never)
+      registerPtyHandlers(destroyableWindow, createPtyIpcAdmissionRuntime())
       await handlers.get('pty:spawn')!(null, { cols: 80, rows: 24, cwd: '/tmp' })
       destroyableWindow.webContents.send.mockClear()
       mockProc.emitData('x'.repeat(600 * 1024))
@@ -168,7 +175,9 @@ describe('registerPtyHandlers', () => {
       })
 
       // 512 KiB never-received is written off; the 88 KiB pending is dropped too (snapshot restore covers everything at/before the marker).
-      expect(healed.writtenOff).toEqual([{ id: spawnResult.id, writtenOffChars: 512 * 1024 }])
+      expect(healed.writtenOff).toEqual([
+        { id: spawnResult.id, writtenOffChars: 512 * 1024, markerSeq: 600 * 1024 }
+      ])
       expect(healed).toMatchObject({ inFlightTotalChars: 0, inFlightPtyCount: 0 })
       expect(getPtyRendererDeliveryDebugSnapshot()).toMatchObject({
         rendererInFlightChars: 0,
@@ -289,7 +298,9 @@ describe('registerPtyHandlers', () => {
         processedCharsByPty: {},
         heal: true
       })
-      expect(healed.writtenOff).toEqual([{ id: spawnResult.id, writtenOffChars: 512 * 1024 }])
+      expect(healed.writtenOff).toEqual([
+        { id: spawnResult.id, writtenOffChars: 512 * 1024, markerSeq: 600 * 1024 }
+      ])
     } finally {
       vi.useRealTimers()
     }

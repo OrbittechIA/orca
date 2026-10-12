@@ -41,6 +41,7 @@ import { getOptionalWorktreeUnreadFlag } from './worktree-unread-flag'
 import { getReviewTargetLinkFlags } from './worktree-review-link-flags'
 import { withSetupDecisionRecovery } from './worktree-setup-decision-recovery'
 import { assertGitLabLinkFlagProjectsMatch } from './worktree-gitlab-link-context'
+import { WORKTREE_MATERIAL_HANDLERS } from './worktree-material'
 
 function getEnvParentWorkspace(): string | undefined {
   const workspaceId = process.env.ORCA_WORKSPACE_ID
@@ -138,6 +139,7 @@ async function getCreateRepoSelector(
 }
 
 export const WORKTREE_HANDLERS: Record<string, CommandHandler> = {
+  ...WORKTREE_MATERIAL_HANDLERS,
   'worktree ps': async ({ flags, client, json }) => {
     const result = await client.call<WithAnnotatedHostScope<RuntimeWorktreePsResult>>(
       'worktree.ps',

@@ -1,4 +1,5 @@
 import '../unused-default-rpc-methods.test-fixture'
+import { acquireMaterialAdmission } from '../../runtime-worktree-material-admission'
 /**
  * A chat tab's pointer to the conversation it shows, driven end to end: a real record store on disk,
  * the real structured host, the real runtime, and the real RPC handlers. Only the provider is faked.
@@ -121,11 +122,17 @@ export async function call(
 }
 
 export async function createChat(sessionId: string, tabId?: string) {
+  const materialAdmission = await acquireMaterialAdmission(runtime.materialAdmissionAuthority, {
+    selector: HOST_TEST_LOCATION.workspaceId,
+    executionHostId: HOST_TEST_LOCATION.executionHostId
+  })
   return commitStructuredAgentSessionCreate({
     runtime,
     caller,
     activate: true,
     prepared: {
+      materialAdmission,
+      releaseWorktreeLifecycle: () => materialAdmission.release(),
       host,
       attachParams: hostTestAttachParams(null, {
         envelope: {
@@ -187,6 +194,7 @@ beforeEach(async () => {
   closeSession = vi.fn(async () => true)
   directory = await mkdtemp(join(tmpdir(), 'orca-chat-tab-table-'))
   runtime = new OrcaRuntimeService()
+  runtime.materialAdmissionAuthority.readPendingClaims = () => []
   vi.spyOn(runtime, 'getClientSettings').mockReturnValue(
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the structured-chat policy reads only this one setting on these paths.
     { experimentalNativeChat: true } as ReturnType<OrcaRuntimeService['getClientSettings']>

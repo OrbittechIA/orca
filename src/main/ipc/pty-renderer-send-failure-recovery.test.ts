@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { describe, expect, it, vi } from 'vitest'
 import { spawnMock } from './pty-ipc-mock-registry'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
@@ -152,7 +153,7 @@ describe('registerPtyHandlers', () => {
     const mockProc = createMockProc()
     spawnMock.mockReturnValue(mockProc.proc)
     try {
-      registerPtyHandlers(mainWindow as never)
+      registerPtyHandlers(mainWindow, createPtyIpcAdmissionRuntime())
       const spawn = (await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
@@ -172,7 +173,9 @@ describe('registerPtyHandlers', () => {
       writePty(mainWindowIpcEvent, { id: spawn.id, data: 'x' })
       mockProc.emitData('redraw')
 
-      expect(getPtyDataSendCalls()).toEqual([['pty:data', { id: spawn.id, data: 'older-redraw' }]])
+      expect(getPtyDataSendCalls()).toEqual([
+        ['pty:data', { id: spawn.id, data: 'older-redraw', seq: 12, rawLength: 12 }]
+      ])
       expect(getPtyRendererDeliveryDebugSnapshot()).toMatchObject({
         pendingPtyCount: 0,
         pendingChars: 0,
@@ -184,7 +187,8 @@ describe('registerPtyHandlers', () => {
       mockProc.emitData('recovery')
       expect(mainWindow.webContents.send).toHaveBeenCalledWith('pty:modelRestoreNeeded', {
         id: spawn.id,
-        reason: 'delivery-heal'
+        reason: 'delivery-heal',
+        markerSeq: 20
       })
     } finally {
       errorSpy.mockRestore()

@@ -1,3 +1,4 @@
+import { createPtyIpcAdmissionRuntime } from './pty-ipc-spawn-drivers'
 import { describe, expect, it, vi } from 'vitest'
 import {
   wslUncDirectoryExistsAsyncMock,
@@ -90,6 +91,7 @@ describe('registerPtyHandlers', () => {
     } as never)
     let controller: RuntimeSpawnController | null = null
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn((value) => {
         controller = value
       }),
@@ -173,6 +175,7 @@ describe('registerPtyHandlers', () => {
     } as never)
     let controller: RuntimeSpawnController | null = null
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn((value) => {
         controller = value
       }),
@@ -298,6 +301,7 @@ describe('registerPtyHandlers', () => {
     let registeredPane: { ptyId: string; tabId: string; leafId: string } | null = null
     let controller: RuntimeSpawnController | null = null
     const runtime = {
+      materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
       setPtyController: vi.fn((value) => {
         controller = value
       }),
@@ -501,6 +505,7 @@ describe('registerPtyHandlers', () => {
       const onCodexHomePtySpawned = vi.fn()
       let controller: RuntimeSpawnController | null = null
       const runtime = {
+        materialAdmissionAuthority: createPtyIpcAdmissionRuntime().materialAdmissionAuthority,
         setPtyController: vi.fn((value) => {
           controller = value
         }),
