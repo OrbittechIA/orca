@@ -18,6 +18,7 @@ import {
 } from './mobile-session-launch-operations'
 import { randomV4Uuid } from '../platform/random-v4-uuid'
 import { rememberMobileCreatedStructuredSession } from './mobile-created-structured-sessions'
+import { translate } from '../i18n/mobile-i18n'
 
 type StructuredCreateSupport = {
   supported?: boolean
@@ -129,7 +130,13 @@ export async function createMobileStructuredAgentSession(
 
   const params = heldParams ?? createParamsFor(agent, worktree)
   if (params.worktree !== worktree || params.agent !== agent) {
-    return { kind: 'failed', message: 'Work Item Start identity conflicts with this workspace.' }
+    return {
+      kind: 'failed',
+      message: translate(
+        'session.workItemStart.identityConflict',
+        'Work Item Start identity conflicts with this workspace.'
+      )
+    }
   }
   rememberMobileCreatedStructuredSession(params.envelope.sessionId, worktree)
   if (heldParams && callerGeneration !== client.getGeneration?.()) {

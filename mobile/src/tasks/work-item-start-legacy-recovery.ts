@@ -1,3 +1,5 @@
+import { translate } from '../i18n/mobile-i18n'
+
 export async function readLegacyWorkItemStartRecovery(
   storage: { getItem(key: string): Promise<string | null> },
   worktreeId: string
@@ -8,7 +10,9 @@ export async function readLegacyWorkItemStartRecovery(
     ['orca:mobileWorkItemStartSendIdentities:v1', 'identities']
   ] as const) {
     const raw = await storage.getItem(key)
-    if (raw === null) continue
+    if (raw === null) {
+      continue
+    }
     const journal: unknown = JSON.parse(raw)
     if (
       !journal ||
@@ -39,8 +43,10 @@ export async function readLegacyWorkItemStartRecovery(
     if (entries.some((entry: { worktreeId: string }) => entry.worktreeId === worktreeId)) {
       return {
         kind: 'legacy',
-        message:
+        message: translate(
+          'tasks.workItemStart.legacyRecovery',
           'An earlier Work Item Start needs recovery. Its session, create and send identities are retained; delivery is unconfirmed. Review the existing conversation before sending anything.'
+        )
       }
     }
   }

@@ -2471,6 +2471,10 @@
       "chatNotFound": "Orca can't find this chat.",
       "startNewChat": "Start a new chat to continue.",
       "tryAgain": "Try again."
+    },
+    "workItemStart": {
+      "recoveryReadFailed": "Work Item Start recovery data could not be read. Review the existing conversation before sending anything.",
+      "identityConflict": "Work Item Start identity conflicts with this workspace."
     }
   },
   "chat": {
@@ -3891,6 +3895,9 @@
       "pageUnreachable": "Page {{page}} is beyond what GitHub search can return.",
       "loadPageFailed": "Page {{page}} could not be loaded from GitHub.",
       "noMoreResults": "No more results on page {{page}}."
+    },
+    "workItemStart": {
+      "legacyRecovery": "An earlier Work Item Start needs recovery. Its session, create and send identities are retained; delivery is unconfirmed. Review the existing conversation before sending anything."
     }
   },
   "terminal": {
