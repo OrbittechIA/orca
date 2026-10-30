@@ -19,6 +19,9 @@ function fakeClient(handle: (method: string, call: number) => unknown, calls: Ca
       ) {
         throw new Error('Expected object request params')
       }
+      if (method === 'settings.get') {
+        return { id: 'settings', ok: true, result: { settings: {} }, _meta: { runtimeId: 'r' } }
+      }
       calls.push({ method, params: Object.fromEntries(Object.entries(params ?? {})) })
       const result = handle(method, calls.length)
       if (result instanceof Error) {

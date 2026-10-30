@@ -106,6 +106,7 @@ export const SettingsUpdate = z
       .unknown()
       .transform((value) => normalizeTuiAgentEnvRecord(value))
       .optional(),
+    workItemStartPromptDelivery: z.enum(['draft', 'submit-after-ready']).optional(),
     defaultTaskSource: TaskProviderParam.optional(),
     visibleTaskProviders: z.array(TaskProviderParam).optional(),
     defaultTaskViewPreset: z

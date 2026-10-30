@@ -1,3 +1,4 @@
+import { WorkItemStartBehaviorSetting } from './WorkItemStartBehaviorSetting'
 import { useState } from 'react'
 import { Github, Gitlab } from 'lucide-react'
 import type { GlobalSettings } from '../../../../shared/global-settings-types'
@@ -141,6 +142,10 @@ export function TasksPane({ settings, updateSettings }: TasksPaneProps): React.J
 
   return (
     <div className="space-y-6">
+      <WorkItemStartBehaviorSetting
+        value={settings.workItemStartPromptDelivery}
+        onChange={(workItemStartPromptDelivery) => updateSettings({ workItemStartPromptDelivery })}
+      />
       <section className="space-y-3">
         <SettingsSubsectionHeader
           title={translate(

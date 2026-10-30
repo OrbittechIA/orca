@@ -1,3 +1,4 @@
+import { resolveWorkItemStartPromptDelivery } from '../../../shared/work-item-start-prompt-delivery'
 import { normalizeNativeChatAppearanceSettings } from '../../../shared/native-chat/native-chat-appearance-settings'
 import { getDefaultVoiceSettings } from '../../../shared/constants'
 import { normalizePRBotAuthorOverrides } from '../../../shared/pr-bot-author-overrides'
@@ -72,6 +73,9 @@ export function normalizeLoadedGlobalSettings(
     ...(savedChatUiWithTerminalDefaultView(parsed.settings)
       ? { experimentalNativeChat: false }
       : {}),
+    workItemStartPromptDelivery: resolveWorkItemStartPromptDelivery(
+      parsed.settings?.workItemStartPromptDelivery
+    ),
     nativeChatAppearance: normalizeNativeChatAppearanceSettings(
       parsed.settings?.nativeChatAppearance
     ),

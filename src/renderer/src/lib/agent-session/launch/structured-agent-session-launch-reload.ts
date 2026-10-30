@@ -38,6 +38,7 @@ export function restorePersistedStructuredLaunchState(
       expectedRuntimeFence: record.expectedRuntimeFence,
       ...(record.resumeFrom ? { resumeFrom: record.resumeFrom } : {}),
       ...(record.seedOptions ? { seedOptions: record.seedOptions } : {}),
+      ...(record.launchOrigin ? { launchOrigin: record.launchOrigin } : {}),
       ...(record.firstMessage ? { firstMessage: record.firstMessage } : {}),
       ...(record.optionsMode ? { optionsMode: record.optionsMode } : {}),
       ...(record.options ? { options: record.options } : {}),

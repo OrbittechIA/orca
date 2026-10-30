@@ -37,6 +37,7 @@ import { awaitLocalRuntimeCapabilities } from '@/runtime/local-runtime-capabilit
 export type AgentLaunchSurface = 'chat' | 'terminal'
 
 export type AgentSessionLaunchRequest = AgentLaunchRouteArgs & {
+  launchOrigin?: 'work-item-start'
   requestId: AgentLaunchRequestId
   requestedSurface?: AgentLaunchSurface
   selectedExecutionHostId?: ExecutionHostId
@@ -52,6 +53,7 @@ export type AgentSessionLaunchRequest = AgentLaunchRouteArgs & {
 export type AgentSessionLaunchVerdict = {
   route: AgentLaunchRoute
   requestedSurface?: AgentLaunchSurface
+  launchOrigin?: 'work-item-start'
   requestId: AgentLaunchRequestId
   agent: TuiAgent
   worktreeId?: string
@@ -93,6 +95,7 @@ export type AgentSessionLaunchPlan = Readonly<AgentSessionLaunchVerdict> & {
 function structuredLaunchOptions(verdict: AgentSessionLaunchVerdict): StructuredAgentLaunchOptions {
   return {
     requestId: verdict.requestId,
+    ...(verdict.launchOrigin ? { launchOrigin: verdict.launchOrigin } : {}),
     ...(verdict.prompt !== undefined ? { prompt: verdict.prompt } : {}),
     ...(verdict.promptDelivery ? { promptDelivery: verdict.promptDelivery } : {}),
     ...(verdict.resumeFrom ? { resumeFrom: verdict.resumeFrom } : {}),
@@ -283,6 +286,7 @@ export function planAgentSessionLaunch(
     route,
     ...(request.requestedSurface ? { requestedSurface: request.requestedSurface } : {}),
     requestId: request.requestId,
+    ...(request.launchOrigin ? { launchOrigin: request.launchOrigin } : {}),
     agent: request.agent,
     ...(executionHostId ? { executionHostId } : {}),
     ...(request.workspace.worktreeId ? { worktreeId: request.workspace.worktreeId } : {}),

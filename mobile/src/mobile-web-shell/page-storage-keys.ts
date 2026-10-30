@@ -8,6 +8,9 @@ export const PAGE_STORAGE_EXACT_KEYS = [
   'orca:defaultSessionView',
   /** Legacy journal access for embedded pages served by older hosts. */
   'orca:mobileStructuredSendOperations:v1',
+  'orca:mobileWorkItemStartAttempts:v1',
+  'orca:mobileWorkItemStartSendIdentities:v1',
+  'orca:mobileWorkItemStartCreates:v1',
   'orca:terminalTextScale',
   'orca:terminalAutocompleteEnabled',
   'orca:terminalLinkOpenMode'

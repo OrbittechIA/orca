@@ -120,7 +120,8 @@ function buildStructuredAgentSessionLaunchIntent(
   agent: TuiAgent,
   sessionId: string,
   resumeFrom: StructuredAgentSessionResumeSource | undefined,
-  hostSeedOptions: LaunchSeed
+  hostSeedOptions: LaunchSeed,
+  launchOrigin?: 'work-item-start'
 ): StructuredAgentSessionLaunchIntent {
   const state = useAppStore.getState()
   return {
@@ -134,6 +135,7 @@ function buildStructuredAgentSessionLaunchIntent(
       worktree: toRuntimeWorktreeSelector(worktreeId),
       agent,
       ...(resumeFrom ? { resumeFrom } : {}),
+      ...(launchOrigin ? { launchOrigin } : {}),
       randomUuid: createBrowserUuid
     }),
     ...launchSeedOptions(state, owner, agent, hostSeedOptions)
@@ -151,7 +153,8 @@ export function retryStructuredAgentSessionLaunchIntent(
       intent.agent,
       intent.sessionId,
       intent.params.resumeFrom,
-      intent.seedOptions
+      intent.seedOptions,
+      intent.params.launchOrigin
     ),
     explicitLaunchOptions: intent.explicitLaunchOptions
   }
@@ -169,6 +172,7 @@ export function restoreStructuredAgentSessionLaunchIntent(args: {
   /** A paired server's seed, kept with the launch so a reload shows what create runs. */
   explicitLaunchOptions?: Readonly<Record<string, string>>
   seedOptions?: Readonly<Record<string, string>>
+  launchOrigin?: 'work-item-start'
   firstMessage?: StructuredAgentSessionFirstMessage
   optionsMode?: 'replace-model-selection'
   options?: Readonly<Record<string, string>>
@@ -193,6 +197,7 @@ export function restoreStructuredAgentSessionLaunchIntent(args: {
       worktree: toRuntimeWorktreeSelector(args.worktreeId),
       agent: args.agent,
       ...(args.resumeFrom ? { resumeFrom: args.resumeFrom } : {}),
+      ...(args.launchOrigin ? { launchOrigin: args.launchOrigin } : {}),
       ...(args.firstMessage ? { firstMessage: args.firstMessage } : {}),
       ...(args.optionsMode ? { optionsMode: args.optionsMode } : {}),
       ...(args.options ? { options: args.options } : {})

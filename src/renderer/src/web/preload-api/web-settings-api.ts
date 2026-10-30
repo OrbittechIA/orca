@@ -1,3 +1,4 @@
+import { resolveWorkItemStartPromptDelivery } from '../../../../shared/work-item-start-prompt-delivery'
 import type { PreloadApi } from '../../../../preload/api-types'
 import {
   computerAwakeSettingsForMode,
@@ -74,9 +75,15 @@ export function createWebSettingsApi(): Partial<PreloadApi> {
             )
           )
         }
+        if ('workItemStartPromptDelivery' in sanitizedUpdates) {
+          sanitizedUpdates.workItemStartPromptDelivery = resolveWorkItemStartPromptDelivery(
+            sanitizedUpdates.workItemStartPromptDelivery
+          )
+        }
         const localUpdates = { ...sanitizedUpdates }
         if (runtimeEnvironment) {
           delete localUpdates.worktreeVisibilityDefaults
+          delete localUpdates.workItemStartPromptDelivery
         }
         const next = mergeSettings(getStoredSettings(), localUpdates, {
           preserveAutoRenameBranchFromWorkUpdate: 'autoRenameBranchFromWork' in sanitizedUpdates

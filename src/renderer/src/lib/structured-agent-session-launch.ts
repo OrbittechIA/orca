@@ -1,3 +1,4 @@
+import { structuredAgentSessionCreateFingerprint } from '../../../shared/structured-agent-session-mutation'
 import { useAppStore } from '@/store'
 import { reserveStructuredLaunchSlot } from './structured-agent-session-launch-surface'
 import type { TuiAgent } from '../../../shared/tui-agent'
@@ -219,6 +220,16 @@ function structuredAgentLaunchState(
     options.hostSeedOptions,
     options.activate
   )
+  if (options.launchOrigin) {
+    const params = { ...intent.params, launchOrigin: options.launchOrigin }
+    intent.params = {
+      ...params,
+      envelope: {
+        ...params.envelope,
+        payloadFingerprint: structuredAgentSessionCreateFingerprint({ sessionId: intent.sessionId, ...params })
+      }
+    }
+  }
   intent.explicitLaunchOptions = options.launchOptions ? { ...options.launchOptions } : undefined
   intent.beforeCreate = options.beforeCreate
   intent.surfaceAddress = options.surfaceAddress

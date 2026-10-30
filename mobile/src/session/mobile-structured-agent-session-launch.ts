@@ -80,8 +80,10 @@ function classifyCreateRefusal(
 export async function createMobileStructuredAgentSession(
   client: RpcClient,
   worktreeId: string,
-  agent: AgentSessionHandleProvider
+  agent: AgentSessionHandleProvider,
+  heldParams?: StructuredAgentSessionCreateParams
 ): Promise<MobileStructuredAgentLaunchResult> {
+  const callerGeneration = client.getGeneration?.()
   const worktree = `id:${worktreeId}`
   let supportResponse
   for (let attempt = 0; ; attempt += 1) {
@@ -121,8 +123,14 @@ export async function createMobileStructuredAgentSession(
     return { kind: 'unsupported', reason: support?.reason }
   }
 
-  const params = createParamsFor(agent, worktree)
+  const params = heldParams ?? createParamsFor(agent, worktree)
+  if (params.worktree !== worktree || params.agent !== agent) {
+    return { kind: 'failed', message: 'Work Item Start identity conflicts with this workspace.' }
+  }
   rememberMobileCreatedStructuredSession(params.envelope.sessionId, worktree)
+  if (heldParams && callerGeneration !== client.getGeneration?.()) {
+    return unknownCreateResult(agent, new Error('The connection changed during Work Item Start. Its identity is retained for recovery.'))
+  }
   let response
   try {
     response = await structuredAgentSessionCreate.request(client, params, {
@@ -130,6 +138,9 @@ export async function createMobileStructuredAgentSession(
       budgetSpansConnect: true
     })
   } catch {
+    if (heldParams && callerGeneration !== client.getGeneration?.()) {
+      return unknownCreateResult(agent, new Error('The connection changed during Work Item Start. Its identity is retained for recovery.'))
+    }
     // Replay the durable envelope once so a lost acknowledgement cannot create a sibling.
     try {
       response = await structuredAgentSessionCreate.request(client, params, {
@@ -179,6 +190,9 @@ export async function createMobileStructuredAgentSession(
     !result.value.sessionId.trim()
   ) {
     return unknownCreateResult(agent, new Error(unconfirmedMessage(agent)))
+  }
+  if (heldParams && result.value.sessionId !== params.envelope.sessionId) {
+    return unknownCreateResult(agent, new Error('The host returned a different session identity.'))
   }
   return { kind: 'created', sessionId: result.value.sessionId }
 }

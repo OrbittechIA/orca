@@ -1,3 +1,4 @@
+import { resolveWorkItemStartPromptDelivery } from '../../shared/work-item-start-prompt-delivery'
 import { publishedLegacyChatPermissionMode } from '../../shared/agent-chat-permission-mode'
 import { getClaudeAgentViewService } from '../claude/agent-view-service'
 import { getAppEnvironment } from '../../shared/app-environment'
@@ -78,6 +79,9 @@ export class RuntimeClientSettingsController {
       claudeSubagentNavigationEnabled: settings.claudeSubagentNavigationEnabled !== false,
       // Mobile honors this Copy option; absence from older hosts means on (#19770).
       terminalCopyTrimsGutter: settings.terminalCopyTrimsGutter !== false,
+      workItemStartPromptDelivery: resolveWorkItemStartPromptDelivery(
+        settings.workItemStartPromptDelivery
+      ),
       defaultTaskSource: settings.defaultTaskSource ?? 'github',
       defaultTaskViewPreset: settings.defaultTaskViewPreset ?? 'issues',
       visibleTaskProviders: settings.visibleTaskProviders ?? [...TASK_PROVIDERS],

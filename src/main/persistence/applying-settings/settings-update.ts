@@ -1,3 +1,4 @@
+import { resolveWorkItemStartPromptDelivery } from '../../../shared/work-item-start-prompt-delivery'
 import { publishSettingsUpdate } from './settings-update-effects'
 import { legacyChatPermissionWrite } from './legacy-chat-permission-write'
 import { stampDefaultOnMigrationGuards } from './default-on-migration-guards'
@@ -86,6 +87,11 @@ export function updateSettings(
     sanitizedUpdates.orchestrationHeartbeatIntervalMinutes = resolveOrchestrationHeartbeatInterval({
       orchestrationHeartbeatIntervalMinutes: updates.orchestrationHeartbeatIntervalMinutes
     })
+  }
+  if ('workItemStartPromptDelivery' in updates) {
+    sanitizedUpdates.workItemStartPromptDelivery = resolveWorkItemStartPromptDelivery(
+      updates.workItemStartPromptDelivery
+    )
   }
   if ('nativeChatAppearance' in updates) {
     sanitizedUpdates.nativeChatAppearance = normalizeNativeChatAppearanceSettings(

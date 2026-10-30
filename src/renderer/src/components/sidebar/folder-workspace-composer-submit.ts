@@ -1,3 +1,4 @@
+import { resolveWorkItemStartPromptDelivery } from '../../../../shared/work-item-start-prompt-delivery'
 import { ensureAgentStartupInTerminal, type LinkedWorkItemSummary } from '@/lib/new-workspace'
 import { seedNativeChatLaunchDraftForAgentTab } from '@/lib/agent-launch-prompt-delivery'
 import { createBrowserUuid } from '@/lib/browser-uuid'
@@ -88,6 +89,11 @@ export async function submitFolderWorkspaceCreate({
   createFolderWorkspace,
   onOpenChange
 }: SubmitFolderWorkspaceCreateParams): Promise<boolean> {
+  if (quickAgent && linkedWorkItem && resolveWorkItemStartPromptDelivery(
+    useAppStore.getState().settings?.workItemStartPromptDelivery
+  ) === 'submit-after-ready') {
+    throw new Error('Work Item Start cannot confirm support before creating this folder workspace. Choose Draft.')
+  }
   const linkedName = linkedWorkItem ? getLinkedItemDisplayName(linkedWorkItem) : null
   const nameIsAutoManaged = shouldApplyWorkspaceSourceAutoName({
     currentName: name,

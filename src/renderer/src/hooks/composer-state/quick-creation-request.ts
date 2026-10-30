@@ -50,7 +50,8 @@ export type QuickCreationRequestInput = {
   startupPlan: AgentStartupPlan | null
   quickPrompt: string
   launchDraftPrompt: string | null | undefined
-  promptDelivery: 'draft' | 'auto-submit'
+  launchOrigin?: 'work-item-start'
+  promptDelivery: 'draft' | 'auto-submit' | 'submit-after-ready'
   quickTelemetry: AgentStartedTelemetry | null
   suppressTerminalFocusOnCompletion: boolean
   setupOnly: boolean
@@ -121,6 +122,7 @@ export function buildQuickCreationRequest(
     quickPrompt: input.quickPrompt,
     ...(input.launchDraftPrompt ? { launchDraftPrompt: input.launchDraftPrompt } : {}),
     promptDelivery: input.promptDelivery,
+    ...(input.launchOrigin ? { launchOrigin: input.launchOrigin } : {}),
     quickTelemetry: input.quickTelemetry,
     ...(input.suppressTerminalFocusOnCompletion ? { suppressTerminalFocusOnCompletion: true } : {}),
     ...(input.agent === null ? { setupOnly: input.setupOnly } : {})

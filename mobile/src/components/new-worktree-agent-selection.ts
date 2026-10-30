@@ -5,6 +5,7 @@ import { isMobileTuiAgentEnabled } from '../tasks/mobile-tui-agents'
 import { pickWorkspaceAgent } from '../tasks/workspace-agent-selection'
 
 export type NewWorktreeRuntimeSettings = {
+  workItemStartPromptDelivery?: 'draft' | 'submit-after-ready'
   defaultTuiAgent?: TuiAgent | 'blank' | null
   disabledTuiAgents?: TuiAgent[]
 }

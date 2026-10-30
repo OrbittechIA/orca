@@ -1,6 +1,8 @@
+import { resolveMobileWorkItemStartRoute } from './work-item-start-route'
+import { deliverMobileWorkItemStart } from './work-item-start-delivery'
 import { hostNewWorktreeSessionRoute } from '../host-new-worktree-session-route'
 import { workspaceRouteHref } from '../navigation/workspace-execution-host'
-import { taskRepoServer } from './task-repo-host-routing'
+import { taskRepoServer, taskRepoClient } from './task-repo-host-routing'
 import { settingsRead } from '../transport/settings-read-operations'
 import type { WorkspaceSshStateModel } from './use-mobile-tasks-workspace-ssh-state'
 import {
@@ -107,6 +109,9 @@ export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateMod
           setWorkspaceAgentOverridden(false)
           throw new Error('Selected agent is disabled. Choose an enabled agent before creating.')
         }
+        const startClient = taskRepoClient(client, targetRepo)
+        const startGeneration = startClient.getGeneration?.()
+        const route = await resolveMobileWorkItemStartRoute(startClient, targetRepo.id, selectedAgent)
         const setupResolution = await resolveCreateSetupDecision(targetRepo, setupOverride)
         const comment = noteOverride?.trim()
         if (setupResolution.kind === 'prompt') {
@@ -195,6 +200,7 @@ export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateMod
             targetRepoId: targetRepo.id,
             setupDecision,
             agent: selectedAgent,
+            structuredStart: route.kind === 'structured',
             workspaceName: workspaceNameOverride,
             note: comment,
             baseBranch: baseBranchOverride,
@@ -236,6 +242,7 @@ export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateMod
             targetRepoId: targetRepo.id,
             setupDecision,
             agent: selectedAgent,
+            structuredStart: route.kind === 'structured',
             workspaceName: workspaceNameOverride,
             note: comment,
             baseBranch: baseBranchOverride,
@@ -250,6 +257,7 @@ export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateMod
             targetRepoId: targetRepo.id,
             setupDecision,
             agent: selectedAgent,
+            structuredStart: route.kind === 'structured',
             workspaceName: workspaceNameOverride,
             note: comment,
             baseBranch: baseBranchOverride,
@@ -258,10 +266,29 @@ export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateMod
             nameIsAutoManaged
           })
         }
+        if (route.kind === 'structured' && params.repo !== `id:${targetRepo.id}`) {
+          throw new Error('The workspace repository differs from the Work Item Start preflight repository.')
+        }
         const createReply = await worktreeCreateRun.request(client, params, {
           timeoutMs: WORKTREE_CREATE_TIMEOUT_MS
         })
         const result = worktreeCreateRun.interpret(createReply)
+        let startWarning: string | undefined
+        if (route.kind === 'structured' && selectedAgent !== 'blank') {
+          try {
+            if (startGeneration !== startClient.getGeneration?.()) {
+              throw new Error('The connection changed during Work Item Start. Review the created workspace before sending anything.')
+            }
+            startWarning = await deliverMobileWorkItemStart({
+              client: startClient,
+              worktreeId: result.worktree.id,
+              agent: selectedAgent,
+              prompt: item.source.url
+            })
+          } catch (error) {
+            startWarning = error instanceof Error ? error.message : 'Work Item Start requires recovery in this workspace.'
+          }
+        }
         setActionItem(null)
         setWorkspaceCreateDraft(null)
         setSetupPrompt(null)
@@ -272,7 +299,7 @@ export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateMod
               hostId,
               result.worktree.id,
               result.worktree.displayName ?? item.title,
-              result.warning
+              [result.warning, startWarning].filter(Boolean).join(' ') || undefined
             ),
             taskRepoServer(targetRepo)
           )

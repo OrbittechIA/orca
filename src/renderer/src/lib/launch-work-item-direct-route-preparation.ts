@@ -112,6 +112,9 @@ export async function prepareDirectWorkItemAgentLaunch(args: {
     repoHost: args.repoHost,
     latestStore: args.latestStore
   })
+  if (args.preflightPlan?.launchOrigin && agentSelection.agent !== args.preflightPlan.agent) {
+    throw new Error('The selected agent changed after Work Item Start preflight. Review the workspace before retrying.')
+  }
   const latestStore = agentSelection.store
   const launchConnectionId =
     getConnectionIdFromState(latestStore, args.worktreeId) ?? args.repoConnectionId

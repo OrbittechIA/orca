@@ -46,6 +46,9 @@ export function prepareStructuredLaunchCreateMessage(
     hostTakesExplicitOptions && state.selection.explicit?.model !== undefined
       ? 'replace-model-selection'
       : undefined
+  if (intent.params.launchOrigin && intent.createMessageSupport !== true) {
+    throw new Error('The host no longer confirms Work Item Start first-message support.')
+  }
   if (intent.createMessageSupport !== true) {
     prepareLegacyStructuredLaunchPrompts(intent.sessionId)
     intent.createPrepared = true

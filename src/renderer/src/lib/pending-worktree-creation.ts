@@ -109,7 +109,8 @@ export type WorktreeCreationRequest = {
    *  startup paste); completion seeds the chat-composer copy from it. */
   launchDraftPrompt?: string
   // Composer fixes launchDraftPrompt/quickPrompt delivery beside agentLaunchRoute; never rederive it later.
-  promptDelivery?: 'draft' | 'auto-submit'
+  launchOrigin?: 'work-item-start'
+  promptDelivery?: 'draft' | 'auto-submit' | 'submit-after-ready'
   quickTelemetry: AgentStartedTelemetry | null
   // Sequential-create completion must preserve focus in the next workspace name field.
   suppressTerminalFocusOnCompletion?: boolean

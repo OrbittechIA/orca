@@ -214,6 +214,7 @@ export function buildDefaultSettings(args: {
     skipDeleteArtifactConfirm: false,
     skipCodexRateLimitResetConfirm: false,
     defaultTaskViewPreset: 'all',
+    workItemStartPromptDelivery: 'draft',
     defaultTaskSource: 'github',
     visibleTaskProviders: [...TASK_PROVIDERS],
     visibleTaskProvidersDefaultedForJira: true,

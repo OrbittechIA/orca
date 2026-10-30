@@ -1,3 +1,4 @@
+import type { WorkItemStartPromptDelivery } from './work-item-start-prompt-delivery'
 import type { TelemetrySettings } from './telemetry-settings-types'
 import type { BrowserProfileScope } from './browser-profile-scope'
 import type { GlobalSettingsBase } from './global-settings-base'
@@ -349,6 +350,7 @@ export type GlobalSettings = GlobalSettingsBase & {
   /** Default preset in the new-workspace GitHub task view. */
   defaultTaskViewPreset: TaskViewPresetId
   /** Persisted last-used task source so Tasks reopens to the same provider instead of defaulting to GitHub. */
+  workItemStartPromptDelivery?: WorkItemStartPromptDelivery
   defaultTaskSource: TaskProvider
   /** Persisted visible task providers; hides unused providers from Tasks chrome and sidebar shortcuts. */
   visibleTaskProviders: TaskProvider[]

@@ -1,3 +1,4 @@
+import { WorkItemStartRecoveryBanner } from './WorkItemStartRecoveryBanner'
 import { View, Text, Pressable } from 'react-native'
 import { AlertTriangle, X } from 'lucide-react-native'
 import { SessionDockColumn } from './SessionDockColumn'
@@ -55,6 +56,7 @@ export function MobileSessionContentRow({
             </Pressable>
           </View>
         ) : null}
+        <WorkItemStartRecoveryBanner worktreeId={worktreeId} />
         <MobileSessionActiveContent controller={controller} />
         {/* Why: translate instead of resize so keyboard toggles don't trigger a server-side PTY viewport change. */}
         <MobileSessionCommandDock controller={controller} keysInRail={keysInRail} />

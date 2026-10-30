@@ -83,8 +83,12 @@ function issueOn(repo: RepoSummary): ActionableTaskItem {
   }
 }
 
-function desktop(): FakeSession {
+function desktop(strict = false): FakeSession {
   return recording(new FakeSession('connected'), async (method) => {
+    if (strict && method === 'settings.get') {
+      return reply({ settings: { workItemStartPromptDelivery: 'submit-after-ready' } })
+    }
+    if (strict && method === 'status.get') return reply({ capabilities: [], deviceScope: 'runtime' })
     if (method === 'worktree.create') {
       return reply({ worktree: { id: 'wt-1', displayName: 'fix-the-thing' } })
     }
@@ -105,8 +109,9 @@ afterEach(() => {
   }
 })
 
-async function createFrom(repo: RepoSummary) {
-  const client = desktop()
+async function createFrom(repo: RepoSummary, strict = false) {
+  const client = desktop(strict)
+  const errors: string[] = []
   const pushed: string[] = []
   const item = issueOn(repo)
   const noop = () => {}
@@ -131,7 +136,7 @@ async function createFrom(repo: RepoSummary) {
     getWorkspaceTargetRepo: () => repo,
     setActionItem: noop,
     setCreatingKey: noop,
-    setError: noop,
+    setError: (message: string) => errors.push(message),
     setOrcaYamlTrustPrompt: noop,
     setRuntimeTaskSettings: noop,
     setSetupPrompt: noop,
@@ -154,12 +159,20 @@ async function createFrom(repo: RepoSummary) {
     mounted.push(create(createElement(Harness)))
   })
   await act(async () => {
-    await seen.create!.createWorkspace(item, undefined, undefined, 'blank')
+    await seen.create!.createWorkspace(item, undefined, undefined, strict ? 'codex' : 'blank')
   })
-  return { client, pushed }
+  return { client, pushed, errors }
 }
 
 describe('creating a workspace from a task on a server repo', () => {
+  it('asks the owning server before an opted-in Start and refuses without a create or navigation', async () => {
+    const { client, pushed, errors } = await createFrom(SERVER_REPO, true)
+    expect(ranOn(client, 'status.get')).toEqual(['runtime:vm'])
+    expect(ranOn(client, 'worktree.create')).toEqual([])
+    expect(pushed).toEqual([])
+    expect(errors.some((message) => message.includes('Work Item Start'))).toBe(true)
+  })
+
   it('creates it on that server, detects agents there, and opens it there', async () => {
     const { client, pushed } = await createFrom(SERVER_REPO)
     expect(ranOn(client, 'worktree.create')).toEqual(['runtime:vm'])

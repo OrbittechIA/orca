@@ -1,3 +1,4 @@
+import { resolveWorkItemStartPromptDelivery } from '../../../../shared/work-item-start-prompt-delivery'
 import type { PreloadApi } from '../../../../preload/api-types'
 import {
   getDefaultSettings,
@@ -73,6 +74,7 @@ export function getStoredSettings(): GlobalSettings {
     },
     migratedStored
   )
+  settings.workItemStartPromptDelivery = resolveWorkItemStartPromptDelivery(settings.workItemStartPromptDelivery)
   delete settings.zcodePlanSite
   return settings
 }
@@ -149,6 +151,9 @@ export async function getRuntimeBackedStoredSettings(): Promise<GlobalSettings> 
         result.settings.prBotAuthorOverrides
       )
     }
+    runtimeSettings.workItemStartPromptDelivery = resolveWorkItemStartPromptDelivery(
+      result.settings.workItemStartPromptDelivery
+    )
     Object.assign(runtimeSettings, runtimeChatPermissionSetting(result.settings))
     // Read-only host capability; a host without a sharing service omits it, which must not keep a stale local grant.
     runtimeSettings.artifactSharingEnabled = result.settings.artifactSharingEnabled === true
@@ -190,6 +195,11 @@ export async function syncRuntimeBackedSettings(
     return localNext
   }
   const runtimeUpdates: Partial<GlobalSettings> = {}
+  if ('workItemStartPromptDelivery' in updates) {
+    runtimeUpdates.workItemStartPromptDelivery = resolveWorkItemStartPromptDelivery(
+      updates.workItemStartPromptDelivery
+    )
+  }
   const visibilityDefaults = normalizeWorktreeVisibilityDefaults(updates.worktreeVisibilityDefaults)
   if (visibilityDefaults) {
     runtimeUpdates.worktreeVisibilityDefaults = visibilityDefaults
@@ -224,6 +234,10 @@ export async function syncRuntimeBackedSettings(
       runtimeUpdates,
       15_000
     )
+    if ('workItemStartPromptDelivery' in updates &&
+        result.settings.workItemStartPromptDelivery !== runtimeUpdates.workItemStartPromptDelivery) {
+      throw new Error('The host did not confirm Work Item Start behavior. Update the host and retry.')
+    }
     const runtimeSettings = { ...result.settings }
     delete runtimeSettings.activeRuntimeEnvironmentId
     const updatedVisibilityDefaults = normalizeWorktreeVisibilityDefaults(
@@ -241,7 +255,7 @@ export async function syncRuntimeBackedSettings(
     writeStoredSettings(next)
     return next
   } catch (error) {
-    if (visibilityDefaults) {
+    if (visibilityDefaults || 'workItemStartPromptDelivery' in updates) {
       throw error
     }
     // Why: unpaired/offline web clients still need local settings persistence.

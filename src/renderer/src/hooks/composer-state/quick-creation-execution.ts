@@ -1,3 +1,6 @@
+import { requireWorkItemStartPreflight } from '@/lib/work-item-start-preflight'
+import { resolveWorkItemStartPromptDelivery } from '../../../../shared/work-item-start-prompt-delivery'
+import { ipcOrRuntimeTargetForHostId } from '@/runtime/runtime-client-target'
 import type { ComposerModel } from './composer-model'
 
 type QuickCreationExecutionInput = Pick<
@@ -123,15 +126,35 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
       } = prepared
 
       const promptLinkedWorkItem = agent === null ? null : submitLinkedWorkItem
+      const workItemDelivery = resolveWorkItemStartPromptDelivery(settings?.workItemStartPromptDelivery)
+      const strictStart = Boolean(promptLinkedWorkItem && workItemDelivery === 'submit-after-ready')
+      if (strictStart) {
+        if (ephemeralVmsEnabled && selectedEphemeralVmRecipeId) {
+          throw new Error('Work Item Start cannot confirm support before creating this VM. Choose Draft.')
+        }
+        if (options?.launchChoice?.executionHostId && options.launchChoice.executionHostId !== (workspaceRunContext?.hostId ?? selectedRepoExecutionHostId)) {
+          throw new Error('The selected host differs from the Work Item Start preflight host.')
+        }
+        if (options?.launchChoice?.route === 'terminal-tui') {
+          throw new Error('Choose Draft to start this work item in a terminal.')
+        }
+        const target = workspaceRunContext?.hostId
+          ? ipcOrRuntimeTargetForHostId(workspaceRunContext.hostId)
+          : selectedRepoTarget ?? ipcOrRuntimeTargetForHostId(selectedRepoExecutionHostId)
+        if (!target) throw new Error('The Work Item Start execution host could not be confirmed.')
+        await requireWorkItemStartPreflight({ delivery: workItemDelivery, agent, repoId, target })
+      }
 
-      const { prompt: quickPrompt, draftPrompt: quickDraftPrompt } =
+      const { prompt: quickPrompt, draftPrompt: linkedDraftPrompt } =
         resolveQuickCreateLinkedWorkItemPrompt(promptLinkedWorkItem, trimmedNote)
+      const quickDraftPrompt = strictStart ? undefined : linkedDraftPrompt
+      const launchPrompt = strictStart ? (linkedDraftPrompt ?? quickPrompt) : quickPrompt
 
       const {
         startupPlan,
         backendStartup,
         telemetry: quickTelemetry
-      } = buildQuickComposerStartup({
+      } = strictStart ? { startupPlan: null, backendStartup: undefined, telemetry: null } : buildQuickComposerStartup({
         agent,
         prompt: quickPrompt,
         draftPrompt: quickDraftPrompt,
@@ -176,11 +199,11 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
         }
       }
 
-      const promptDelivery = quickDraftPrompt ? 'draft' : 'auto-submit'
+      const promptDelivery = strictStart ? 'submit-after-ready' : quickDraftPrompt ? 'draft' : 'auto-submit'
       // Why: the verdict is persisted on the request as data and re-entered once the worktree exists.
       const agentLaunchRoute = !agent
         ? 'terminal-tui'
-        : (options?.launchChoice?.route ??
+        : strictStart ? 'structured-native-chat' : (options?.launchChoice?.route ??
           resolveAgentSessionLaunchRoute(useAppStore.getState(), {
             agent,
             workspace: {
@@ -253,7 +276,8 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
         pendingFirstAgentMessageRename,
         note: trimmedNote,
         startupPlan,
-        quickPrompt,
+        quickPrompt: launchPrompt,
+        ...(strictStart ? { launchOrigin: 'work-item-start' as const } : {}),
         launchDraftPrompt: quickDraftPrompt,
         promptDelivery,
         quickTelemetry,

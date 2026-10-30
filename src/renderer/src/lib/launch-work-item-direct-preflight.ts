@@ -99,6 +99,7 @@ export async function planDirectWorkItemLaunch(args: {
   repoOwnerHostId: ExecutionHostId
   draftContent: string
   promptDelivery: 'draft' | 'submit-after-ready'
+  launchOrigin?: 'work-item-start'
   resolveSessionOptions?: (agent: TuiAgent) => Readonly<Record<string, string>> | undefined
   sessionOptions?: Readonly<Record<string, string>>
   launchChoice?: LaunchWorkItemDirectArgs['launchChoice']
@@ -122,7 +123,8 @@ export async function planDirectWorkItemLaunch(args: {
     prompt: args.draftContent,
     promptDelivery: args.promptDelivery,
     ...(sessionOptions ? { launchOptions: sessionOptions } : {}),
-    ...directLaunchSurfaceRequest(args.launchChoice)
+    ...directLaunchSurfaceRequest(args.launchChoice),
+    ...(args.launchOrigin ? { launchOrigin: args.launchOrigin, requestedSurface: 'chat' as const } : {})
   }
   await awaitStructuredRouteHostAnswer(useAppStore.getState(), request, 3000)
   return planAgentSessionLaunch(useAppStore.getState(), request)

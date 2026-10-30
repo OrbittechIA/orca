@@ -149,6 +149,7 @@ export type RuntimeStore = {
     terminalCopyTrimsGutter?: GlobalSettings['terminalCopyTrimsGutter']
     experimentalNativeChat?: GlobalSettings['experimentalNativeChat']
     nativeChatProviders?: GlobalSettings['nativeChatProviders']
+    workItemStartPromptDelivery?: GlobalSettings['workItemStartPromptDelivery']
     defaultTaskSource?: GlobalSettings['defaultTaskSource']
     defaultTaskViewPreset?: GlobalSettings['defaultTaskViewPreset']
     visibleTaskProviders?: GlobalSettings['visibleTaskProviders']

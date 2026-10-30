@@ -1,3 +1,5 @@
+import { resolveMobileWorkItemStartRoute } from './work-item-start-route'
+import { deliverMobileWorkItemStart } from './work-item-start-delivery'
 import type { TuiAgent } from '../../../src/shared/tui-agent'
 import type { RpcClient } from '../transport/rpc-client'
 import { resolveComposerMrBase, resolveComposerPrBase } from './composer-source-base-resolve'
@@ -120,6 +122,11 @@ async function createWorkItemWorkspace(args: {
   const { client, selection, targetRepoId, setupDecision, agent, workspaceName, note } = args
   const item = selection.item
   const taskItem = toTaskItem(item, targetRepoId)
+  const selectedAgent = agent.choice === 'blank' ? undefined : agent.choice
+  const startRepoId = taskItem.provider === 'github' || taskItem.provider === 'gitlab'
+    ? taskItem.source.repoId : targetRepoId
+  const startGeneration = client.getGeneration?.()
+  const route = await resolveMobileWorkItemStartRoute(client, startRepoId, selectedAgent)
 
   // Reuse select-time PR/MR base resolution; resolve again only when a linked item lacks it.
   let baseBranch = selection.baseBranch
@@ -145,6 +152,7 @@ async function createWorkItemWorkspace(args: {
     targetRepoId,
     setupDecision,
     agent: agent.choice,
+    structuredStart: route.kind === 'structured',
     workspaceName,
     note,
     baseBranch,
@@ -155,13 +163,23 @@ async function createWorkItemWorkspace(args: {
   })
   // Reuse the computed name for collision suffixes, matching blank-workspace creation.
   const baseName = String(params.name)
-  // Keep linked work items on terminals: structured sessions cannot hold their unsent URL draft and would submit it as a turn.
-  return createWorktreeWithNameRetry({
+  const result = await createWorktreeWithNameRetry({
     client,
     baseName,
     worktreeCreateIdempotency: args.worktreeCreateIdempotency,
     buildParams: (name) => ({ ...params, name })
   })
+  if ('error' in result || route.kind !== 'structured' || !selectedAgent) return result
+  try {
+    if (startGeneration !== client.getGeneration?.()) {
+      throw new Error('The connection changed during Work Item Start. Review the created workspace before sending anything.')
+    }
+    const warning = await deliverMobileWorkItemStart({ client, worktreeId: result.worktreeId, agent: selectedAgent, prompt: item.url })
+    return { ...result, ...(warning ? { warning: [result.warning, warning].filter(Boolean).join(' ') } : {}) }
+  } catch (error) {
+    const warning = error instanceof Error ? error.message : 'Work Item Start requires recovery in this workspace.'
+    return { ...result, warning: [result.warning, warning].filter(Boolean).join(' ') }
+  }
 }
 
 async function createBranchWorkspace(args: {

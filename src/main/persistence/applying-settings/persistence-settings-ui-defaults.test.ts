@@ -70,6 +70,7 @@ describe('Store', () => {
   it('returns default settings when no data file exists', async () => {
     const store = await createStore()
     const settings = store.getSettings()
+    expect(settings.workItemStartPromptDelivery).toBe('draft')
     expect(settings.branchPrefix).toBe('git-username')
     expect(settings.refreshLocalBaseRefOnWorktreeCreate).toBe(false)
     expect(settings.sourceControlGroupOrder).toBe('changes-first')
@@ -104,6 +105,18 @@ describe('Store', () => {
     expect(settings.notifications.customSoundPath).toBeNull()
     expect(settings.notifications.customSoundVolume).toBe(100)
     expect(settings.notifications.suppressWhenFocused).toBe(true)
+  })
+
+  it.each(['draft', 'submit-after-ready'] as const)('persists Work Item Start %s across reopen', async (delivery) => {
+    const persisted = getDefaultPersistedState(testState.dir)
+    delete persisted.settings.workItemStartPromptDelivery
+    writeDataFile(persisted)
+    const store = await createStore()
+    expect(store.getSettings().workItemStartPromptDelivery).toBe('draft')
+    store.updateSettings({ workItemStartPromptDelivery: delivery })
+    store.flush()
+    await closeTestStores()
+    expect((await createStore()).getSettings().workItemStartPromptDelivery).toBe(delivery)
   })
 
   it('repairs a persisted terminal line height outside xterm bounds', async () => {

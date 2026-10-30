@@ -96,6 +96,7 @@ export function buildTaskWorkspaceCreateParams(args: {
   sparseCheckout?: WorkspaceCreateSparseCheckout
   hostedStartPoint?: WorkspaceCreateHostedStartPoint
   nameIsAutoManaged?: boolean
+  structuredStart?: boolean
 }): WorkspaceCreateParams {
   const {
     item,
@@ -110,6 +111,7 @@ export function buildTaskWorkspaceCreateParams(args: {
     pushTarget,
     sparseCheckout,
     hostedStartPoint,
+    structuredStart = false,
     nameIsAutoManaged = true
   } = args
   const shouldLaunchAgent = agent !== 'blank'
@@ -139,7 +141,7 @@ export function buildTaskWorkspaceCreateParams(args: {
   const common = {
     setupDecision,
     activate: true,
-    ...(shouldLaunchAgent ? { startupDraft: item.source.url } : {}),
+    ...(shouldLaunchAgent && !structuredStart ? { startupDraft: item.source.url } : {}),
     ...(createdWithAgent ? { createdWithAgent } : {}),
     ...(selectedBaseBranch ? { baseBranch: selectedBaseBranch } : {}),
     ...(compareBaseRef ? { compareBaseRef } : {}),

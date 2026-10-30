@@ -52,6 +52,7 @@ export type TaskResumeState = {
 }
 
 export type RuntimeTaskSettings = {
+  workItemStartPromptDelivery?: 'draft' | 'submit-after-ready'
   defaultTuiAgent?: TuiAgent | 'blank' | null
   disabledTuiAgents?: TuiAgent[]
   agentCmdOverrides?: Record<string, string>

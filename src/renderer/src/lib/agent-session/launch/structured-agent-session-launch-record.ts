@@ -53,6 +53,7 @@ export type StructuredAgentLaunchPersistedRecord = {
   payloadFingerprint: string
   expectedRuntimeFence: number | null
   resumeFrom?: StructuredAgentSessionResumeSource
+  launchOrigin?: 'work-item-start'
   firstMessage?: StructuredAgentSessionFirstMessage
   explicitLaunchOptions?: Readonly<Record<string, string>>
   optionsMode?: 'replace-model-selection'
@@ -81,6 +82,7 @@ export function structuredAgentLaunchRecordFor(
     payloadFingerprint: envelope.payloadFingerprint,
     expectedRuntimeFence: envelope.expectedRuntimeFence,
     ...(resumeFrom ? { resumeFrom } : {}),
+    ...(intent.params.launchOrigin ? { launchOrigin: intent.params.launchOrigin } : {}),
     ...(firstMessage ? { firstMessage } : {}),
     ...(optionsMode ? { optionsMode } : {}),
     ...(options ? { options } : {}),
@@ -140,6 +142,7 @@ export function validRecord(value: unknown): value is Omit<
     typeof payloadFingerprint === 'string' &&
     (expectedRuntimeFence === null || typeof expectedRuntimeFence === 'number') &&
     (failedAt === undefined || Number.isFinite(failedAt)) &&
+    (!('launchOrigin' in value) || value.launchOrigin === undefined || value.launchOrigin === 'work-item-start') &&
     (firstMessage === undefined || validFirstMessage(firstMessage)) &&
     (optionsMode === undefined || optionsMode === 'replace-model-selection') &&
     (options === undefined || isAgentSessionOptions(options)) &&
