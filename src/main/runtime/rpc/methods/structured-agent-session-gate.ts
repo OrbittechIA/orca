@@ -44,6 +44,25 @@ export function requireStructuredSessionAdmission(
   }
 }
 
+/** Only an authoritative missing record admits a fresh create; reservation still fences races. */
+export function requireStructuredSessionCreateAdmission(
+  ctx: RpcContext,
+  host: StructuredAgentSessionHost,
+  sessionId: string
+): void {
+  requireStructuredCapability(ctx)
+  const selected = host.deps?.store?.selectWritableRecord?.(sessionId)
+  if (selected?.kind === 'missing') {
+    return
+  }
+  if (selected?.kind === 'unreadable') {
+    throw agentSessionRefusalError('structured_agent_session_unsupported', {
+      reason: 'clientCapabilityMissing'
+    })
+  }
+  requireStructuredSessionAdmission(ctx, host, sessionId)
+}
+
 /** In-process callers share the host build; remote callers must advertise structured-session support. */
 export function supportsStructuredSessions(ctx: RpcContext): boolean {
   return supportsStructuredAgentSessions(ctx)

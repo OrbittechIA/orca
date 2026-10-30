@@ -10,7 +10,7 @@ import {
   ensureStructuredHostInstalled as ensureHostInstalled,
   requireStructuredHost as requireHost,
   requireStructuredAgentAudience,
-  requireStructuredSessionAdmission,
+  requireStructuredSessionCreateAdmission,
   structuredWorkItemStartCallerAuthority,
   structuredCallerFor as callerFor
 } from './structured-agent-session-gate'
@@ -32,7 +32,7 @@ import {
 async function resolveClientSuppliedAttach(params: z.infer<typeof AttachParams>, ctx: RpcContext) {
   await ensureHostInstalled(ctx, params.agent)
   const host = requireHost(ctx, params.agent)
-  requireStructuredSessionAdmission(ctx, host, params.envelope.sessionId)
+  requireStructuredSessionCreateAdmission(ctx, host, params.envelope.sessionId)
   if (!host.supportsCreate(params.location, params.agent)) {
     throw agentSessionRefusalError('structured_agent_session_unsupported', {
       reason: 'hostUnsupported'
@@ -80,23 +80,36 @@ export async function handleStructuredAgentSessionCreate(
         return { refusal: conflict }
       }
       if (params.launchOrigin && params.resumeFrom) {
-        throw agentSessionRefusalError('structured_agent_session_unsupported', { reason: 'hostUnsupported' })
+        throw agentSessionRefusalError('structured_agent_session_unsupported', {
+          reason: 'hostUnsupported'
+        })
       }
       let expectedWorktreeTarget: StructuredAgentSessionCreateWorktreeTarget | undefined
       let launchAuthority: StructuredAgentSessionLaunchAuthority | null = null
       if (params.launchOrigin) {
         launchAuthority = structuredWorkItemStartCallerAuthority(ctx)
-        if (!launchAuthority) throw agentSessionRefusalError('structured_agent_session_unsupported', { reason: 'clientCapabilityMissing' })
-        const target = await ctx.runtime.resolveStructuredAgentSessionCreateWorktreeTarget(params.worktree)
+        if (!launchAuthority) {
+          throw agentSessionRefusalError('structured_agent_session_unsupported', {
+            reason: 'clientCapabilityMissing'
+          })
+        }
+        const target = await ctx.runtime.resolveStructuredAgentSessionCreateWorktreeTarget(
+          params.worktree
+        )
         expectedWorktreeTarget = target
-        if (launchAuthority.kind === 'paired-device' && target.creatorDeviceId !== launchAuthority.deviceId) {
-          throw agentSessionRefusalError('structured_agent_session_unsupported', { reason: 'clientCapabilityMissing' })
+        if (
+          launchAuthority.kind === 'paired-device' &&
+          target.creatorDeviceId !== launchAuthority.deviceId
+        ) {
+          throw agentSessionRefusalError('structured_agent_session_unsupported', {
+            reason: 'clientCapabilityMissing'
+          })
         }
       }
       // Read persisted ownership before resolving accounts, adoption or launch effects.
       await ensureHostInstalled(ctx)
       const existingHost = requireHost(ctx)
-      requireStructuredSessionAdmission(ctx, existingHost, params.envelope.sessionId)
+      requireStructuredSessionCreateAdmission(ctx, existingHost, params.envelope.sessionId)
       return prepareStructuredAgentSessionCreateForWorktree({
         runtime: ctx.runtime,
         ensureHost: async () => {

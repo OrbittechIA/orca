@@ -31,6 +31,10 @@ export function ordinaryStructuredSessionStoreFixture(sessionIds: readonly strin
   return {
     getOperationRow: vi.fn(() => null),
     getRecord: vi.fn((sessionId: string) => records.get(sessionId) ?? null),
+    selectWritableRecord: vi.fn((sessionId: string) => {
+      const record = records.get(sessionId)
+      return record ? { kind: 'writable' as const, record } : { kind: 'missing' as const }
+    }),
     listConversations: vi.fn(() => [...records.values()].map(agentSessionConversationView)),
     getConversation: vi.fn((sessionId: string) => {
       const record = records.get(sessionId)
