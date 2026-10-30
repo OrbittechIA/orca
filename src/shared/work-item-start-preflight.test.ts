@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { preflightWorkItemStart } from './work-item-start-preflight'
 import { AGENT_SESSION_CREATE_MESSAGE_RUNTIME_CAPABILITY } from './agent-session-create-capabilities'
-const WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY = 'agent-session.work-item-start.v1'
+import { WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY } from './work-item-start-structured-session-capability'
 
 const capabilities = [WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY, AGENT_SESSION_CREATE_MESSAGE_RUNTIME_CAPABILITY]
 const input = {
@@ -16,7 +16,7 @@ describe('Work Item Start before workspace effects', () => {
     expect(await preflightWorkItemStart({ ...input, delivery, readStatus })).toEqual({ kind: 'manual' })
     expect(readStatus).not.toHaveBeenCalled()
   })
-  it.each([[], [capabilities[0]], [capabilities[1]]])('refuses a host missing either contract (%j)', async (caps) => {
+  it.each([[], [capabilities[0]], [capabilities[1]]].map((caps) => ({ caps })))('refuses a host missing either contract ($caps)', async ({ caps }) => {
     const readSupport = vi.fn(input.readSupport)
     expect(await preflightWorkItemStart({ ...input, readStatus: async () => ({ capabilities: caps, deviceScope: 'runtime' }), readSupport })).toMatchObject({ kind: 'refused' })
     expect(readSupport).not.toHaveBeenCalled()
@@ -25,10 +25,17 @@ describe('Work Item Start before workspace effects', () => {
     expect(await preflightWorkItemStart({ ...input, readSupport: async () => { throw new Error('timeout') } })).toMatchObject({ kind: 'unknown' })
     expect(await preflightWorkItemStart({ ...input, readSupport: async () => ({ supported: false }) })).toMatchObject({ kind: 'refused' })
   })
-  it('asks the scoped repo contract only after host scope is confirmed', async () => {
+  it('asks the scoped repo contract only after host capability is confirmed', async () => {
     const readSupport = vi.fn(input.readSupport)
     expect(await preflightWorkItemStart({ ...input, readSupport })).toEqual({ kind: 'structured' })
     expect(readSupport).toHaveBeenCalledWith({ repo: 'id:repo-1', agent: 'codex', launchOrigin: 'work-item-start' })
-    expect(await preflightWorkItemStart({ ...input, readStatus: async () => ({ capabilities, deviceScope: 'mobile' }) })).toMatchObject({ kind: 'refused' })
+  })
+  it.each(['runtime', 'mobile', 'web', undefined])('uses host admission for paired scope %s', async (deviceScope) => {
+    const readStatus = async () => ({ capabilities, deviceScope })
+    const readSupport = vi.fn(input.readSupport)
+    expect(await preflightWorkItemStart({ ...input, readStatus, readSupport })).toEqual({ kind: 'structured' })
+    expect(readSupport).toHaveBeenCalledWith({ repo: 'id:repo-1', agent: 'codex', launchOrigin: 'work-item-start' })
+    expect(await preflightWorkItemStart({ ...input, readStatus, readSupport: async () => ({ supported: false }) })).toMatchObject({ kind: 'refused' })
+    expect(await preflightWorkItemStart({ ...input, readStatus, readSupport: async () => { throw new Error('admission unavailable') } })).toMatchObject({ kind: 'unknown' })
   })
 })

@@ -1,7 +1,6 @@
 import { AGENT_SESSION_CREATE_MESSAGE_RUNTIME_CAPABILITY } from './agent-session-create-capabilities'
 import { resolveWorkItemStartPromptDelivery } from './work-item-start-prompt-delivery'
-// Consume the scoped wire contract without advertising host authority support.
-const WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY = 'agent-session.work-item-start.v1'
+import { WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY } from './work-item-start-structured-session-capability'
 
 export type WorkItemStartPreflight =
   | { kind: 'manual' }
@@ -34,8 +33,7 @@ export async function preflightWorkItemStart(args: {
       return unknown()
     }
     if (!status.capabilities.includes(WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY) ||
-        !status.capabilities.includes(AGENT_SESSION_CREATE_MESSAGE_RUNTIME_CAPABILITY) ||
-        (args.mobile && (!('deviceScope' in status) || status.deviceScope !== 'runtime'))) {
+        !status.capabilities.includes(AGENT_SESSION_CREATE_MESSAGE_RUNTIME_CAPABILITY)) {
       return refused()
     }
     const support = await args.readSupport({
