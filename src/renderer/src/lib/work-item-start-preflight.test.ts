@@ -18,7 +18,10 @@ const KEY = 'orca:structuredAgentLaunches:v1'
 const originalSetItem = localStorage.setItem
 const originalGetItem = localStorage.getItem
 
-function preflight(delivery = 'submit-after-ready', target: RuntimeClientTarget = { kind: 'local' }) {
+function preflight(
+  delivery = 'submit-after-ready',
+  target: RuntimeClientTarget = { kind: 'local' }
+) {
   return requireWorkItemStartPreflight({ delivery, target, agent: 'codex', repoId: 'repo-1' })
 }
 

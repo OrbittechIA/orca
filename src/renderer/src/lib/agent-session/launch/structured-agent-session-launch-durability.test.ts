@@ -54,7 +54,9 @@ function storedLaunch() {
 }
 
 function expectNoMutation() {
-  expect(mocks.call.mock.calls.filter(([, method]) => method !== 'agentSession.history')).toEqual([])
+  expect(mocks.call.mock.calls.filter(([, method]) => method !== 'agentSession.history')).toEqual(
+    []
+  )
 }
 
 async function settleRetry(sessionId: string) {
@@ -234,7 +236,9 @@ describe('Work Item Start recovery durability', () => {
     expect(restored).toBeDefined()
     await restored?.promise
 
-    expect(mocks.call.mock.calls.filter(([, method]) => method === 'agentSession.create')).toHaveLength(2)
+    expect(
+      mocks.call.mock.calls.filter(([, method]) => method === 'agentSession.create')
+    ).toHaveLength(2)
     expect(mocks.call.mock.calls[1]?.[2]).toEqual(original)
     expect(restored?.intent.params.envelope.clientOperationId).toBe(saved.clientOperationId)
     expect(mocks.call.mock.calls.some(([, method]) => method === 'agentSession.send')).toBe(false)
@@ -258,12 +262,18 @@ describe('Work Item Start recovery durability', () => {
     await launch.promptDeliveryResult
 
     expect(launch.isVisibilityUnknown()).toBe(true)
-    expect(getStructuredAgentSessionLaunchLifecycle('workspace-1', launch.sessionId)).toBe('visibility-unknown')
+    expect(getStructuredAgentSessionLaunchLifecycle('workspace-1', launch.sessionId)).toBe(
+      'visibility-unknown'
+    )
     expect(retryStructuredAgentSessionLaunch('workspace-1', launch.sessionId)).toBe(true)
     await settleRetry(launch.sessionId)
-    expect(getStructuredAgentSessionLaunchLifecycle('workspace-1', launch.sessionId)).toBe('visibility-unknown')
+    expect(getStructuredAgentSessionLaunchLifecycle('workspace-1', launch.sessionId)).toBe(
+      'visibility-unknown'
+    )
     expect(mocks.call).toHaveBeenCalledTimes(1)
-    expect(getStructuredLaunchStateBySessionId(launch.sessionId)?.intent.params.envelope).toEqual(original.envelope)
+    expect(getStructuredLaunchStateBySessionId(launch.sessionId)?.intent.params.envelope).toEqual(
+      original.envelope
+    )
   })
 
   it('preserves ordinary launch behavior when launch journal quota is exhausted', async () => {
