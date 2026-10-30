@@ -3,9 +3,10 @@ import {
   isPageStorageKeyForRoute,
   PAGE_STORAGE_MAX_VALUE_CHARS
 } from '../page-storage-keys'
+import { isWorkItemStartStorageKey, WORK_ITEM_START_ADMISSION_STORAGE_PREFIX } from '../../storage/work-item-start-storage-key'
 
 // Use init-primed native storage, not page localStorage (disabled on Android and session-scoped on iOS).
-// Keep reads synchronous behind AsyncStorage’s async API for first-render timing; writes update cache/post without waiting, and later init repairs dropped writes.
+// Preferences use the init cache; Work Item Start writes await native persistence.
 type PageStorageWriter = (key: string, value: string | null) => boolean
 
 type PageStorageRefusal = 'not-allowed' | 'too-large' | 'not-delivered'
@@ -36,8 +37,10 @@ let write: PageStorageWriter = () => false
 let oversizeKeys: ReadonlySet<string> = new Set()
 let hostId = ''
 let routePathname = ''
-// Host-area pages read workspace-scoped keys on demand and may write them across this host’s workspaces.
+let hostArea = false
+// Start recovery reads on demand; other workspace keys require host-area ownership.
 let readWorkspaceKey: ((key: string) => Promise<string | null>) | null = null
+let persist: ((key: string, expectedValue: string | null, value: string) => Promise<void>) | null = null
 
 export function publishPageStorage(
   entries: Readonly<Record<string, string>>,
@@ -45,7 +48,9 @@ export function publishPageStorage(
   forHostId: string,
   forRoutePathname: string,
   forOversizeKeys: readonly string[] = [],
-  forWorkspaceKeyReader: ((key: string) => Promise<string | null>) | null = null
+  forWorkspaceKeyReader: ((key: string) => Promise<string | null>) | null = null,
+  forDurableWriter: typeof persist = null,
+  forHostArea = forWorkspaceKeyReader !== null
 ): void {
   values.clear()
   oversizeKeys = new Set(forOversizeKeys)
@@ -56,17 +61,33 @@ export function publishPageStorage(
   hostId = forHostId
   routePathname = forRoutePathname
   readWorkspaceKey = forWorkspaceKeyReader
+  persist = forDurableWriter
+  hostArea = forHostArea
 }
 
-function getItem(key: string): Promise<string | null> {
-  return readWorkspaceKey !== null && isHostWorkspaceStorageKey(key, hostId)
-    ? readWorkspaceKey(key)
-    : Promise.resolve(values.get(key) ?? null)
+async function getItem(key: string): Promise<string | null> {
+  const onDemand = readWorkspaceKey !== null && ((hostArea && isHostWorkspaceStorageKey(key, hostId)) || isWorkItemStartStorageKey(key))
+  if (isWorkItemStartStorageKey(key) && oversizeKeys.has(key) && !onDemand) throw new PageStorageRefusedError(key, 'too-large')
+  const value = onDemand && readWorkspaceKey !== null
+    ? await readWorkspaceKey(key) : values.get(key) ?? null
+  if (value !== null) values.set(key, value)
+  else values.delete(key)
+  return value
+}
+
+async function setItem(key: string, value: string): Promise<void> {
+  if (!isWorkItemStartStorageKey(key)) return settle(key, accept(key, value))
+  if (key.startsWith(WORK_ITEM_START_ADMISSION_STORAGE_PREFIX) && readWorkspaceKey === null) throw new PageStorageRefusedError(key, 'not-allowed')
+  if (!isPageStorageKeyForRoute(key, hostId, routePathname, hostArea)) throw new PageStorageRefusedError(key, 'not-allowed')
+  if (value.length > PAGE_STORAGE_MAX_VALUE_CHARS || oversizeKeys.has(key)) throw new PageStorageRefusedError(key, 'too-large')
+  if (persist === null) throw new PageStorageRefusedError(key, 'not-delivered')
+  await persist(key, values.get(key) ?? null, value)
+  values.set(key, value)
 }
 
 // Never keep refused writes locally; an app-invisible cache value would make a pin appear persisted only to this document.
 function accept(key: string, value: string | null): PageStorageRefusal | null {
-  if (!isPageStorageKeyForRoute(key, hostId, routePathname, readWorkspaceKey !== null)) {
+  if (!isPageStorageKeyForRoute(key, hostId, routePathname, hostArea)) {
     return 'not-allowed'
   }
   // Use the envelope’s bound so cached values cannot exceed what the shell will write.
@@ -109,8 +130,12 @@ function settle(key: string, refusal: PageStorageRefusal | null): Promise<void> 
 }
 
 // Apply pairs in order and stop at the first refusal: one batch has one result, not a reported failure mixed with later successful writes (ruling 35).
-function applyBatch(pairs: readonly (readonly [string, string | null])[]): Promise<void> {
+async function applyBatch(pairs: readonly (readonly [string, string | null])[]): Promise<void> {
   for (const [key, value] of pairs) {
+    if (isWorkItemStartStorageKey(key) && value !== null) {
+      await setItem(key, value)
+      continue
+    }
     const refusal = accept(key, value)
     if (refusal !== null) {
       return settle(key, refusal)
@@ -121,7 +146,7 @@ function applyBatch(pairs: readonly (readonly [string, string | null])[]): Promi
 
 const pageAsyncStorage = {
   getItem,
-  setItem: (key: string, value: string): Promise<void> => settle(key, accept(key, value)),
+  setItem,
   removeItem: (key: string): Promise<void> => settle(key, accept(key, null)),
   multiGet: (keys: readonly string[]): Promise<[string, string | null][]> =>
     Promise.all(

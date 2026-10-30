@@ -17,7 +17,7 @@ import {
   mediaNameParamsSchema,
   mediaNameResultSchema
 } from './bridge-media-verbs'
-import { PAGE_STORAGE_MAX_KEY_CHARS } from '../page-storage-keys'
+import { PAGE_STORAGE_MAX_KEY_CHARS, PAGE_STORAGE_MAX_VALUE_CHARS, isPageStorageKey } from '../page-storage-keys'
 import { mobileFileMediaMime, PDF_MIME_TYPE } from '../../files/mobile-file-media'
 
 // Fence native-prefixed requests on-device; desktop allowlist refusal alone would hide leaked forwarding and depend on desktop version.
@@ -35,6 +35,7 @@ export const BRIDGE_NATIVE_VERB_NAMES = [
   'native.audio.read',
   'native.audio.stop',
   'native.storage.read',
+  'native.storage.persist',
   'native.pdf.view'
 ] as const
 
@@ -66,6 +67,12 @@ export const storageReadParamsSchema = z.strictObject({
   key: z.string().min(1).max(PAGE_STORAGE_MAX_KEY_CHARS)
 })
 export const storageReadResultSchema = z.strictObject({ value: z.string().nullable() })
+export const storagePersistParamsSchema = z.strictObject({
+  key: z.string().min(1).max(PAGE_STORAGE_MAX_KEY_CHARS).refine(isPageStorageKey),
+  expectedValue: z.string().max(PAGE_STORAGE_MAX_VALUE_CHARS).nullable(),
+  value: z.string().max(PAGE_STORAGE_MAX_VALUE_CHARS)
+})
+export const storagePersistResultSchema = z.strictObject({})
 
 // The shell downloads the file itself; page bytes would need staging verbs and exceed the frame cap.
 // Bridge requests cannot be cancelled, so a preview the user left sends cancel; one verb keeps routes within the grant ceiling.
@@ -125,6 +132,10 @@ export const BRIDGE_NATIVE_VERBS: Readonly<Record<BridgeNativeVerb, BridgeNative
   'native.storage.read': {
     params: storageReadParamsSchema,
     result: storageReadResultSchema
+  },
+  'native.storage.persist': {
+    params: storagePersistParamsSchema,
+    result: storagePersistResultSchema
   },
   'native.pdf.view': {
     params: pdfViewParamsSchema,

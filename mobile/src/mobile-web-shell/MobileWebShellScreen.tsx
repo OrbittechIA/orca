@@ -32,7 +32,7 @@ import { isHostRouteOf } from './page-route-policy'
 import { nativeStackReturn } from './native-stack-return'
 import { usePageLocationOnFold } from './page-location-on-fold'
 import { useResponsiveLayout } from '../layout/responsive-layout'
-import { storageReadParamsSchema, type BridgeNativeVerb } from './bridge/bridge-native-verbs'
+import { storageReadParamsSchema, storagePersistParamsSchema, type BridgeNativeVerb } from './bridge/bridge-native-verbs'
 import { SHELL_OPENING_LABEL, ShellPageCover } from './ShellWaitingFrame'
 import { useReportedShellOverlayLoad, type ShellOverlayLoad } from './shell-overlay-load'
 import { pageSafeAreaInsets, usePublishedSafeAreaInsets } from './page-safe-area-insets'
@@ -120,7 +120,8 @@ export function MobileWebShellScreen({
     readStorage,
     refreshStorage,
     writeStorage,
-    readWorkspaceKey
+    readWorkspaceKey,
+    persistStorage
   } = usePageHostSnapshot(hostId, route.pathname, ownsHostArea)
   // Create the media registry before the bridge; its staged files must belong to this page session.
   const serveDeviceVerb = useNativeDeviceVerbs(state.kind === 'ready' ? state.sessionId : null)
@@ -128,6 +129,11 @@ export function MobileWebShellScreen({
   const serveNativeVerb = (verb: BridgeNativeVerb, params: unknown): Promise<unknown> =>
     verb === 'native.storage.read'
       ? readWorkspaceKey(storageReadParamsSchema.parse(params).key).then((value) => ({ value }))
+      : verb === 'native.storage.persist'
+        ? (() => {
+            const { key, expectedValue, value } = storagePersistParamsSchema.parse(params)
+            return persistStorage(key, expectedValue, value).then(() => ({}))
+          })()
       : verb === 'native.pdf.view'
         ? servePdfView(params)
         : serveDeviceVerb(verb, params)

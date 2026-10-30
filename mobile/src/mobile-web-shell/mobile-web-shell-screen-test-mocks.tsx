@@ -174,7 +174,9 @@ export function screenModuleMocks(dependencies: ScreenDependencies) {
         refreshStorage: () => {
           dependencies.storageRefreshes += 1
         },
-        writeStorage: () => {}
+        writeStorage: () => {},
+        readWorkspaceKey: async () => null,
+        persistStorage: async () => {}
       })
     }),
     './use-mobile-web-shell-session': () => ({

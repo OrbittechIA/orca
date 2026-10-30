@@ -1,3 +1,10 @@
+import {
+  WORK_ITEM_START_CREATE_STORAGE_PREFIX,
+  WORK_ITEM_START_ADMISSION_STORAGE_PREFIX,
+  workItemStartAdmissionStorageKey,
+  isWorkItemStartWorkspaceStorageKeyForHost
+} from '../storage/work-item-start-storage-key'
+
 // Bridge into native storage: Android disables localStorage and iOS origins change per session. Explicit keys prevent pages rewriting pairings/push registrations in the same orca: namespace.
 export const PAGE_STORAGE_EXACT_KEYS = [
   'orca:last-visited-worktree',
@@ -17,6 +24,8 @@ export const PAGE_STORAGE_EXACT_KEYS = [
 ] as const
 
 export const PAGE_STORAGE_KEY_PREFIXES = [
+  WORK_ITEM_START_CREATE_STORAGE_PREFIX,
+  WORK_ITEM_START_ADMISSION_STORAGE_PREFIX,
   'orca:pins:',
   'orca:nativeChatTabs:',
   'orca:terminalLiveInputDisabled:',
@@ -37,7 +46,7 @@ export function isPageStorageKey(key: string): boolean {
   )
 }
 
-// Derive workspace scope from the pathname both endpoints receive; only session routes currently own workspace keys.
+// Derive the current workspace scope from the pathname both endpoints receive.
 export function pageRouteWorkspace(
   pathname: string
 ): { hostId: string; worktreeId: string } | null {
@@ -59,6 +68,7 @@ export function pageRouteWorkspace(
 }
 
 const WORKSPACE_KEY_PREFIXES = [
+  WORK_ITEM_START_CREATE_STORAGE_PREFIX,
   'orca:nativeChatTabs:',
   'orca:terminalLiveInputDisabled:',
   'orca:terminalDrafts:'
@@ -88,7 +98,7 @@ export function pageStorageKeysForRoute(hostId: string, routePathname: string): 
       : WORKSPACE_KEY_PREFIXES.map((prefix) =>
           workspaceScopedKey(prefix, hostId, workspace.worktreeId)
         )
-  return [...PAGE_STORAGE_EXACT_KEYS, `orca:pins:${hostId}`, ...scoped].filter(isPageStorageKey)
+  return [...PAGE_STORAGE_EXACT_KEYS, `orca:pins:${hostId}`, workItemStartAdmissionStorageKey(hostId), ...scoped].filter(isPageStorageKey)
 }
 
 // Narrow key shapes to this host/workspace; host-area pages additionally reach this host’s other workspaces.
@@ -101,6 +111,7 @@ export function isPageStorageKeyForRoute(
   return (
     key.length <= PAGE_STORAGE_MAX_KEY_CHARS &&
     (pageStorageKeysForRoute(hostId, routePathname).includes(key) ||
+      isWorkItemStartWorkspaceStorageKeyForHost(key, hostId) ||
       (hostArea && isHostWorkspaceStorageKey(key, hostId)))
   )
 }

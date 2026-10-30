@@ -15,7 +15,7 @@ import {
   stampPageMountState,
   type PageMountTarget
 } from '../src/mobile-web-shell/bridge/page-bootstrap'
-import { storageReadResultSchema } from '../src/mobile-web-shell/bridge/bridge-native-verbs'
+import { storageReadResultSchema, storagePersistResultSchema } from '../src/mobile-web-shell/bridge/bridge-native-verbs'
 import { publishPageStorage } from '../src/mobile-web-shell/bridge/page-async-storage'
 import {
   RouteScreenPaintProvider,
@@ -149,12 +149,20 @@ bootstrapShellPage({
       session.host?.id ?? '',
       session.route?.pathname ?? '',
       session.storageOversize,
-      session.ownsHostArea
+      session.grants.native.includes('native.storage.read')
         ? async (key) =>
             storageReadResultSchema.parse(
               (await client.callNativeVerb('native.storage.read', { key })).result
             ).value
-        : null
+        : null,
+      session.grants.native.includes('native.storage.persist')
+        ? async (key, expectedValue, value) => {
+            storagePersistResultSchema.parse(
+              (await client.callNativeVerb('native.storage.persist', { key, expectedValue, value })).result
+            )
+          }
+        : null,
+      session.ownsHostArea
     )
     // Activation settles to English on failure, so the page always mounts.
     void settleLatest(() => uiLocaleActivation).then(() =>

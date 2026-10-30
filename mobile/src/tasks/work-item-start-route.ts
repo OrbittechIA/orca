@@ -4,11 +4,14 @@ import type { RpcResponse } from '../transport/types'
 import { settingsRead } from '../transport/settings-read-operations'
 import { structuredAgentSupportProbe } from '../session/mobile-session-launch-operations'
 import { worktreeCreateCapabilityRead } from './mobile-workspace-create-operations'
+import { admitWorkItemStartStorage } from './work-item-start-recovery'
+import { mobileWorkItemStartCreateParams } from './work-item-start-delivery'
 
 export async function resolveMobileWorkItemStartRoute(
   client: RpcClient,
   repoId: string,
-  agent: string | undefined
+  agent: string | undefined,
+  storage: { hostId: string; prompt: string }
 ) {
   if (!agent || agent === 'blank') return { kind: 'manual' as const }
   const generation = client.getGeneration?.()
@@ -33,5 +36,9 @@ export async function resolveMobileWorkItemStartRoute(
   })
   if (generation !== client.getGeneration?.()) throw new Error('The connection changed during Work Item Start preflight. Retry on the current host.')
   if (route.kind === 'unknown' || route.kind === 'refused') throw new Error(route.message)
+  if (route.kind === 'structured' && (agent === 'claude' || agent === 'codex')) {
+    await admitWorkItemStartStorage(storage.hostId, mobileWorkItemStartCreateParams('', agent, storage.prompt))
+    if (generation !== client.getGeneration?.()) throw new Error('The connection changed during Work Item Start storage admission.')
+  }
   return route
 }

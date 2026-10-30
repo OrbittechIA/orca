@@ -81,7 +81,10 @@ function implementedPageRouteEntries(
 
 // Share effective grants between session and target pairs so handoff and host enforcement agree. Optional grants affect affordances without deciding route availability.
 function effectiveRouteGrants(route: MobileWebPageRoute): string[] {
-  return [...route.grants, ...(route.optionalGrants ?? [])].filter(implementsGrant)
+  const grants = [...route.grants, ...(route.optionalGrants ?? [])].filter(implementsGrant)
+  return grants.includes('storage')
+    ? [...new Set([...grants, 'native.storage.read', 'native.storage.persist'])]
+    : grants
 }
 
 // Grant only the chosen route’s declared/implemented capabilities; unlisted routes get none, never the shell’s whole clipboard-capable surface.
@@ -196,5 +199,5 @@ export function pageRouteRefusalVerdict(
 
 // Host-area pages navigate all served routes in-page and read their workspace keys, so combine effective grants plus native.storage.read.
 function hostAreaGrants(entries: readonly MobileWebPageRoute[]): string[] {
-  return [...new Set([...entries.flatMap(effectiveRouteGrants), 'native.storage.read'])]
+  return [...new Set([...entries.flatMap(effectiveRouteGrants), 'native.storage.read', 'native.storage.persist'])]
 }

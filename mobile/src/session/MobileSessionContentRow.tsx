@@ -56,7 +56,7 @@ export function MobileSessionContentRow({
             </Pressable>
           </View>
         ) : null}
-        <WorkItemStartRecoveryBanner worktreeId={worktreeId} />
+        <WorkItemStartRecoveryBanner worktreeId={worktreeId} hostId={hostId} />
         <MobileSessionActiveContent controller={controller} />
         {/* Why: translate instead of resize so keyboard toggles don't trigger a server-side PTY viewport change. */}
         <MobileSessionCommandDock controller={controller} keysInRail={keysInRail} />

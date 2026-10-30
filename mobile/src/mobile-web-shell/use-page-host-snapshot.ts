@@ -6,8 +6,14 @@ import {
   retainMirroredStorage,
   readMirroredKeyOrStore,
   readMirroredStorage,
-  writeMirroredStorage
+  writeMirroredStorage,
+  compareAndPersistMirrored
 } from '../storage/mirrored-storage-keys'
+import {
+  isWorkItemStartStorageKey,
+  WORK_ITEM_START_CREATE_STORAGE_PREFIX,
+  WORK_ITEM_START_ADMISSION_STORAGE_PREFIX
+} from '../storage/work-item-start-storage-key'
 import {
   isHostWorkspaceStorageKey,
   isPageStorageKeyForRoute,
@@ -30,6 +36,7 @@ export type PageHostSnapshotView = {
   refreshStorage: () => Promise<void>
   writeStorage: (key: string, value: string | null) => void
   readWorkspaceKey: (key: string) => Promise<string | null>
+  persistStorage: (key: string, expectedValue: string | null, value: string) => Promise<void>
 }
 
 // Read native profile/storage into init because web SecureStore is empty and localStorage is disabled/session-scoped. Refresh keys for every init; profile identity stays fixed for the mount.
@@ -110,6 +117,7 @@ export function usePageHostSnapshot(
 
   const writeStorage = useCallback(
     (key: string, value: string | null): void => {
+      if (key.startsWith(WORK_ITEM_START_CREATE_STORAGE_PREFIX) || key.startsWith(WORK_ITEM_START_ADMISSION_STORAGE_PREFIX)) return
       // Recheck the allowlist so the mirror cannot temporarily expose values its next refresh drops.
       if (!isPageStorageKeyForRoute(key, hostId, routePathname, hostArea)) {
         return
@@ -121,13 +129,14 @@ export function usePageHostSnapshot(
 
   const readWorkspaceKey = useCallback(
     async (key: string): Promise<string | null> => {
-      if (!hostArea || !isHostWorkspaceStorageKey(key, hostId)) {
+      if (!((hostArea && isHostWorkspaceStorageKey(key, hostId)) ||
+        (isWorkItemStartStorageKey(key) && isPageStorageKeyForRoute(key, hostId, routePathname, hostArea)))) {
         throw new Error('this page may not read that key')
       }
       // Update the map before async persistence so init sees shell-side writes immediately.
       return readMirroredKeyOrStore(key)
     },
-    [hostArea, hostId]
+    [hostArea, hostId, routePathname]
   )
 
   return {
@@ -146,6 +155,12 @@ export function usePageHostSnapshot(
     }, [hostId, routePathname]),
     refreshStorage,
     writeStorage,
-    readWorkspaceKey
+    readWorkspaceKey,
+    persistStorage: useCallback(async (key: string, expectedValue: string | null, value: string) => {
+      if (!isWorkItemStartStorageKey(key) || !isPageStorageKeyForRoute(key, hostId, routePathname, hostArea)) {
+        throw new Error('this page may not persist that key')
+      }
+      await compareAndPersistMirrored(key, expectedValue, value)
+    }, [hostId, routePathname, hostArea])
   }
 }

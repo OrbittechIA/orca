@@ -28,6 +28,7 @@ export type WorkspaceCreateAgentBundle = {
 
 export type CreateWorkspaceFromComposerArgs = {
   client: RpcClient
+  hostId?: string
   selection: MobileComposerCreateSelection
   targetRepoId: string
   setupDecision: WorkspaceCreateSetupDecision
@@ -110,6 +111,7 @@ function toTaskItem(item: MobileLinkedWorkItem, targetRepoId: string): Workspace
 
 async function createWorkItemWorkspace(args: {
   client: RpcClient
+  hostId?: string
   selection: Extract<MobileComposerCreateSelection, { kind: 'work-item' }>
   targetRepoId: string
   setupDecision: WorkspaceCreateSetupDecision
@@ -126,7 +128,7 @@ async function createWorkItemWorkspace(args: {
   const startRepoId = taskItem.provider === 'github' || taskItem.provider === 'gitlab'
     ? taskItem.source.repoId : targetRepoId
   const startGeneration = client.getGeneration?.()
-  const route = await resolveMobileWorkItemStartRoute(client, startRepoId, selectedAgent)
+  const route = await resolveMobileWorkItemStartRoute(client, startRepoId, selectedAgent, { hostId: args.hostId ?? '', prompt: item.url })
 
   // Reuse select-time PR/MR base resolution; resolve again only when a linked item lacks it.
   let baseBranch = selection.baseBranch
@@ -174,7 +176,7 @@ async function createWorkItemWorkspace(args: {
     if (startGeneration !== client.getGeneration?.()) {
       throw new Error('The connection changed during Work Item Start. Review the created workspace before sending anything.')
     }
-    const warning = await deliverMobileWorkItemStart({ client, worktreeId: result.worktreeId, agent: selectedAgent, prompt: item.url })
+    const warning = await deliverMobileWorkItemStart({ client, hostId: args.hostId ?? '', worktreeId: result.worktreeId, agent: selectedAgent, prompt: item.url })
     return { ...result, ...(warning ? { warning: [result.warning, warning].filter(Boolean).join(' ') } : {}) }
   } catch (error) {
     const warning = error instanceof Error ? error.message : 'Work Item Start requires recovery in this workspace.'

@@ -53,6 +53,10 @@ describe('the route grants a downloaded generation is activated under', () => {
     { pathname: '/h/[hostId]', grants: ['navigate', 'storage'] },
     { pathname: '/h/[hostId]/tasks', grants: ['navigate', 'native.clipboard.write'] }
   ]
+  const GRANTED_TWO_ROUTES = [
+    { pathname: '/h/[hostId]', grants: ['navigate', 'storage', 'native.storage.read', 'native.storage.persist'] },
+    TWO_ROUTES[1]
+  ]
   const DOWNLOADED: MobileWebShellManifestFacts = manifestFacts({
     ...MANIFEST_WIRE,
     buildId: 'c'.repeat(64),
@@ -78,7 +82,7 @@ describe('the route grants a downloaded generation is activated under', () => {
   it('is the manifest it downloaded, on a cold cache', () => {
     const step = activate(afterCacheRead(null).session, DOWNLOADED)
     expect(step.session.state.kind).toBe('ready')
-    expect(step.session.pageRouteGrants).toEqual(TWO_ROUTES)
+    expect(step.session.pageRouteGrants).toEqual(GRANTED_TWO_ROUTES)
   })
 
   it('is the manifest it matched, on a cached hit', () => {
@@ -96,6 +100,6 @@ describe('the route grants a downloaded generation is activated under', () => {
         .session,
       DOWNLOADED
     )
-    expect(step.session.pageRouteGrants).toEqual(TWO_ROUTES)
+    expect(step.session.pageRouteGrants).toEqual(GRANTED_TWO_ROUTES)
   })
 })

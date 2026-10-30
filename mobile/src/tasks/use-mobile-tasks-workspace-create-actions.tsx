@@ -111,7 +111,7 @@ export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateMod
         }
         const startClient = taskRepoClient(client, targetRepo)
         const startGeneration = startClient.getGeneration?.()
-        const route = await resolveMobileWorkItemStartRoute(startClient, targetRepo.id, selectedAgent)
+        const route = await resolveMobileWorkItemStartRoute(startClient, targetRepo.id, selectedAgent, { hostId, prompt: item.source.url })
         const setupResolution = await resolveCreateSetupDecision(targetRepo, setupOverride)
         const comment = noteOverride?.trim()
         if (setupResolution.kind === 'prompt') {
@@ -280,6 +280,7 @@ export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateMod
               throw new Error('The connection changed during Work Item Start. Review the created workspace before sending anything.')
             }
             startWarning = await deliverMobileWorkItemStart({
+              hostId,
               client: startClient,
               worktreeId: result.worktree.id,
               agent: selectedAgent,

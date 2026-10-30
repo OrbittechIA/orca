@@ -106,7 +106,7 @@ describe('the wide host-area session', () => {
   it("is granted every served route's grants, and no phone session is", () => {
     const view = routeViewOf(desktopRoutes(true), HOST_ROUTE, true)
     expect([...view.routeGrants].sort()).toEqual(
-      [...SESSION_GRANTS, 'externalNavigation', 'native.storage.read'].sort()
+      [...SESSION_GRANTS, 'externalNavigation', 'native.storage.read', 'native.storage.persist'].sort()
     )
     for (const pair of view.pageRouteGrants) {
       expect(pair.grants.every((grant) => view.routeGrants.includes(grant))).toBe(true)
@@ -115,7 +115,9 @@ describe('the wide host-area session', () => {
       'navigate',
       'storage',
       'externalLink',
-      'haptics'
+      'haptics',
+      'native.storage.read',
+      'native.storage.persist'
     ])
   })
 
@@ -150,7 +152,7 @@ describe('the wide host-area session', () => {
   it("serves a wide detail route under a declaring page with that route's own grants", () => {
     const session = wideStateFor(desktopRoutes(true), '/h/host-1/files/wt-1')
     expect(session.state.kind).toBe('fetching')
-    expect(session.routeGrants).toEqual(['navigate', 'storage', 'externalLink', 'haptics'])
+    expect(session.routeGrants).toEqual(['navigate', 'storage', 'externalLink', 'haptics', 'native.storage.read', 'native.storage.persist'])
   })
 
   it('serves a wide route only under the host route of a declaring page', () => {

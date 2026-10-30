@@ -88,7 +88,11 @@ export async function createMobileStructuredAgentSession(
   let supportResponse
   for (let attempt = 0; ; attempt += 1) {
     try {
-      supportResponse = await structuredAgentSupportProbe.request(client, { worktree, agent })
+      supportResponse = await structuredAgentSupportProbe.request(client, {
+        worktree,
+        agent,
+        ...(heldParams?.launchOrigin ? { launchOrigin: heldParams.launchOrigin } : {})
+      })
     } catch (error) {
       const retryDelayMs = CREATE_SUPPORT_RETRY_DELAYS_MS[attempt]
       if (

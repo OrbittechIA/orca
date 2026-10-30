@@ -191,7 +191,9 @@ describe('the gate a catch-all pathname meets', () => {
       'navigate',
       'storage',
       'externalLink',
-      'haptics'
+      'haptics',
+      'native.storage.read',
+      'native.storage.persist'
     ])
   })
 

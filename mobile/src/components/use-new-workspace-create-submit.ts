@@ -37,6 +37,7 @@ type Composer = ReturnType<typeof useMobileComposerSource>
 
 export function useNewWorkspaceCreateSubmit(args: {
   client: RpcClient | null
+  hostId?: string
   repos: readonly MobileWorkspaceRepo[]
   selectedRepo: MobileWorkspaceRepo | null
   selectedAgent: NewWorktreeAgentOption
@@ -165,6 +166,7 @@ export function useNewWorkspaceCreateSubmit(args: {
       const result = selection
         ? await createWorkspaceFromComposerSource({
             client,
+            hostId: args.hostId,
             selection,
             targetRepoId: selectedRepo.id,
             setupDecision,

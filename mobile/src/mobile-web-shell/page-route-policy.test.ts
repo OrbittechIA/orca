@@ -101,7 +101,7 @@ describe('a pattern with a rest segment', () => {
   it('serves such a route and grants it what it declared', () => {
     const routes = [{ pathname: PATTERN, grants: ['navigate', 'storage'] }]
     expect(servesRoute(routes, '/h/a/insights/deep/er')).toBe(true)
-    expect(grantsForRoute(routes, '/h/a/insights/deep/er')).toEqual(['navigate', 'storage'])
+    expect(grantsForRoute(routes, '/h/a/insights/deep/er')).toEqual(['navigate', 'storage', 'native.storage.read', 'native.storage.persist'])
   })
 
   // Prefer the exact row over an overlapping rest row so catch-all grants cannot override the screen’s own declaration.
@@ -114,7 +114,9 @@ describe('a pattern with a rest segment', () => {
     expect(grantsForRoute(routes, '/h/a/anything/else')).toEqual([
       'navigate',
       'storage',
-      'externalLink'
+      'externalLink',
+      'native.storage.read',
+      'native.storage.persist'
     ])
   })
 })
@@ -198,7 +200,9 @@ describe('the grants this app implements', () => {
     expect(grantsForRoute(routes, '/h/host-1/session/wt-1')).toEqual([
       'navigate',
       'storage',
-      BRIDGE_EXTERNAL_NAVIGATION_GRANT
+      BRIDGE_EXTERNAL_NAVIGATION_GRANT,
+      'native.storage.read',
+      'native.storage.persist'
     ])
     expect(pageRoutesOf(routes)).toEqual(['/h/[hostId]/session/[worktreeId]'])
   })
@@ -309,7 +313,7 @@ describe('the pairs a session publishes to the page', () => {
       renderer: 'someLaterDesktopsField'
     })
     expect(routeViewOf(routes, '/h/host-1').pageRouteGrants).toEqual([
-      { pathname: '/h/[hostId]', grants: ['navigate', 'storage', 'screencastBinary'] }
+      { pathname: '/h/[hostId]', grants: ['navigate', 'storage', 'screencastBinary', 'native.storage.read', 'native.storage.persist'] }
     ])
   })
 
@@ -349,7 +353,7 @@ describe('a route that declares an optional grant', () => {
     const fromTheFuture = [
       { pathname, grants: ['navigate', 'storage'], optionalGrants: ['aGrantFromTheFuture'] }
     ]
-    expect(grantsForRoute(fromTheFuture, opened)).toEqual(['navigate', 'storage'])
+    expect(grantsForRoute(fromTheFuture, opened)).toEqual(['navigate', 'storage', 'native.storage.read', 'native.storage.persist'])
     // Missing optional grants hide an affordance; missing required grants leave the screen native.
     expect(pageRoutesOf(fromTheFuture)).toEqual([pathname])
   })
@@ -360,7 +364,7 @@ describe('a route that declares an optional grant', () => {
     expect(parsed.optionalGrants).toEqual(['screencastBinary'])
     const view = routeViewOf([parsed], opened)
     expect(view.pageRouteGrants).toEqual([{ pathname, grants: view.routeGrants }])
-    expect(view.routeGrants).toEqual(['navigate', 'storage', 'screencastBinary'])
+    expect(view.routeGrants).toEqual(['navigate', 'storage', 'screencastBinary', 'native.storage.read', 'native.storage.persist'])
   })
 })
 

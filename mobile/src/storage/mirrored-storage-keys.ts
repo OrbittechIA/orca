@@ -109,6 +109,21 @@ export function persistMirrored(key: string, value: string | null): Promise<void
     })
 }
 
+const durableWrites = { tail: Promise.resolve() }
+
+export function compareAndPersistMirrored(key: string, expectedValue: string | null, value: string): Promise<void> {
+  const run = durableWrites.tail.then(async () => {
+    if (await AsyncStorage.getItem(key) !== expectedValue) {
+      throw new Error('Work Item Start recovery changed. Review the existing conversation before sending anything.')
+    }
+    await AsyncStorage.setItem(key, value)
+    if (await AsyncStorage.getItem(key) !== value) throw new Error('Work Item Start recovery could not be saved.')
+    note(key, value)
+  })
+  durableWrites.tail = run.catch(() => undefined)
+  return run
+}
+
 // Native-shell-only: note before async storage so the next synchronous init sees the page’s accepted value.
 // Page-reachable writers use persistMirrored because their adapter can refuse writes.
 export function writeMirroredStorage(key: string, value: string | null): void {

@@ -134,6 +134,8 @@ function readAll<TMessage>(
 // Keep a valid default reply per verb table row so unconfigured native calls do not fail as malformed shell results.
 function defaultVerbAnswer(verb: BridgeNativeVerb): unknown {
   switch (verb) {
+    case 'native.storage.persist':
+      return {}
     case 'native.clipboard.write':
       return { written: true }
     case 'native.clipboard.read':

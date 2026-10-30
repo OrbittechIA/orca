@@ -129,6 +129,33 @@ beforeEach(async () => {
 })
 
 describe('the per-workspace keys of a host-area page', () => {
+  it('acknowledges a Work Item Start only after native storage lands and rejects a foreign host', async () => {
+    const view = await snapshotFor('/h/host-a', true)
+    const key = 'orca:mobileWorkItemStartCreate:host-a:pending'
+    let acknowledged = false
+    const write = view.persistStorage(key, null, 'original identity').then(() => { acknowledged = true })
+    await act(async () => {})
+    expect(acknowledged).toBe(false)
+    expect(store.has(key)).toBe(false)
+    await act(async () => persisted())
+    await write
+    expect(acknowledged).toBe(true)
+    expect(store.get(key)).toBe('original identity')
+    await expect(view.readWorkspaceKey(key)).resolves.toBe('original identity')
+    await expect(view.persistStorage(key, null, 'replacement')).rejects.toThrow()
+    await expect(view.persistStorage('orca:mobileWorkItemStartCreate:host-b:pending', null, '{}')).rejects.toThrow()
+    view.writeStorage(key, 'unacknowledged replacement')
+    persisted()
+    expect(store.get(key)).toBe('original identity')
+  })
+
+  it('rejects a failed native Work Item Start write without an optimistic mirror receipt', async () => {
+    const view = await snapshotFor('/h/host-a', true)
+    const key = 'orca:mobileWorkItemStartCreate:host-a:failed'
+    vi.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('disk failed'))
+    await expect(view.persistStorage(key, null, 'identity')).rejects.toThrow('disk failed')
+    await expect(view.readWorkspaceKey(key)).resolves.toBeNull()
+  })
   it('keeps unmounted workspace writes readable until native persistence settles', async () => {
     const detail = await snapshotFor('/h/host-a/session/wt-1', false)
     detail.writeStorage(CHAT_TABS, '["pending"]')
