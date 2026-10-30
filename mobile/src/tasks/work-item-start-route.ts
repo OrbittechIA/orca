@@ -13,7 +13,9 @@ export async function resolveMobileWorkItemStartRoute(
   agent: string | undefined,
   storage: { hostId: string; prompt: string }
 ) {
-  if (!agent || agent === 'blank') return { kind: 'manual' as const }
+  if (!agent || agent === 'blank') {
+    return { kind: 'manual' as const }
+  }
   const generation = client.getGeneration?.()
   const settings = settingsRead.interpret(await settingsRead.request(client))
   if (!settings.accepted) {
@@ -27,7 +29,9 @@ export async function resolveMobileWorkItemStartRoute(
       ? value.workItemStartPromptDelivery
       : undefined
   const result = (reply: RpcResponse): unknown => {
-    if (!reply.ok) throw new Error(reply.error.message)
+    if (!reply.ok) {
+      throw new Error(reply.error.message)
+    }
     return reply.result
   }
   const route = await preflightWorkItemStart({
@@ -40,18 +44,22 @@ export async function resolveMobileWorkItemStartRoute(
     readSupport: async (params) =>
       result(await structuredAgentSupportProbe.request(client, params, { timeoutMs: 10_000 }))
   })
-  if (generation !== client.getGeneration?.())
+  if (generation !== client.getGeneration?.()) {
     throw new Error(
       'The connection changed during Work Item Start preflight. Retry on the current host.'
     )
-  if (route.kind === 'unknown' || route.kind === 'refused') throw new Error(route.message)
+  }
+  if (route.kind === 'unknown' || route.kind === 'refused') {
+    throw new Error(route.message)
+  }
   if (route.kind === 'structured' && (agent === 'claude' || agent === 'codex')) {
     await admitWorkItemStartStorage(
       storage.hostId,
       mobileWorkItemStartCreateParams('', agent, storage.prompt)
     )
-    if (generation !== client.getGeneration?.())
+    if (generation !== client.getGeneration?.()) {
       throw new Error('The connection changed during Work Item Start storage admission.')
+    }
   }
   return route
 }

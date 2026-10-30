@@ -120,8 +120,9 @@ export function usePageHostSnapshot(
       if (
         key.startsWith(WORK_ITEM_START_CREATE_STORAGE_PREFIX) ||
         key.startsWith(WORK_ITEM_START_ADMISSION_STORAGE_PREFIX)
-      )
+      ) {
         return
+      }
       // Recheck the allowlist so the mirror cannot temporarily expose values its next refresh drops.
       if (!isPageStorageKeyForRoute(key, hostId, routePathname, hostArea)) {
         return

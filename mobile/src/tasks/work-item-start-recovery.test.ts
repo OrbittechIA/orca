@@ -30,9 +30,12 @@ function clientFor(outcome: 'success' | 'unknown' = 'success') {
     client: {
       ...createFakeRpcClient(),
       sendRequest: vi.fn(async (method: string, input?: unknown) => {
-        if (method === 'agentSession.createSupport')
+        if (method === 'agentSession.createSupport') {
           return { id: 'support', ok: true as const, result: { supported: true } }
-        if (method !== 'agentSession.create') throw new Error(`Unexpected ${method}`)
+        }
+        if (method !== 'agentSession.create') {
+          throw new Error(`Unexpected ${method}`)
+        }
         const params = CreateIntentParams.parse(input)
         expect(
           JSON.parse(
@@ -40,7 +43,9 @@ function clientFor(outcome: 'success' | 'unknown' = 'success') {
           )
         ).toMatchObject({ confirmed: false, params })
         creates.push(params)
-        if (outcome === 'unknown') throw new Error('acknowledgement lost')
+        if (outcome === 'unknown') {
+          throw new Error('acknowledgement lost')
+        }
         return {
           id: 'create',
           ok: true as const,
@@ -85,10 +90,11 @@ describe('Work Item Start durable workspace recovery', () => {
     expect(creates).toHaveLength(70)
     expect(new Set(creates.map((params) => params.envelope.sessionId)).size).toBe(70)
     expect(disk.get(workItemStartCreateStorageKey(hostId, 'held'))).toBe(held)
-    for (let index = 0; index < 70; index++)
+    for (let index = 0; index < 70; index++) {
       expect(await readWorkItemStartRecovery(`parallel-${index}`, hostId)).toEqual({
         kind: 'confirmed'
       })
+    }
   })
   it('admits 70 confirmed Starts, and a confirmed workspace cannot send again after reload', async () => {
     const { client, creates } = clientFor()
@@ -192,7 +198,9 @@ describe('Work Item Start durable workspace recovery', () => {
     'prevents the first create when storage writes %s',
     async (failure) => {
       write.mockImplementation(async () => {
-        if (failure === 'reject') throw new Error('disk unavailable')
+        if (failure === 'reject') {
+          throw new Error('disk unavailable')
+        }
       })
       const { client, creates } = clientFor()
       await expect(
@@ -215,7 +223,9 @@ describe('Work Item Start durable workspace recovery', () => {
   it('keeps a pending identity when confirmation fails after a successful create', async () => {
     const { client, creates } = clientFor()
     write.mockImplementation(async (key, value) => {
-      if (value.includes('"confirmed":true')) throw new Error('confirmation failed')
+      if (value.includes('"confirmed":true')) {
+        throw new Error('confirmation failed')
+      }
       disk.set(key, value)
     })
     const args = { client, hostId, worktreeId: 'pending', agent: 'codex', prompt: 'url' }

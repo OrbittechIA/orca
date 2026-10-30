@@ -35,7 +35,9 @@ export async function preflightWorkItemStart(args: {
     kind: 'unknown',
     message: 'Work Item Start support could not be confirmed. Check the connection and retry.'
   })
-  if (args.mobile && args.agent !== 'claude' && args.agent !== 'codex') return refused()
+  if (args.mobile && args.agent !== 'claude' && args.agent !== 'codex') {
+    return refused()
+  }
   try {
     const status = await args.readStatus()
     if (

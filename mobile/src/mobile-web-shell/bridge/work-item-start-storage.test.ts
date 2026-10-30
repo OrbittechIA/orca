@@ -79,17 +79,23 @@ async function bridge(options: { oldNative?: boolean; lostAck?: boolean; narrow?
       onDevice(async () => {
         if (verb === 'native.storage.read') {
           const { key } = storageReadParamsSchema.parse(params)
-          if (!isPageStorageKeyForRoute(key, 'host-a', pathname, hostArea))
+          if (!isPageStorageKeyForRoute(key, 'host-a', pathname, hostArea)) {
             throw new Error('host mismatch')
+          }
           return { value: disk.get(key) ?? null }
         }
         if (verb === 'native.storage.persist') {
-          if (options.oldNative) throw new Error('unknown native verb')
+          if (options.oldNative) {
+            throw new Error('unknown native verb')
+          }
           const { key, expectedValue, value } = storagePersistParamsSchema.parse(params)
-          if (!isPageStorageKeyForRoute(key, 'host-a', pathname, hostArea))
+          if (!isPageStorageKeyForRoute(key, 'host-a', pathname, hostArea)) {
             throw new Error('host mismatch')
+          }
           await compareAndPersistMirrored(key, expectedValue, value)
-          if (options.lostAck) throw new Error('acknowledgement lost')
+          if (options.lostAck) {
+            throw new Error('acknowledgement lost')
+          }
           return {}
         }
         return {}
@@ -97,7 +103,9 @@ async function bridge(options: { oldNative?: boolean; lostAck?: boolean; narrow?
   })
   await pair.flush()
   const session = pair.client.getShellSession()
-  if (session === null) throw new Error('no init')
+  if (session === null) {
+    throw new Error('no init')
+  }
   publishPageStorage(
     session.storage,
     (key, value) => pair.client.notifyStorageWrite(key, value),
@@ -121,9 +129,13 @@ async function bridge(options: { oldNative?: boolean; lostAck?: boolean; narrow?
       (value) => ({ value }),
       (error: unknown) => ({ error })
     )
-    for (let index = 0; index < 100; index++) await pair.flush()
+    for (let index = 0; index < 100; index++) {
+      await pair.flush()
+    }
     const result = await captured
-    if ('error' in result) throw result.error
+    if ('error' in result) {
+      throw result.error
+    }
     return result.value
   }
   return { pair, settled, session }
@@ -176,8 +188,9 @@ describe('Work Item Start native storage bridge', () => {
     const client: RpcClient = {
       ...createFakeRpcClient(),
       sendRequest: async (method, input) => {
-        if (method === 'agentSession.createSupport')
+        if (method === 'agentSession.createSupport') {
           return { id: method, ok: true, result: { supported: true } }
+        }
         const params = CreateIntentParams.parse(input)
         expect(disk.has(workItemStartCreateStorageKey('host-a', params.worktree.slice(3)))).toBe(
           true
@@ -228,8 +241,9 @@ describe('Work Item Start native storage bridge', () => {
   it.each(['old-native', 'native-failure', 'lost-ack'] as const)(
     'prevents workspace effects with %s even if readback could see a value',
     async (failure) => {
-      if (failure === 'native-failure')
+      if (failure === 'native-failure') {
         nativeWrite.mockRejectedValue(new Error('native disk failed'))
+      }
       const { settled } = await bridge({
         oldNative: failure === 'old-native',
         lostAck: failure === 'lost-ack'
@@ -285,7 +299,9 @@ describe('Work Item Start native storage bridge', () => {
       ).rejects.toThrow()
       expect(methods).not.toContain('worktree.create')
       expect(methods).not.toContain('agentSession.create')
-      if (failure === 'lost-ack') expect(disk.size).toBe(1)
+      if (failure === 'lost-ack') {
+        expect(disk.size).toBe(1)
+      }
     }
   )
 

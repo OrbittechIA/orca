@@ -42,19 +42,23 @@ export type WorkItemStartRecovery =
   | { kind: 'legacy'; message: string }
 
 function storageKey(hostId: string, worktreeId: string): string {
-  if (!hostId) throw new Error('Work Item Start requires a known host before creating a workspace.')
+  if (!hostId) {
+    throw new Error('Work Item Start requires a known host before creating a workspace.')
+  }
   const key = workItemStartCreateStorageKey(hostId, worktreeId)
-  if (key.length > PAGE_STORAGE_MAX_KEY_CHARS)
+  if (key.length > PAGE_STORAGE_MAX_KEY_CHARS) {
     throw new Error(
       'Work Item Start workspace identity exceeds the storage limit. No prompt was sent.'
     )
+  }
   return key
 }
 
 function serialize(value: z.infer<typeof WorkspaceCreate>): string {
   const raw = JSON.stringify(WorkspaceCreate.parse(value))
-  if (raw.length > PAGE_STORAGE_MAX_VALUE_CHARS)
+  if (raw.length > PAGE_STORAGE_MAX_VALUE_CHARS) {
     throw new Error('Work Item Start exceeds the recovery storage limit. No prompt was sent.')
+  }
   return raw
 }
 
@@ -67,12 +71,17 @@ async function oldEntry(worktreeId: string) {
 
 async function readRecovery(worktreeId: string, hostId: string): Promise<WorkItemStartRecovery> {
   const legacy = await readLegacyWorkItemStartRecovery(AsyncStorage, worktreeId)
-  if (legacy.kind === 'legacy') return legacy
+  if (legacy.kind === 'legacy') {
+    return legacy
+  }
   const previous = await oldEntry(worktreeId)
-  if (previous)
+  if (previous) {
     return previous.confirmed ? { kind: 'confirmed' } : { kind: 'create', params: previous.params }
+  }
   const raw = await AsyncStorage.getItem(storageKey(hostId, worktreeId))
-  if (raw === null) return { kind: 'none' }
+  if (raw === null) {
+    return { kind: 'none' }
+  }
   const entry = WorkspaceCreate.parse(JSON.parse(raw))
   return entry.confirmed ? { kind: 'confirmed' } : { kind: 'create', params: entry.params }
 }
@@ -100,12 +109,14 @@ export async function admitWorkItemStartStorage(
   await readLegacyWorkItemStartRecovery(AsyncStorage, '')
   await oldEntry('')
   const key = workItemStartAdmissionStorageKey(hostId)
-  if (key.length > PAGE_STORAGE_MAX_KEY_CHARS)
+  if (key.length > PAGE_STORAGE_MAX_KEY_CHARS) {
     throw new Error('Work Item Start host identity exceeds the storage limit.')
+  }
   await AsyncStorage.getItem(key)
   await AsyncStorage.setItem(key, '{"v":1}')
-  if ((await AsyncStorage.getItem(key)) !== '{"v":1}')
+  if ((await AsyncStorage.getItem(key)) !== '{"v":1}') {
     throw new Error('Work Item Start storage could not be confirmed before workspace creation.')
+  }
 }
 
 export function retainWorkItemStartCreate(
@@ -123,8 +134,9 @@ export function retainWorkItemStartCreate(
     const key = storageKey(hostId, worktreeId)
     const raw = serialize({ v: 1, confirmed: false, params })
     await AsyncStorage.setItem(key, raw)
-    if ((await AsyncStorage.getItem(key)) !== raw)
+    if ((await AsyncStorage.getItem(key)) !== raw) {
       throw new Error('Work Item Start recovery could not be saved. No prompt was sent.')
+    }
   })
   writes.tail = run.catch(() => undefined)
   return run
@@ -138,14 +150,19 @@ export function confirmWorkItemStartCreate(
   const run = writes.tail.then(async () => {
     const key = storageKey(hostId, worktreeId)
     const raw = await AsyncStorage.getItem(key)
-    if (raw === null) throw new Error('Work Item Start recovery data is missing.')
+    if (raw === null) {
+      throw new Error('Work Item Start recovery data is missing.')
+    }
     const entry = WorkspaceCreate.parse(JSON.parse(raw))
     if (entry.confirmed) {
-      if (entry.sessionId === sessionId) return
+      if (entry.sessionId === sessionId) {
+        return
+      }
       throw new Error('Work Item Start confirmation identity changed.')
     }
-    if (entry.params.envelope.sessionId !== sessionId)
+    if (entry.params.envelope.sessionId !== sessionId) {
       throw new Error('Work Item Start confirmation identity changed.')
+    }
     const { clientOperationId, payloadFingerprint } = entry.params.envelope
     const tombstone = serialize({
       v: 1,
@@ -155,8 +172,9 @@ export function confirmWorkItemStartCreate(
       payloadFingerprint
     })
     await AsyncStorage.setItem(key, tombstone)
-    if ((await AsyncStorage.getItem(key)) !== tombstone)
+    if ((await AsyncStorage.getItem(key)) !== tombstone) {
       throw new Error('Work Item Start confirmation could not be saved.')
+    }
   })
   writes.tail = run.catch(() => undefined)
   return run

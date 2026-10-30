@@ -73,24 +73,35 @@ async function getItem(key: string): Promise<string | null> {
   const onDemand =
     readWorkspaceKey !== null &&
     ((hostArea && isHostWorkspaceStorageKey(key, hostId)) || isWorkItemStartStorageKey(key))
-  if (isWorkItemStartStorageKey(key) && oversizeKeys.has(key) && !onDemand)
+  if (isWorkItemStartStorageKey(key) && oversizeKeys.has(key) && !onDemand) {
     throw new PageStorageRefusedError(key, 'too-large')
+  }
   const value =
     onDemand && readWorkspaceKey !== null ? await readWorkspaceKey(key) : (values.get(key) ?? null)
-  if (value !== null) values.set(key, value)
-  else values.delete(key)
+  if (value !== null) {
+    values.set(key, value)
+  } else {
+    values.delete(key)
+  }
   return value
 }
 
 async function setItem(key: string, value: string): Promise<void> {
-  if (!isWorkItemStartStorageKey(key)) return settle(key, accept(key, value))
-  if (key.startsWith(WORK_ITEM_START_ADMISSION_STORAGE_PREFIX) && readWorkspaceKey === null)
+  if (!isWorkItemStartStorageKey(key)) {
+    return settle(key, accept(key, value))
+  }
+  if (key.startsWith(WORK_ITEM_START_ADMISSION_STORAGE_PREFIX) && readWorkspaceKey === null) {
     throw new PageStorageRefusedError(key, 'not-allowed')
-  if (!isPageStorageKeyForRoute(key, hostId, routePathname, hostArea))
+  }
+  if (!isPageStorageKeyForRoute(key, hostId, routePathname, hostArea)) {
     throw new PageStorageRefusedError(key, 'not-allowed')
-  if (value.length > PAGE_STORAGE_MAX_VALUE_CHARS || oversizeKeys.has(key))
+  }
+  if (value.length > PAGE_STORAGE_MAX_VALUE_CHARS || oversizeKeys.has(key)) {
     throw new PageStorageRefusedError(key, 'too-large')
-  if (persist === null) throw new PageStorageRefusedError(key, 'not-delivered')
+  }
+  if (persist === null) {
+    throw new PageStorageRefusedError(key, 'not-delivered')
+  }
   await persist(key, values.get(key) ?? null, value)
   values.set(key, value)
 }
@@ -151,7 +162,6 @@ async function applyBatch(pairs: readonly (readonly [string, string | null])[]):
       return settle(key, refusal)
     }
   }
-  return Promise.resolve()
 }
 
 const pageAsyncStorage = {

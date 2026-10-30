@@ -24,11 +24,15 @@ export async function deliverMobileWorkItemStart(args: {
 }): Promise<string | undefined> {
   const generation = args.client.getGeneration?.()
   const recovery = await readWorkItemStartRecovery(args.worktreeId, args.hostId)
-  if (recovery.kind === 'legacy') return recovery.message
-  if (recovery.kind === 'confirmed')
+  if (recovery.kind === 'legacy') {
+    return recovery.message
+  }
+  if (recovery.kind === 'confirmed') {
     return 'Work Item Start already created a conversation in this workspace.'
-  if (recovery.kind === 'create')
+  }
+  if (recovery.kind === 'create') {
     return 'Work Item Start has an unconfirmed saved create. Review the existing conversation before sending anything.'
+  }
   if (!isAgentSessionHandleProvider(args.agent)) {
     return 'This agent cannot receive a Work Item Start in a structured session.'
   }
@@ -43,8 +47,9 @@ export async function deliverMobileWorkItemStart(args: {
     args.agent,
     params
   )
-  if (result.kind === 'created')
+  if (result.kind === 'created') {
     await confirmWorkItemStartCreate(args.worktreeId, args.hostId, result.sessionId)
+  }
   // A create receipt proves ownership by the host; first-message delivery is shown by its official chat ledger.
   return result.kind === 'created'
     ? undefined

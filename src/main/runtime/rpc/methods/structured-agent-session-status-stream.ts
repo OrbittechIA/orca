@@ -75,7 +75,9 @@ export const STRUCTURED_AGENT_SESSION_STATUS_METHODS = [
               clientReadsStructuredSessionAgent(ctx, provider)
             )
           })
-          if (visible) emit(visible)
+          if (visible) {
+            emit(visible)
+          }
         }
       })
       if (stream.isClosed()) {

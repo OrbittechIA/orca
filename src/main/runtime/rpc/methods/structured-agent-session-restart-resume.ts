@@ -52,7 +52,9 @@ export const STRUCTURED_AGENT_SESSION_RESTART_RESUME_METHODS = [
         (await host.restartResume.list(audience))
           .filter((row) => canReachStructuredSession(ctx, host, row.sessionId))
           .map((row) => row.sessionId)
-      for (const id of ids) requireStructuredSessionAdmission(ctx, host, id)
+      for (const id of ids) {
+        requireStructuredSessionAdmission(ctx, host, id)
+      }
       const dismissed = await host.restartResume.dismiss(ids, audience)
       if (params.sessionIds === undefined) {
         // Dismissal already removed everything this client sees; another read adds only a post-success failure point.
@@ -83,7 +85,9 @@ export const STRUCTURED_AGENT_SESSION_RESTART_RESUME_METHODS = [
         (await host.restartResume.list(audience))
           .filter((row) => canReachStructuredSession(ctx, host, row.sessionId))
           .map((row) => row.sessionId)
-      for (const id of ids) requireStructuredSessionAdmission(ctx, host, id)
+      for (const id of ids) {
+        requireStructuredSessionAdmission(ctx, host, id)
+      }
       const result = await host.restartResume.continueAfterRestart(
         ids,
         structuredCallerFor(ctx).callerKey,

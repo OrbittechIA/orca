@@ -70,8 +70,12 @@ describe('composer Work Item Start admission and first message', () => {
           return { id: method, ok: true as const, result }
         }
       }
-      if (failure === 'failed-write') save.mockRejectedValueOnce(new Error('native write failed'))
-      if (failure === 'dropped-write') save.mockImplementationOnce(async () => {})
+      if (failure === 'failed-write') {
+        save.mockRejectedValueOnce(new Error('native write failed'))
+      }
+      if (failure === 'dropped-write') {
+        save.mockImplementationOnce(async () => {})
+      }
       const selection =
         failure === 'oversized-prompt'
           ? { ...args.selection, item: { ...args.selection.item, url: 'x'.repeat(16 * 1024) } }

@@ -123,8 +123,9 @@ export function compareAndPersistMirrored(
       )
     }
     await AsyncStorage.setItem(key, value)
-    if ((await AsyncStorage.getItem(key)) !== value)
+    if ((await AsyncStorage.getItem(key)) !== value) {
       throw new Error('Work Item Start recovery could not be saved.')
+    }
     note(key, value)
   })
   durableWrites.tail = run.catch(() => undefined)
