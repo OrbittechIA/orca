@@ -68,7 +68,7 @@ describe('init and state', () => {
       throw new Error('expected an init frame')
     }
     expect(init.pageRouteGrants).toEqual([
-      { pathname: '/h/[hostId]', grants: ['navigate', 'storage', 'haptics'] }
+      { pathname: '/h/[hostId]', grants: ['navigate', 'storage', 'haptics', 'native.storage.read', 'native.storage.persist'] }
     ])
   })
 
