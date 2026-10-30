@@ -209,6 +209,7 @@ const NODE_RUNTIME_INCLUDE = [
   'src/main/ipc/runtime-environments/runtime-environment-transport-routing-tailscale-hint.test.ts',
   'src/renderer/src/components/emulator-pane/emulator-device-frame-visibility.test.tsx',
   'src/main/claude/claude-agent-sdk-contract-pins.test.ts',
+  'src/main/claude/claude-stop-ack-race.test.ts',
   'config/scripts/profile-state-worker-smoke.test.mjs',
   'config/scripts/process-host-dev-rebuild.test.ts',
   'config/scripts/vitest-node-runtime-boundary.test.ts',
