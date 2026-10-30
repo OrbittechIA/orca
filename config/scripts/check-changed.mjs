@@ -245,7 +245,7 @@ async function runTask(task, { root, env, runProcess, stepTimeoutMs }) {
   return { task, ok: true, output, elapsed: seconds(startedAt) }
 }
 
-async function runPool(tasks, concurrency, run) {
+export async function runPool(tasks, concurrency, run) {
   const results = []
   let next = 0
   await Promise.all(
@@ -258,12 +258,17 @@ async function runPool(tasks, concurrency, run) {
   return results
 }
 
-export function resolveCheckConcurrency(parallelism, maxWorkers) {
+export function resolveCheckConcurrency(parallelism, maxWorkers, checkConcurrency) {
   const defaultConcurrency = Math.max(3, Math.floor(parallelism / 3))
   const requested = Number(maxWorkers)
-  return Number.isInteger(requested) && requested > 0
-    ? Math.min(defaultConcurrency, requested)
-    : defaultConcurrency
+  const workerLimit =
+    Number.isInteger(requested) && requested > 0
+      ? Math.min(defaultConcurrency, requested)
+      : defaultConcurrency
+  const checkLimit = Number(checkConcurrency)
+  return Number.isInteger(checkLimit) && checkLimit > 0
+    ? Math.min(workerLimit, checkLimit)
+    : workerLimit
 }
 
 export async function main(root, argv) {
@@ -318,7 +323,11 @@ export async function main(root, argv) {
   )
 
   // Typecheck and tests lead the queue: they take longest, so the short checks fill in around them.
-  const concurrency = resolveCheckConcurrency(availableParallelism(), options.maxWorkers)
+  const concurrency = resolveCheckConcurrency(
+    availableParallelism(),
+    options.maxWorkers,
+    process.env.ORCA_CHECK_CONCURRENCY
+  )
   const running = new Map()
   // Why: output is buffered until a task ends, so long test runs would otherwise look hung.
   const heartbeat = setInterval(() => {
