@@ -326,7 +326,8 @@ export function isPersistedAgentSessionObservationRecord(
       isAgentSessionAccountHome(record.accountHome) &&
       (record.launchOrigin === undefined || record.launchOrigin === 'work-item-start') &&
       (record.launchAuthority === undefined ||
-        (record.launchOrigin === 'work-item-start' && isStructuredAgentSessionLaunchAuthority(record.launchAuthority))) &&
+        (record.launchOrigin === 'work-item-start' &&
+          isStructuredAgentSessionLaunchAuthority(record.launchAuthority))) &&
       (record.launchDirectory === undefined ||
         isBoundedString(record.launchDirectory, MAX_PATH_LENGTH)) &&
       (record.options === undefined || isAgentSessionOptions(record.options)) &&

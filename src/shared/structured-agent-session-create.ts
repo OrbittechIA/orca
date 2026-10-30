@@ -13,7 +13,6 @@ export type StructuredAgentSessionLaunchAuthority =
   | { kind: 'local-desktop' }
   | { kind: 'paired-device'; deviceId: string }
 
-
 /** Send conversation identity only; the executing host derives transcript/account paths so paired clients cannot choose files or credentials. */
 export type StructuredAgentSessionResumeSource = {
   /** claude: the session id. codex: the thread id. */

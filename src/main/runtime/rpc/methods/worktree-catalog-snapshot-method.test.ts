@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { OrcaRuntimeService } from '../../orca-runtime'
 import { RpcDispatcher } from '../dispatcher'
 import { WORKTREE_METHODS } from './worktree'
+import type { RpcCallerIdentity } from '../rpc-caller-identity'
 import { WORKTREE_VISIBILITY_SOURCE_DEFAULTS_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
 import type {
   RuntimeWorktreePsResult,
@@ -155,14 +156,18 @@ function psRow(overrides: Partial<RuntimeWorktreePsSummary> = {}): RuntimeWorktr
 
 async function poll(
   dispatcher: RpcDispatcher,
-  params: Record<string, unknown>
+  params: Record<string, unknown>,
+  caller?: RpcCallerIdentity
 ): Promise<Record<string, unknown>> {
-  const response = await dispatcher.dispatch({
-    id: 'poll',
-    authToken: 'token',
-    method: 'worktree.ps',
-    params
-  })
+  const response = await dispatcher.dispatch(
+    {
+      id: 'poll',
+      authToken: 'token',
+      method: 'worktree.ps',
+      params
+    },
+    { caller }
+  )
   if (!response.ok || typeof response.result !== 'object' || response.result === null) {
     throw new Error(`worktree.ps failed: ${JSON.stringify(response)}`)
   }
@@ -256,16 +261,28 @@ describe('worktree.ps structured identity admission', () => {
   it('publishes the validated summary identity only to its persisted exact owner', () => {
     const previous = getStructuredAgentSessionHost()
     const host = hostStub()
-    const record = { ...agentSessionRecordFixture(), sessionId: agent.sessionId,
+    const record = {
+      ...agentSessionRecordFixture(),
+      sessionId: agent.sessionId,
       launchOrigin: 'work-item-start' as const,
-      launchAuthority: { kind: 'paired-device' as const, deviceId: 'owner' } }
+      launchAuthority: { kind: 'paired-device' as const, deviceId: 'owner' }
+    }
     vi.spyOn(host.deps.store, 'getRecord').mockReturnValue(record)
     setStructuredAgentSessionHost(host)
     try {
       const result = { worktrees: [psRow({ agents: [agent] })], totalCount: 1, truncated: false }
-      expect(scopeWorktreePsStructuredIdentity(result, { caller: { kind: 'paired-device', deviceId: 'owner' } })).toBe(result)
-      for (const caller of [{ kind: 'paired-device', deviceId: 'foreign' }, { kind: 'desktop' }, { kind: 'local-cli' }] as const) {
-        expect(scopeWorktreePsStructuredIdentity(result, { caller }).worktrees[0]?.agents[0]?.sessionId).toBeUndefined()
+      expect(
+        scopeWorktreePsStructuredIdentity(result, {
+          caller: { kind: 'paired-device', deviceId: 'owner' }
+        })
+      ).toBe(result)
+      for (const caller of [
+        { kind: 'paired-device', deviceId: 'foreign' },
+        { kind: 'desktop' }
+      ] as const) {
+        expect(
+          scopeWorktreePsStructuredIdentity(result, { caller }).worktrees[0]?.agents[0]?.sessionId
+        ).toBeUndefined()
       }
       expect(result.worktrees[0]?.agents[0]?.sessionId).toBe(agent.sessionId)
     } finally {
@@ -274,21 +291,45 @@ describe('worktree.ps structured identity admission', () => {
   })
 
   it.each([
-    { kind: 'local-cli' as const },
     { kind: 'desktop' as const },
     { kind: 'paired-device' as const, deviceId: 'another-device' }
   ])('omits identity for $kind when per-session ownership is unknown', async (caller) => {
     const row = psRow({ agents: [agent] })
     const dispatcher = new RpcDispatcher({ runtime: makeRuntime(row), methods: WORKTREE_METHODS })
-    const response = await dispatcher.dispatchStreaming(
+    const response = await dispatcher.dispatch(
       { id: 'identity', authToken: 'token', method: 'worktree.ps', params: { limit: 10_000 } },
-      () => {},
       { caller }
     )
     const { sessionId: _sessionId, ...visible } = agent
     expect(response).toMatchObject({ ok: true, result: { worktrees: [{ agents: [visible] }] } })
     expect(JSON.stringify(response)).not.toContain('"sessionId"')
     expect(row.agents[0]?.sessionId).toBe(agent.sessionId)
+  })
+
+  it('preserves authenticated CLI summary identities for Core native attach', async () => {
+    const row = psRow({ agents: [{ ...agent, structuredHostOwned: true }] })
+    const dispatcher = new RpcDispatcher({ runtime: makeRuntime(row), methods: WORKTREE_METHODS })
+    expect(await poll(dispatcher, { limit: 10_000 }, { kind: 'local-cli' })).toMatchObject({
+      worktrees: [{ agents: [{ sessionId: agent.sessionId, structuredHostOwned: true }] }]
+    })
+  })
+
+  it('preserves ordinary session identity for an admitted client', () => {
+    const previous = getStructuredAgentSessionHost()
+    const host = hostStub()
+    vi.spyOn(host.deps.store, 'getRecord').mockReturnValue({
+      ...agentSessionRecordFixture(),
+      sessionId: agent.sessionId
+    })
+    setStructuredAgentSessionHost(host)
+    try {
+      const result = { worktrees: [psRow({ agents: [agent] })], totalCount: 1, truncated: false }
+      expect(scopeWorktreePsStructuredIdentity(result, { caller: { kind: 'desktop' } })).toBe(
+        result
+      )
+    } finally {
+      setStructuredAgentSessionHost(previous)
+    }
   })
 
   it('filters before snapshot hashing so withheld identities cannot change a caller snapshot', async () => {
@@ -299,9 +340,17 @@ describe('worktree.ps structured identity admission', () => {
       ),
       methods: WORKTREE_METHODS
     })
-    const first = await poll(dispatcher, { limit: 10_000, afterSnapshotId: null })
+    const first = await poll(
+      dispatcher,
+      { limit: 10_000, afterSnapshotId: null },
+      { kind: 'paired-device', deviceId: 'foreign' }
+    )
     expect(JSON.stringify(first)).not.toContain('"sessionId"')
-    const next = await poll(dispatcher, { limit: 10_000, afterSnapshotId: first.snapshotId })
+    const next = await poll(
+      dispatcher,
+      { limit: 10_000, afterSnapshotId: first.snapshotId },
+      { kind: 'paired-device', deviceId: 'foreign' }
+    )
     expect(next).toEqual({ unchanged: true, snapshotId: first.snapshotId })
   })
 })

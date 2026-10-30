@@ -94,7 +94,9 @@ function installRestoreHost(
 describe('structured session cold restoration', () => {
   it('keeps a closed scoped tab out of restoration even when an inventory row survives', async () => {
     const runtime = new OrcaRuntimeService(partialRuntimeStore())
-    vi.spyOn(runtime, 'prepareStructuredAgentSessionStartupRestoration').mockResolvedValue(undefined)
+    vi.spyOn(runtime, 'prepareStructuredAgentSessionStartupRestoration').mockResolvedValue(
+      undefined
+    )
     const rows = ['open-start', 'closed-start'].map((sessionId) => ({
       sessionId,
       workspaceId: 'workspace-1',

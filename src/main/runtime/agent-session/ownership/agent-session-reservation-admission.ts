@@ -55,7 +55,10 @@ import {
 import { assertReservedTabUnheld } from '../agent-session-tab-table'
 export { assertReservedTabUnheld } from '../agent-session-tab-table'
 
-export type AgentSessionReserveRequest = Pick<AgentSessionRecord, 'launchOrigin' | 'launchAuthority'> & {
+export type AgentSessionReserveRequest = Pick<
+  AgentSessionRecord,
+  'launchOrigin' | 'launchAuthority'
+> & {
   /** Host-resolved floating directory committed with the first owner reservation. */
   launchDirectory?: string
   sessionId: string
@@ -148,8 +151,11 @@ export function admitPendingAgentSessionReservationReplay(
 }
 
 export function validateAgentSessionReservationInput(request: AgentSessionReserveRequest): void {
-  if ((request.launchOrigin !== undefined || request.launchAuthority !== undefined) &&
-    (request.launchOrigin !== 'work-item-start' || !isStructuredAgentSessionLaunchAuthority(request.launchAuthority))) {
+  if (
+    (request.launchOrigin !== undefined || request.launchAuthority !== undefined) &&
+    (request.launchOrigin !== 'work-item-start' ||
+      !isStructuredAgentSessionLaunchAuthority(request.launchAuthority))
+  ) {
     throw agentSessionRefusalError('agent_session_conflict', { reason: 'identityMismatch' })
   }
   if (request.launchEnv && !isAgentSessionLaunchEnv(request.launchEnv)) {

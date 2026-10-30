@@ -68,7 +68,10 @@ describe('init and state', () => {
       throw new Error('expected an init frame')
     }
     expect(init.pageRouteGrants).toEqual([
-      { pathname: '/h/[hostId]', grants: ['navigate', 'storage', 'haptics', 'native.storage.read', 'native.storage.persist'] }
+      {
+        pathname: '/h/[hostId]',
+        grants: ['navigate', 'storage', 'haptics', 'native.storage.read', 'native.storage.persist']
+      }
     ])
   })
 
@@ -99,7 +102,14 @@ describe('init and state', () => {
       'native.storage.persist'
     ])
     const pair = (init.pageRouteGrants ?? []).find((entry) => entry.pathname === '/h/[hostId]')
-    expect(pair?.grants).toEqual(['navigate', 'storage', 'haptics', 'screencastBinary', 'native.storage.read', 'native.storage.persist'])
+    expect(pair?.grants).toEqual([
+      'navigate',
+      'storage',
+      'haptics',
+      'screencastBinary',
+      'native.storage.read',
+      'native.storage.persist'
+    ])
     expect(init.grants.native).toContain('screencastBinary')
   })
 

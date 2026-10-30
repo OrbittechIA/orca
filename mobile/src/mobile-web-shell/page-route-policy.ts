@@ -199,5 +199,11 @@ export function pageRouteRefusalVerdict(
 
 // Host-area pages navigate all served routes in-page and read their workspace keys, so combine effective grants plus native.storage.read.
 function hostAreaGrants(entries: readonly MobileWebPageRoute[]): string[] {
-  return [...new Set([...entries.flatMap(effectiveRouteGrants), 'native.storage.read', 'native.storage.persist'])]
+  return [
+    ...new Set([
+      ...entries.flatMap(effectiveRouteGrants),
+      'native.storage.read',
+      'native.storage.persist'
+    ])
+  ]
 }

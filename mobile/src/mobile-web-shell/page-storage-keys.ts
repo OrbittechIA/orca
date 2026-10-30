@@ -98,7 +98,12 @@ export function pageStorageKeysForRoute(hostId: string, routePathname: string): 
       : WORKSPACE_KEY_PREFIXES.map((prefix) =>
           workspaceScopedKey(prefix, hostId, workspace.worktreeId)
         )
-  return [...PAGE_STORAGE_EXACT_KEYS, `orca:pins:${hostId}`, workItemStartAdmissionStorageKey(hostId), ...scoped].filter(isPageStorageKey)
+  return [
+    ...PAGE_STORAGE_EXACT_KEYS,
+    `orca:pins:${hostId}`,
+    workItemStartAdmissionStorageKey(hostId),
+    ...scoped
+  ].filter(isPageStorageKey)
 }
 
 // Narrow key shapes to this host/workspace; host-area pages additionally reach this host’s other workspaces.

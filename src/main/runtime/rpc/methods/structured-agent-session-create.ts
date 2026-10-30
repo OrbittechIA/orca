@@ -154,7 +154,9 @@ export async function prepareStructuredAgentSessionCreateForWorktree(args: {
   const expectedTarget = args.expectedWorktreeTarget
   const validateTarget = expectedTarget
     ? async () => {
-        const current = await args.runtime.resolveStructuredAgentSessionCreateWorktreeTarget(args.worktree)
+        const current = await args.runtime.resolveStructuredAgentSessionCreateWorktreeTarget(
+          args.worktree
+        )
         if (
           !structuredAgentSessionCreateWorktreeTargetsEqual(expectedTarget, current) ||
           !structuredAgentSessionCreateLocationMatchesTarget(expectedTarget, resolved.location)

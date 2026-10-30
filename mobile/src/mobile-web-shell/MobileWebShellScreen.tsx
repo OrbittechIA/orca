@@ -32,7 +32,11 @@ import { isHostRouteOf } from './page-route-policy'
 import { nativeStackReturn } from './native-stack-return'
 import { usePageLocationOnFold } from './page-location-on-fold'
 import { useResponsiveLayout } from '../layout/responsive-layout'
-import { storageReadParamsSchema, storagePersistParamsSchema, type BridgeNativeVerb } from './bridge/bridge-native-verbs'
+import {
+  storageReadParamsSchema,
+  storagePersistParamsSchema,
+  type BridgeNativeVerb
+} from './bridge/bridge-native-verbs'
 import { SHELL_OPENING_LABEL, ShellPageCover } from './ShellWaitingFrame'
 import { useReportedShellOverlayLoad, type ShellOverlayLoad } from './shell-overlay-load'
 import { pageSafeAreaInsets, usePublishedSafeAreaInsets } from './page-safe-area-insets'
@@ -134,9 +138,9 @@ export function MobileWebShellScreen({
             const { key, expectedValue, value } = storagePersistParamsSchema.parse(params)
             return persistStorage(key, expectedValue, value).then(() => ({}))
           })()
-      : verb === 'native.pdf.view'
-        ? servePdfView(params)
-        : serveDeviceVerb(verb, params)
+        : verb === 'native.pdf.view'
+          ? servePdfView(params)
+          : serveDeviceVerb(verb, params)
   // Both externalLink and cancelled navigation use this filtered opener. Report device-handler failure without throwing from a native frame callback; neither path has a reply.
   const openUrlForPage = (url: string) => {
     void Linking.openURL(url).catch((error: unknown) => {

@@ -8,9 +8,13 @@ it('validates persisted launch ownership and retains unowned legacy origins for 
     { kind: 'local-desktop' },
     { kind: 'paired-device', deviceId: 'paired-1' }
   ]) {
-    expect(isPersistedAgentSessionRecord({
-      ...record, launchOrigin: 'work-item-start', launchAuthority
-    })).toBe(true)
+    expect(
+      isPersistedAgentSessionRecord({
+        ...record,
+        launchOrigin: 'work-item-start',
+        launchAuthority
+      })
+    ).toBe(true)
     expect(isPersistedAgentSessionRecord({ ...record, launchAuthority })).toBe(false)
   }
   expect(isPersistedAgentSessionRecord({ ...record, launchOrigin: 'work-item-start' })).toBe(true)
@@ -19,8 +23,12 @@ it('validates persisted launch ownership and retains unowned legacy origins for 
     { kind: 'local-desktop', deviceId: 'forged' },
     { kind: 'paired-device', deviceId: 'paired-1', callerKey: 'forged' }
   ]) {
-    expect(isPersistedAgentSessionRecord({
-      ...record, launchOrigin: 'work-item-start', launchAuthority
-    })).toBe(false)
+    expect(
+      isPersistedAgentSessionRecord({
+        ...record,
+        launchOrigin: 'work-item-start',
+        launchAuthority
+      })
+    ).toBe(false)
   }
 })

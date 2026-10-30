@@ -3,7 +3,10 @@ import {
   isPageStorageKeyForRoute,
   PAGE_STORAGE_MAX_VALUE_CHARS
 } from '../page-storage-keys'
-import { isWorkItemStartStorageKey, WORK_ITEM_START_ADMISSION_STORAGE_PREFIX } from '../../storage/work-item-start-storage-key'
+import {
+  isWorkItemStartStorageKey,
+  WORK_ITEM_START_ADMISSION_STORAGE_PREFIX
+} from '../../storage/work-item-start-storage-key'
 
 // Use init-primed native storage, not page localStorage (disabled on Android and session-scoped on iOS).
 // Preferences use the init cache; Work Item Start writes await native persistence.
@@ -40,7 +43,8 @@ let routePathname = ''
 let hostArea = false
 // Start recovery reads on demand; other workspace keys require host-area ownership.
 let readWorkspaceKey: ((key: string) => Promise<string | null>) | null = null
-let persist: ((key: string, expectedValue: string | null, value: string) => Promise<void>) | null = null
+let persist: ((key: string, expectedValue: string | null, value: string) => Promise<void>) | null =
+  null
 
 export function publishPageStorage(
   entries: Readonly<Record<string, string>>,
@@ -66,10 +70,13 @@ export function publishPageStorage(
 }
 
 async function getItem(key: string): Promise<string | null> {
-  const onDemand = readWorkspaceKey !== null && ((hostArea && isHostWorkspaceStorageKey(key, hostId)) || isWorkItemStartStorageKey(key))
-  if (isWorkItemStartStorageKey(key) && oversizeKeys.has(key) && !onDemand) throw new PageStorageRefusedError(key, 'too-large')
-  const value = onDemand && readWorkspaceKey !== null
-    ? await readWorkspaceKey(key) : values.get(key) ?? null
+  const onDemand =
+    readWorkspaceKey !== null &&
+    ((hostArea && isHostWorkspaceStorageKey(key, hostId)) || isWorkItemStartStorageKey(key))
+  if (isWorkItemStartStorageKey(key) && oversizeKeys.has(key) && !onDemand)
+    throw new PageStorageRefusedError(key, 'too-large')
+  const value =
+    onDemand && readWorkspaceKey !== null ? await readWorkspaceKey(key) : (values.get(key) ?? null)
   if (value !== null) values.set(key, value)
   else values.delete(key)
   return value
@@ -77,9 +84,12 @@ async function getItem(key: string): Promise<string | null> {
 
 async function setItem(key: string, value: string): Promise<void> {
   if (!isWorkItemStartStorageKey(key)) return settle(key, accept(key, value))
-  if (key.startsWith(WORK_ITEM_START_ADMISSION_STORAGE_PREFIX) && readWorkspaceKey === null) throw new PageStorageRefusedError(key, 'not-allowed')
-  if (!isPageStorageKeyForRoute(key, hostId, routePathname, hostArea)) throw new PageStorageRefusedError(key, 'not-allowed')
-  if (value.length > PAGE_STORAGE_MAX_VALUE_CHARS || oversizeKeys.has(key)) throw new PageStorageRefusedError(key, 'too-large')
+  if (key.startsWith(WORK_ITEM_START_ADMISSION_STORAGE_PREFIX) && readWorkspaceKey === null)
+    throw new PageStorageRefusedError(key, 'not-allowed')
+  if (!isPageStorageKeyForRoute(key, hostId, routePathname, hostArea))
+    throw new PageStorageRefusedError(key, 'not-allowed')
+  if (value.length > PAGE_STORAGE_MAX_VALUE_CHARS || oversizeKeys.has(key))
+    throw new PageStorageRefusedError(key, 'too-large')
   if (persist === null) throw new PageStorageRefusedError(key, 'not-delivered')
   await persist(key, values.get(key) ?? null, value)
   values.set(key, value)

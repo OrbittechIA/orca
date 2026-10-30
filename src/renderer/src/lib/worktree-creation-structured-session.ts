@@ -80,7 +80,9 @@ export async function launchStructuredWorktreeSession(
     route: args.agentLaunchRoute,
     // One create is one user action: a retry of it re-delivers the same request.
     requestId: args.creationId,
-    ...(args.request.launchOrigin ? { launchOrigin: args.request.launchOrigin, requestedSurface: 'chat' as const } : {}),
+    ...(args.request.launchOrigin
+      ? { launchOrigin: args.request.launchOrigin, requestedSurface: 'chat' as const }
+      : {}),
     agent,
     prompt: args.request.launchDraftPrompt ?? args.request.quickPrompt,
     ...(args.request.promptDelivery ? { promptDelivery: args.request.promptDelivery } : {})

@@ -32,7 +32,6 @@ import { getRepoExecutionHostId, LOCAL_EXECUTION_HOST_ID } from '../../../shared
 import { getLocalProjectWorktreeGitOptions } from '../../project-runtime-git-options'
 import { parseWslUncPath } from '../../../shared/wsl-paths'
 
-
 export abstract class OrcaRuntimeWithGetStructuredAgentSessionCreateSupport extends StructuredSessionWorkspaceScope {
   protected abstract restoreStructuredAgentSessionTabsOnce(
     ...args: Parameters<
@@ -72,14 +71,22 @@ export abstract class OrcaRuntimeWithGetStructuredAgentSessionCreateSupport exte
   async getWorkItemStartPreCreateSupport(repoSelector: string, agent: StructuredAgentId) {
     const repo = await this.resolveRepoSelector(repoSelector)
     const executionHostId = getRepoExecutionHostId(repo)
-    const wslDistro = executionHostId === LOCAL_EXECUTION_HOST_ID
-      ? (getLocalProjectWorktreeGitOptions(this.requireStore(), repo).wslDistro ?? parseWslUncPath(repo.path)?.distro ?? null)
-      : null
+    const wslDistro =
+      executionHostId === LOCAL_EXECUTION_HOST_ID
+        ? (getLocalProjectWorktreeGitOptions(this.requireStore(), repo).wslDistro ??
+          parseWslUncPath(repo.path)?.distro ??
+          null)
+        : null
     return resolveHostStructuredAgentCreateSupport({
       agent,
       worktreeSelector: repoSelector,
       workspacePath: repo.path,
-      location: { executionHostId, wslDistro, workspaceId: repo.id, workspaceKind: repo.kind === 'folder' ? 'folder' : 'git-worktree' },
+      location: {
+        executionHostId,
+        wslDistro,
+        workspaceId: repo.id,
+        workspaceKind: repo.kind === 'folder' ? 'folder' : 'git-worktree'
+      },
       runtime: this
     })
   }

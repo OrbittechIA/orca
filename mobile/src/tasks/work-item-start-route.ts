@@ -17,11 +17,15 @@ export async function resolveMobileWorkItemStartRoute(
   const generation = client.getGeneration?.()
   const settings = settingsRead.interpret(await settingsRead.request(client))
   if (!settings.accepted) {
-    throw new Error('Work Item Start settings could not be confirmed. Check the connection and retry.')
+    throw new Error(
+      'Work Item Start settings could not be confirmed. Check the connection and retry.'
+    )
   }
   const value: unknown = settings.value
-  const delivery = value && typeof value === 'object' && 'workItemStartPromptDelivery' in value
-    ? value.workItemStartPromptDelivery : undefined
+  const delivery =
+    value && typeof value === 'object' && 'workItemStartPromptDelivery' in value
+      ? value.workItemStartPromptDelivery
+      : undefined
   const result = (reply: RpcResponse): unknown => {
     if (!reply.ok) throw new Error(reply.error.message)
     return reply.result
@@ -31,14 +35,23 @@ export async function resolveMobileWorkItemStartRoute(
     agent,
     repoId,
     mobile: true,
-    readStatus: async () => result(await worktreeCreateCapabilityRead.request(client, undefined, { timeoutMs: 10_000 })),
-    readSupport: async (params) => result(await structuredAgentSupportProbe.request(client, params, { timeoutMs: 10_000 }))
+    readStatus: async () =>
+      result(await worktreeCreateCapabilityRead.request(client, undefined, { timeoutMs: 10_000 })),
+    readSupport: async (params) =>
+      result(await structuredAgentSupportProbe.request(client, params, { timeoutMs: 10_000 }))
   })
-  if (generation !== client.getGeneration?.()) throw new Error('The connection changed during Work Item Start preflight. Retry on the current host.')
+  if (generation !== client.getGeneration?.())
+    throw new Error(
+      'The connection changed during Work Item Start preflight. Retry on the current host.'
+    )
   if (route.kind === 'unknown' || route.kind === 'refused') throw new Error(route.message)
   if (route.kind === 'structured' && (agent === 'claude' || agent === 'codex')) {
-    await admitWorkItemStartStorage(storage.hostId, mobileWorkItemStartCreateParams('', agent, storage.prompt))
-    if (generation !== client.getGeneration?.()) throw new Error('The connection changed during Work Item Start storage admission.')
+    await admitWorkItemStartStorage(
+      storage.hostId,
+      mobileWorkItemStartCreateParams('', agent, storage.prompt)
+    )
+    if (generation !== client.getGeneration?.())
+      throw new Error('The connection changed during Work Item Start storage admission.')
   }
   return route
 }

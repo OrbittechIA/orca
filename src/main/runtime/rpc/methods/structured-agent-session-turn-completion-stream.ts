@@ -53,7 +53,8 @@ export const STRUCTURED_AGENT_SESSION_TURN_COMPLETION_METHODS = [
                 : undefined
           if (
             sessionId === undefined ||
-            (canReachStructuredSession(ctx, host, sessionId) && clientReadsStructuredSessionAgent(ctx, host.sessionAgent(sessionId) ?? ''))
+            (canReachStructuredSession(ctx, host, sessionId) &&
+              clientReadsStructuredSessionAgent(ctx, host.sessionAgent(sessionId) ?? ''))
           ) {
             emit(event)
           }

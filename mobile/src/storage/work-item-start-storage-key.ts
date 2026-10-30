@@ -15,9 +15,11 @@ export function isWorkItemStartWorkspaceStorageKeyForHost(key: string, hostId: s
 }
 
 export function isWorkItemStartStorageKey(key: string): boolean {
-  return key.startsWith(WORK_ITEM_START_CREATE_STORAGE_PREFIX) ||
+  return (
+    key.startsWith(WORK_ITEM_START_CREATE_STORAGE_PREFIX) ||
     key.startsWith(WORK_ITEM_START_ADMISSION_STORAGE_PREFIX) ||
     key === 'orca:mobileWorkItemStartCreates:v1' ||
     key === 'orca:mobileWorkItemStartAttempts:v1' ||
     key === 'orca:mobileWorkItemStartSendIdentities:v1'
+  )
 }

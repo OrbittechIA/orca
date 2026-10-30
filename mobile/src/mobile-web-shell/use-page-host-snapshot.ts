@@ -117,7 +117,11 @@ export function usePageHostSnapshot(
 
   const writeStorage = useCallback(
     (key: string, value: string | null): void => {
-      if (key.startsWith(WORK_ITEM_START_CREATE_STORAGE_PREFIX) || key.startsWith(WORK_ITEM_START_ADMISSION_STORAGE_PREFIX)) return
+      if (
+        key.startsWith(WORK_ITEM_START_CREATE_STORAGE_PREFIX) ||
+        key.startsWith(WORK_ITEM_START_ADMISSION_STORAGE_PREFIX)
+      )
+        return
       // Recheck the allowlist so the mirror cannot temporarily expose values its next refresh drops.
       if (!isPageStorageKeyForRoute(key, hostId, routePathname, hostArea)) {
         return
@@ -129,8 +133,13 @@ export function usePageHostSnapshot(
 
   const readWorkspaceKey = useCallback(
     async (key: string): Promise<string | null> => {
-      if (!((hostArea && isHostWorkspaceStorageKey(key, hostId)) ||
-        (isWorkItemStartStorageKey(key) && isPageStorageKeyForRoute(key, hostId, routePathname, hostArea)))) {
+      if (
+        !(
+          (hostArea && isHostWorkspaceStorageKey(key, hostId)) ||
+          (isWorkItemStartStorageKey(key) &&
+            isPageStorageKeyForRoute(key, hostId, routePathname, hostArea))
+        )
+      ) {
         throw new Error('this page may not read that key')
       }
       // Update the map before async persistence so init sees shell-side writes immediately.
@@ -156,11 +165,17 @@ export function usePageHostSnapshot(
     refreshStorage,
     writeStorage,
     readWorkspaceKey,
-    persistStorage: useCallback(async (key: string, expectedValue: string | null, value: string) => {
-      if (!isWorkItemStartStorageKey(key) || !isPageStorageKeyForRoute(key, hostId, routePathname, hostArea)) {
-        throw new Error('this page may not persist that key')
-      }
-      await compareAndPersistMirrored(key, expectedValue, value)
-    }, [hostId, routePathname, hostArea])
+    persistStorage: useCallback(
+      async (key: string, expectedValue: string | null, value: string) => {
+        if (
+          !isWorkItemStartStorageKey(key) ||
+          !isPageStorageKeyForRoute(key, hostId, routePathname, hostArea)
+        ) {
+          throw new Error('this page may not persist that key')
+        }
+        await compareAndPersistMirrored(key, expectedValue, value)
+      },
+      [hostId, routePathname, hostArea]
+    )
   }
 }

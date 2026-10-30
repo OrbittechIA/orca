@@ -67,7 +67,9 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
   }
   const { repo, executionHostId: repoOwnerHostId, target: repoOwnerTarget } = owner
 
-  const promptDelivery = args.promptDelivery ?? resolveWorkItemStartPromptDelivery(store.settings?.workItemStartPromptDelivery)
+  const promptDelivery =
+    args.promptDelivery ??
+    resolveWorkItemStartPromptDelivery(store.settings?.workItemStartPromptDelivery)
   const repoConnectionId = repo.connectionId?.trim() || null
   const githubIdentity =
     item.number !== null && (item.type === 'issue' || item.type === 'pr')
@@ -160,14 +162,20 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
       repoId,
       target: repoOwnerTarget
     })
-    if (strictStart && args.launchChoice?.executionHostId && args.launchChoice.executionHostId !== repoOwnerHostId) {
+    if (
+      strictStart &&
+      args.launchChoice?.executionHostId &&
+      args.launchChoice.executionHostId !== repoOwnerHostId
+    ) {
       throw new Error('The selected host differs from the Work Item Start preflight host.')
     }
     if (strictStart && args.launchChoice?.requestedSurface === 'terminal') {
       throw new Error('Choose Draft to start this work item in a terminal.')
     }
   } catch (error) {
-    toast.error(error instanceof Error ? error.message : 'Work Item Start support could not be confirmed.')
+    toast.error(
+      error instanceof Error ? error.message : 'Work Item Start support could not be confirmed.'
+    )
     return false
   }
   const requestId = newAgentLaunchRequestId()

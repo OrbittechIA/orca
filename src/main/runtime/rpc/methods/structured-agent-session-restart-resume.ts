@@ -27,9 +27,13 @@ export const STRUCTURED_AGENT_SESSION_RESTART_RESUME_METHODS = [
       const host = requireStructuredHost(ctx)
       const audience = structuredAgentsReadBy(ctx, host.knownAgentIds())
       return {
-        sessions: (await host.restartResume.list(audience)).filter((row) => canReachStructuredSession(ctx, host, row.sessionId)),
+        sessions: (await host.restartResume.list(audience)).filter((row) =>
+          canReachStructuredSession(ctx, host, row.sessionId)
+        ),
         // Acted-on offers whose agent did not carry on. Optional on the wire; older clients ignore it.
-        failed: (await host.restartResume.listFailures(audience)).filter((row) => canReachStructuredSession(ctx, host, row.sessionId))
+        failed: (await host.restartResume.listFailures(audience)).filter((row) =>
+          canReachStructuredSession(ctx, host, row.sessionId)
+        )
       }
     }
   }),
@@ -43,7 +47,11 @@ export const STRUCTURED_AGENT_SESSION_RESTART_RESUME_METHODS = [
       const host = requireStructuredHost(ctx)
       // Offers this client was never shown stay for a client that can show them.
       const audience = structuredAgentsReadBy(ctx, host.knownAgentIds())
-      const ids = params.sessionIds ?? (await host.restartResume.list(audience)).filter((row) => canReachStructuredSession(ctx, host, row.sessionId)).map((row) => row.sessionId)
+      const ids =
+        params.sessionIds ??
+        (await host.restartResume.list(audience))
+          .filter((row) => canReachStructuredSession(ctx, host, row.sessionId))
+          .map((row) => row.sessionId)
       for (const id of ids) requireStructuredSessionAdmission(ctx, host, id)
       const dismissed = await host.restartResume.dismiss(ids, audience)
       if (params.sessionIds === undefined) {
@@ -52,8 +60,12 @@ export const STRUCTURED_AGENT_SESSION_RESTART_RESUME_METHODS = [
       }
       return {
         dismissed,
-        sessions: (await host.restartResume.list(audience)).filter((row) => canReachStructuredSession(ctx, host, row.sessionId)),
-        failed: (await host.restartResume.listFailures(audience)).filter((row) => canReachStructuredSession(ctx, host, row.sessionId))
+        sessions: (await host.restartResume.list(audience)).filter((row) =>
+          canReachStructuredSession(ctx, host, row.sessionId)
+        ),
+        failed: (await host.restartResume.listFailures(audience)).filter((row) =>
+          canReachStructuredSession(ctx, host, row.sessionId)
+        )
       }
     }
   }),
@@ -66,7 +78,11 @@ export const STRUCTURED_AGENT_SESSION_RESTART_RESUME_METHODS = [
       await ensureStructuredHostInstalled(ctx)
       const host = requireStructuredHost(ctx)
       const audience = structuredAgentsReadBy(ctx, host.knownAgentIds())
-      const ids = params.sessionIds ?? (await host.restartResume.list(audience)).filter((row) => canReachStructuredSession(ctx, host, row.sessionId)).map((row) => row.sessionId)
+      const ids =
+        params.sessionIds ??
+        (await host.restartResume.list(audience))
+          .filter((row) => canReachStructuredSession(ctx, host, row.sessionId))
+          .map((row) => row.sessionId)
       for (const id of ids) requireStructuredSessionAdmission(ctx, host, id)
       const result = await host.restartResume.continueAfterRestart(
         ids,
@@ -75,8 +91,20 @@ export const STRUCTURED_AGENT_SESSION_RESTART_RESUME_METHODS = [
       )
       return {
         ...result,
-        ...(result.sessions ? { sessions: result.sessions.filter((row) => canReachStructuredSession(ctx, host, row.sessionId)) } : {}),
-        ...(result.failed ? { failed: result.failed.filter((row) => canReachStructuredSession(ctx, host, row.sessionId)) } : {})
+        ...(result.sessions
+          ? {
+              sessions: result.sessions.filter((row) =>
+                canReachStructuredSession(ctx, host, row.sessionId)
+              )
+            }
+          : {}),
+        ...(result.failed
+          ? {
+              failed: result.failed.filter((row) =>
+                canReachStructuredSession(ctx, host, row.sessionId)
+              )
+            }
+          : {})
       }
     }
   }),

@@ -88,7 +88,8 @@ function desktop(strict = false): FakeSession {
     if (strict && method === 'settings.get') {
       return reply({ settings: { workItemStartPromptDelivery: 'submit-after-ready' } })
     }
-    if (strict && method === 'status.get') return reply({ capabilities: [], deviceScope: 'runtime' })
+    if (strict && method === 'status.get')
+      return reply({ capabilities: [], deviceScope: 'runtime' })
     if (method === 'worktree.create') {
       return reply({ worktree: { id: 'wt-1', displayName: 'fix-the-thing' } })
     }

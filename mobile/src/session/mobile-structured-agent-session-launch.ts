@@ -133,7 +133,12 @@ export async function createMobileStructuredAgentSession(
   }
   rememberMobileCreatedStructuredSession(params.envelope.sessionId, worktree)
   if (heldParams && callerGeneration !== client.getGeneration?.()) {
-    return unknownCreateResult(agent, new Error('The connection changed during Work Item Start. Its identity is retained for recovery.'))
+    return unknownCreateResult(
+      agent,
+      new Error(
+        'The connection changed during Work Item Start. Its identity is retained for recovery.'
+      )
+    )
   }
   let response
   try {
@@ -143,7 +148,12 @@ export async function createMobileStructuredAgentSession(
     })
   } catch {
     if (heldParams && callerGeneration !== client.getGeneration?.()) {
-      return unknownCreateResult(agent, new Error('The connection changed during Work Item Start. Its identity is retained for recovery.'))
+      return unknownCreateResult(
+        agent,
+        new Error(
+          'The connection changed during Work Item Start. Its identity is retained for recovery.'
+        )
+      )
     }
     // Replay the durable envelope once so a lost acknowledgement cannot create a sibling.
     try {

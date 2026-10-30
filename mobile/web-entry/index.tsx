@@ -15,7 +15,10 @@ import {
   stampPageMountState,
   type PageMountTarget
 } from '../src/mobile-web-shell/bridge/page-bootstrap'
-import { storageReadResultSchema, storagePersistResultSchema } from '../src/mobile-web-shell/bridge/bridge-native-verbs'
+import {
+  storageReadResultSchema,
+  storagePersistResultSchema
+} from '../src/mobile-web-shell/bridge/bridge-native-verbs'
 import { publishPageStorage } from '../src/mobile-web-shell/bridge/page-async-storage'
 import {
   RouteScreenPaintProvider,
@@ -158,7 +161,8 @@ bootstrapShellPage({
       session.grants.native.includes('native.storage.persist')
         ? async (key, expectedValue, value) => {
             storagePersistResultSchema.parse(
-              (await client.callNativeVerb('native.storage.persist', { key, expectedValue, value })).result
+              (await client.callNativeVerb('native.storage.persist', { key, expectedValue, value }))
+                .result
             )
           }
         : null,

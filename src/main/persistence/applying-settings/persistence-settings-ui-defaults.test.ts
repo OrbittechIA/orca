@@ -107,17 +107,20 @@ describe('Store', () => {
     expect(settings.notifications.suppressWhenFocused).toBe(true)
   })
 
-  it.each(['draft', 'submit-after-ready'] as const)('persists Work Item Start %s across reopen', async (delivery) => {
-    const persisted = getDefaultPersistedState(testState.dir)
-    delete persisted.settings.workItemStartPromptDelivery
-    writeDataFile(persisted)
-    const store = await createStore()
-    expect(store.getSettings().workItemStartPromptDelivery).toBe('draft')
-    store.updateSettings({ workItemStartPromptDelivery: delivery })
-    store.flush()
-    await closeTestStores()
-    expect((await createStore()).getSettings().workItemStartPromptDelivery).toBe(delivery)
-  })
+  it.each(['draft', 'submit-after-ready'] as const)(
+    'persists Work Item Start %s across reopen',
+    async (delivery) => {
+      const persisted = getDefaultPersistedState(testState.dir)
+      delete persisted.settings.workItemStartPromptDelivery
+      writeDataFile(persisted)
+      const store = await createStore()
+      expect(store.getSettings().workItemStartPromptDelivery).toBe('draft')
+      store.updateSettings({ workItemStartPromptDelivery: delivery })
+      store.flush()
+      await closeTestStores()
+      expect((await createStore()).getSettings().workItemStartPromptDelivery).toBe(delivery)
+    }
+  )
 
   it('repairs a persisted terminal line height outside xterm bounds', async () => {
     const persisted = getDefaultPersistedState(testState.dir)

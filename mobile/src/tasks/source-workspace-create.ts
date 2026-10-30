@@ -125,10 +125,15 @@ async function createWorkItemWorkspace(args: {
   const item = selection.item
   const taskItem = toTaskItem(item, targetRepoId)
   const selectedAgent = agent.choice === 'blank' ? undefined : agent.choice
-  const startRepoId = taskItem.provider === 'github' || taskItem.provider === 'gitlab'
-    ? taskItem.source.repoId : targetRepoId
+  const startRepoId =
+    taskItem.provider === 'github' || taskItem.provider === 'gitlab'
+      ? taskItem.source.repoId
+      : targetRepoId
   const startGeneration = client.getGeneration?.()
-  const route = await resolveMobileWorkItemStartRoute(client, startRepoId, selectedAgent, { hostId: args.hostId ?? '', prompt: item.url })
+  const route = await resolveMobileWorkItemStartRoute(client, startRepoId, selectedAgent, {
+    hostId: args.hostId ?? '',
+    prompt: item.url
+  })
 
   // Reuse select-time PR/MR base resolution; resolve again only when a linked item lacks it.
   let baseBranch = selection.baseBranch
@@ -174,12 +179,26 @@ async function createWorkItemWorkspace(args: {
   if ('error' in result || route.kind !== 'structured' || !selectedAgent) return result
   try {
     if (startGeneration !== client.getGeneration?.()) {
-      throw new Error('The connection changed during Work Item Start. Review the created workspace before sending anything.')
+      throw new Error(
+        'The connection changed during Work Item Start. Review the created workspace before sending anything.'
+      )
     }
-    const warning = await deliverMobileWorkItemStart({ client, hostId: args.hostId ?? '', worktreeId: result.worktreeId, agent: selectedAgent, prompt: item.url })
-    return { ...result, ...(warning ? { warning: [result.warning, warning].filter(Boolean).join(' ') } : {}) }
+    const warning = await deliverMobileWorkItemStart({
+      client,
+      hostId: args.hostId ?? '',
+      worktreeId: result.worktreeId,
+      agent: selectedAgent,
+      prompt: item.url
+    })
+    return {
+      ...result,
+      ...(warning ? { warning: [result.warning, warning].filter(Boolean).join(' ') } : {})
+    }
   } catch (error) {
-    const warning = error instanceof Error ? error.message : 'Work Item Start requires recovery in this workspace.'
+    const warning =
+      error instanceof Error
+        ? error.message
+        : 'Work Item Start requires recovery in this workspace.'
     return { ...result, warning: [result.warning, warning].filter(Boolean).join(' ') }
   }
 }

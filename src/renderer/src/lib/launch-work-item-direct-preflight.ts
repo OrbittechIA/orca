@@ -124,7 +124,9 @@ export async function planDirectWorkItemLaunch(args: {
     promptDelivery: args.promptDelivery,
     ...(sessionOptions ? { launchOptions: sessionOptions } : {}),
     ...directLaunchSurfaceRequest(args.launchChoice),
-    ...(args.launchOrigin ? { launchOrigin: args.launchOrigin, requestedSurface: 'chat' as const } : {})
+    ...(args.launchOrigin
+      ? { launchOrigin: args.launchOrigin, requestedSurface: 'chat' as const }
+      : {})
   }
   await awaitStructuredRouteHostAnswer(useAppStore.getState(), request, 3000)
   return planAgentSessionLaunch(useAppStore.getState(), request)

@@ -156,7 +156,9 @@ export async function resolveHostStructuredAgentCreateSupport(input: {
     supportsLocation &&
     (await structuredAgentSupportsLaunch(
       agent,
-      async () => input.workspacePath ?? (await runtime.resolveRuntimeFileTarget(input.worktreeSelector)).worktree.path,
+      async () =>
+        input.workspacePath ??
+        (await runtime.resolveRuntimeFileTarget(input.worktreeSelector)).worktree.path,
       runtime
     ))
   const support = resolveStructuredAgentSessionCreateSupport({

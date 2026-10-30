@@ -112,16 +112,20 @@ export const ResumeSource = z
   .strict()
 
 export const CreateSupportParams = z.union([
-  z.object({
-    worktree: Identifier('Invalid worktree selector'),
-    agent: StructuredAgent,
-    launchOrigin: z.literal('work-item-start').optional()
-  }).strict(),
-  z.object({
-    repo: Identifier('Invalid repo selector'),
-    agent: StructuredAgent,
-    launchOrigin: z.literal('work-item-start')
-  }).strict()
+  z
+    .object({
+      worktree: Identifier('Invalid worktree selector'),
+      agent: StructuredAgent,
+      launchOrigin: z.literal('work-item-start').optional()
+    })
+    .strict(),
+  z
+    .object({
+      repo: Identifier('Invalid repo selector'),
+      agent: StructuredAgent,
+      launchOrigin: z.literal('work-item-start')
+    })
+    .strict()
 ])
 
 export const SendParams = z

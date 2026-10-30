@@ -133,7 +133,9 @@ describe('the per-workspace keys of a host-area page', () => {
     const view = await snapshotFor('/h/host-a', true)
     const key = 'orca:mobileWorkItemStartCreate:host-a:pending'
     let acknowledged = false
-    const write = view.persistStorage(key, null, 'original identity').then(() => { acknowledged = true })
+    const write = view.persistStorage(key, null, 'original identity').then(() => {
+      acknowledged = true
+    })
     await act(async () => {})
     expect(acknowledged).toBe(false)
     expect(store.has(key)).toBe(false)
@@ -143,7 +145,9 @@ describe('the per-workspace keys of a host-area page', () => {
     expect(store.get(key)).toBe('original identity')
     await expect(view.readWorkspaceKey(key)).resolves.toBe('original identity')
     await expect(view.persistStorage(key, null, 'replacement')).rejects.toThrow()
-    await expect(view.persistStorage('orca:mobileWorkItemStartCreate:host-b:pending', null, '{}')).rejects.toThrow()
+    await expect(
+      view.persistStorage('orca:mobileWorkItemStartCreate:host-b:pending', null, '{}')
+    ).rejects.toThrow()
     view.writeStorage(key, 'unacknowledged replacement')
     persisted()
     expect(store.get(key)).toBe('original identity')

@@ -74,7 +74,9 @@ export function getStoredSettings(): GlobalSettings {
     },
     migratedStored
   )
-  settings.workItemStartPromptDelivery = resolveWorkItemStartPromptDelivery(settings.workItemStartPromptDelivery)
+  settings.workItemStartPromptDelivery = resolveWorkItemStartPromptDelivery(
+    settings.workItemStartPromptDelivery
+  )
   delete settings.zcodePlanSite
   return settings
 }
@@ -234,9 +236,13 @@ export async function syncRuntimeBackedSettings(
       runtimeUpdates,
       15_000
     )
-    if ('workItemStartPromptDelivery' in updates &&
-        result.settings.workItemStartPromptDelivery !== runtimeUpdates.workItemStartPromptDelivery) {
-      throw new Error('The host did not confirm Work Item Start behavior. Update the host and retry.')
+    if (
+      'workItemStartPromptDelivery' in updates &&
+      result.settings.workItemStartPromptDelivery !== runtimeUpdates.workItemStartPromptDelivery
+    ) {
+      throw new Error(
+        'The host did not confirm Work Item Start behavior. Update the host and retry.'
+      )
     }
     const runtimeSettings = { ...result.settings }
     delete runtimeSettings.activeRuntimeEnvironmentId

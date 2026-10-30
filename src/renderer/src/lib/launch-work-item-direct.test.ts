@@ -9,11 +9,18 @@ import type { AppState } from '@/store'
 
 describe('launchWorkItemDirect', () => {
   it('stops an opted-in Start before workspace effects when the owner has no scoped support', async () => {
-    mocks.store.settings = { defaultTuiAgent: 'codex', workItemStartPromptDelivery: 'submit-after-ready' }
-    await expect(launchWorkItemDirect({
-      repoId: 'repo-1', agentOverride: 'codex', openModalFallback: vi.fn(),
-      item: { type: 'issue', number: 79, title: 'Start', url: 'https://example.com/79' }
-    })).resolves.toBe(false)
+    mocks.store.settings = {
+      defaultTuiAgent: 'codex',
+      workItemStartPromptDelivery: 'submit-after-ready'
+    }
+    await expect(
+      launchWorkItemDirect({
+        repoId: 'repo-1',
+        agentOverride: 'codex',
+        openModalFallback: vi.fn(),
+        item: { type: 'issue', number: 79, title: 'Start', url: 'https://example.com/79' }
+      })
+    ).resolves.toBe(false)
     expect(hostMocks.callRuntimeRpc).toHaveBeenCalledWith({ kind: 'local' }, 'status.get')
     expect(mocks.createWorktree).not.toHaveBeenCalled()
     expect(mocks.activateAndRevealWorktree).not.toHaveBeenCalled()

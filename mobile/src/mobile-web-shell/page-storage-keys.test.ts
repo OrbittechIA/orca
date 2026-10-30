@@ -50,7 +50,11 @@ describe('the keys a page may read and write', () => {
 
   it('names what the shell reads out of the app store for a route with no workspace', () => {
     const keys = pageStorageKeysForRoute('host-1', HOST_ROUTE)
-    expect(keys).toEqual([...PAGE_STORAGE_EXACT_KEYS, 'orca:pins:host-1', 'orca:mobileWorkItemStartAdmission:host-1'])
+    expect(keys).toEqual([
+      ...PAGE_STORAGE_EXACT_KEYS,
+      'orca:pins:host-1',
+      'orca:mobileWorkItemStartAdmission:host-1'
+    ])
     for (const key of keys) {
       expect(isPageStorageKey(key), key).toBe(true)
     }

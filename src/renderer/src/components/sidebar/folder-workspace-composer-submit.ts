@@ -89,10 +89,16 @@ export async function submitFolderWorkspaceCreate({
   createFolderWorkspace,
   onOpenChange
 }: SubmitFolderWorkspaceCreateParams): Promise<boolean> {
-  if (quickAgent && linkedWorkItem && resolveWorkItemStartPromptDelivery(
-    useAppStore.getState().settings?.workItemStartPromptDelivery
-  ) === 'submit-after-ready') {
-    throw new Error('Work Item Start cannot confirm support before creating this folder workspace. Choose Draft.')
+  if (
+    quickAgent &&
+    linkedWorkItem &&
+    resolveWorkItemStartPromptDelivery(
+      useAppStore.getState().settings?.workItemStartPromptDelivery
+    ) === 'submit-after-ready'
+  ) {
+    throw new Error(
+      'Work Item Start cannot confirm support before creating this folder workspace. Choose Draft.'
+    )
   }
   const linkedName = linkedWorkItem ? getLinkedItemDisplayName(linkedWorkItem) : null
   const nameIsAutoManaged = shouldApplyWorkspaceSourceAutoName({

@@ -1,16 +1,34 @@
 import type { RpcContext } from '../core'
-import { canAccessWorkItemStartStructuredSession } from './structured-agent-session-launch-authority'
+import {
+  canReadStructuredSessionRecord,
+  structuredSessionAdmissionRecord
+} from './structured-agent-session-launch-authority'
+import { getStructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-registry'
 import type { RuntimeWorktreePsResult } from '../../../../shared/runtime-worktree-contracts'
 
 /** Publish identity only with exact persisted launch ownership. */
-export function scopeWorktreePsStructuredIdentity<T extends RuntimeWorktreePsResult>(result: T, context?: Pick<RpcContext, 'caller' | 'clientKind' | 'clientCapabilities'>): T {
+export function scopeWorktreePsStructuredIdentity<T extends RuntimeWorktreePsResult>(
+  result: T,
+  context?: Pick<RpcContext, 'caller' | 'clientKind' | 'clientCapabilities'>
+): T {
+  if (context?.caller?.kind === 'local-cli') {
+    return result
+  }
+  const host = getStructuredAgentSessionHost()
   let redacted = false
   const worktrees = result.worktrees.map((worktree) => {
     if (!worktree.agents.some((agent) => agent.sessionId !== undefined)) {
       return worktree
     }
     const agents = worktree.agents.map((agent) => {
-      if (agent.sessionId === undefined || (context && canAccessWorkItemStartStructuredSession(context, agent.sessionId))) {
+      if (
+        agent.sessionId === undefined ||
+        (context &&
+          canReadStructuredSessionRecord(
+            context,
+            structuredSessionAdmissionRecord(host, agent.sessionId)
+          ))
+      ) {
         return agent
       }
       redacted = true

@@ -17,7 +17,11 @@ import {
   mediaNameParamsSchema,
   mediaNameResultSchema
 } from './bridge-media-verbs'
-import { PAGE_STORAGE_MAX_KEY_CHARS, PAGE_STORAGE_MAX_VALUE_CHARS, isPageStorageKey } from '../page-storage-keys'
+import {
+  PAGE_STORAGE_MAX_KEY_CHARS,
+  PAGE_STORAGE_MAX_VALUE_CHARS,
+  isPageStorageKey
+} from '../page-storage-keys'
 import { mobileFileMediaMime, PDF_MIME_TYPE } from '../../files/mobile-file-media'
 
 // Fence native-prefixed requests on-device; desktop allowlist refusal alone would hide leaked forwarding and depend on desktop version.

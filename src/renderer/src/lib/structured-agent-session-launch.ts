@@ -226,7 +226,10 @@ function structuredAgentLaunchState(
       ...params,
       envelope: {
         ...params.envelope,
-        payloadFingerprint: structuredAgentSessionCreateFingerprint({ sessionId: intent.sessionId, ...params })
+        payloadFingerprint: structuredAgentSessionCreateFingerprint({
+          sessionId: intent.sessionId,
+          ...params
+        })
       }
     }
   }

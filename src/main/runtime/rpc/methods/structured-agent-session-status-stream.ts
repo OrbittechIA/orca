@@ -6,7 +6,10 @@ import { projectStructuredAgentSessionStatusAudience } from './structured-agent-
 
 import { prepareStructuredTabsIfSupported } from './structured-session-tab-restore'
 import { defineStreamingMethod, type RpcContext } from '../core'
-import { canReachStructuredSession, requireStructuredHost as requireHost } from './structured-agent-session-gate'
+import {
+  canReachStructuredSession,
+  requireStructuredHost as requireHost
+} from './structured-agent-session-gate'
 import { structuredAgentSessionStatusSubscriptionId } from './structured-agent-session-subscription-id'
 import { clientReadsStructuredSessionAgent } from './structured-agent-session-policy'
 
@@ -66,8 +69,11 @@ export const STRUCTURED_AGENT_SESSION_STATUS_METHODS = [
         emit: (event) => {
           const visible = projectStructuredAgentSessionStatusAudience(event, (sessionId, agent) => {
             const provider = agent ?? host.deps.store.getConversation(sessionId)?.provider
-            return provider !== undefined && canReachStructuredSession(ctx, host, sessionId) &&
+            return (
+              provider !== undefined &&
+              canReachStructuredSession(ctx, host, sessionId) &&
               clientReadsStructuredSessionAgent(ctx, provider)
+            )
           })
           if (visible) emit(visible)
         }

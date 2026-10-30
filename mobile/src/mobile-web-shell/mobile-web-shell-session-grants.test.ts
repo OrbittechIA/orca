@@ -54,7 +54,10 @@ describe('the route grants a downloaded generation is activated under', () => {
     { pathname: '/h/[hostId]/tasks', grants: ['navigate', 'native.clipboard.write'] }
   ]
   const GRANTED_TWO_ROUTES = [
-    { pathname: '/h/[hostId]', grants: ['navigate', 'storage', 'native.storage.read', 'native.storage.persist'] },
+    {
+      pathname: '/h/[hostId]',
+      grants: ['navigate', 'storage', 'native.storage.read', 'native.storage.persist']
+    },
     TWO_ROUTES[1]
   ]
   const DOWNLOADED: MobileWebShellManifestFacts = manifestFacts({

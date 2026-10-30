@@ -864,27 +864,46 @@ describe('claim keys and unreadable rows', () => {
   })
 })
 
-
 describe('immutable work-item launch ownership', () => {
-  it.each(['founding', 'reservation'] as const)('persists %s authority across reopen and refuses owner-changing replay', async (mode) => {
-    const store = await open()
-    const request = reserveRequest({ launchOrigin: 'work-item-start', launchAuthority: { kind: 'paired-device', deviceId: 'device-1' } })
-    const commit = (input: AgentSessionReserveRequest) => mode === 'founding' ? store.founding.commit(input) : store.reserveOwner(input)
-    const first = await commit(request)
-    expect(first.record.launchAuthority).toEqual(request.launchAuthority)
-    expect((await open()).getRecord(request.sessionId)?.launchAuthority).toEqual(request.launchAuthority)
-    await expect(commit({ ...request, launchAuthority: { kind: 'paired-device', deviceId: 'device-2' } })).rejects.toMatchObject({
-      refusal: { code: 'agent_session_conflict', details: { reason: 'identityMismatch' } }
-    })
-    expect((await commit(request)).record.launchAuthority).toEqual(request.launchAuthority)
-    expect(store.getOperationRow(request.operation.callerKey, request.operation.operationId)?.fingerprint).toBe(request.operation.fingerprint)
-  })
+  it.each(['founding', 'reservation'] as const)(
+    'persists %s authority across reopen and refuses owner-changing replay',
+    async (mode) => {
+      const store = await open()
+      const request = reserveRequest({
+        launchOrigin: 'work-item-start',
+        launchAuthority: { kind: 'paired-device', deviceId: 'device-1' }
+      })
+      const commit = (input: AgentSessionReserveRequest) =>
+        mode === 'founding' ? store.founding.commit(input) : store.reserveOwner(input)
+      const first = await commit(request)
+      expect(first.record.launchAuthority).toEqual(request.launchAuthority)
+      expect((await open()).getRecord(request.sessionId)?.launchAuthority).toEqual(
+        request.launchAuthority
+      )
+      await expect(
+        commit({ ...request, launchAuthority: { kind: 'paired-device', deviceId: 'device-2' } })
+      ).rejects.toMatchObject({
+        refusal: { code: 'agent_session_conflict', details: { reason: 'identityMismatch' } }
+      })
+      expect((await commit(request)).record.launchAuthority).toEqual(request.launchAuthority)
+      expect(
+        store.getOperationRow(request.operation.callerKey, request.operation.operationId)
+          ?.fingerprint
+      ).toBe(request.operation.fingerprint)
+    }
+  )
 
   it('does not adopt an unowned legacy start on replay', async () => {
     const store = await open()
     const request = reserveRequest()
     await store.founding.commit(request)
-    await expect(store.founding.commit({ ...request, launchOrigin: 'work-item-start', launchAuthority: { kind: 'local-desktop' } })).rejects.toMatchObject({
+    await expect(
+      store.founding.commit({
+        ...request,
+        launchOrigin: 'work-item-start',
+        launchAuthority: { kind: 'local-desktop' }
+      })
+    ).rejects.toMatchObject({
       refusal: { code: 'agent_session_conflict' }
     })
     expect(store.getRecord(request.sessionId)?.launchAuthority).toBeUndefined()

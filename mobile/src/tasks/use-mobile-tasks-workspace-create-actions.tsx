@@ -111,7 +111,12 @@ export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateMod
         }
         const startClient = taskRepoClient(client, targetRepo)
         const startGeneration = startClient.getGeneration?.()
-        const route = await resolveMobileWorkItemStartRoute(startClient, targetRepo.id, selectedAgent, { hostId, prompt: item.source.url })
+        const route = await resolveMobileWorkItemStartRoute(
+          startClient,
+          targetRepo.id,
+          selectedAgent,
+          { hostId, prompt: item.source.url }
+        )
         const setupResolution = await resolveCreateSetupDecision(targetRepo, setupOverride)
         const comment = noteOverride?.trim()
         if (setupResolution.kind === 'prompt') {
@@ -267,7 +272,9 @@ export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateMod
           })
         }
         if (route.kind === 'structured' && params.repo !== `id:${targetRepo.id}`) {
-          throw new Error('The workspace repository differs from the Work Item Start preflight repository.')
+          throw new Error(
+            'The workspace repository differs from the Work Item Start preflight repository.'
+          )
         }
         const createReply = await worktreeCreateRun.request(client, params, {
           timeoutMs: WORKTREE_CREATE_TIMEOUT_MS
@@ -277,7 +284,9 @@ export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateMod
         if (route.kind === 'structured' && selectedAgent !== 'blank') {
           try {
             if (startGeneration !== startClient.getGeneration?.()) {
-              throw new Error('The connection changed during Work Item Start. Review the created workspace before sending anything.')
+              throw new Error(
+                'The connection changed during Work Item Start. Review the created workspace before sending anything.'
+              )
             }
             startWarning = await deliverMobileWorkItemStart({
               hostId,
@@ -287,7 +296,10 @@ export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateMod
               prompt: item.source.url
             })
           } catch (error) {
-            startWarning = error instanceof Error ? error.message : 'Work Item Start requires recovery in this workspace.'
+            startWarning =
+              error instanceof Error
+                ? error.message
+                : 'Work Item Start requires recovery in this workspace.'
           }
         }
         setActionItem(null)

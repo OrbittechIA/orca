@@ -142,7 +142,9 @@ export function validRecord(value: unknown): value is Omit<
     typeof payloadFingerprint === 'string' &&
     (expectedRuntimeFence === null || typeof expectedRuntimeFence === 'number') &&
     (failedAt === undefined || Number.isFinite(failedAt)) &&
-    (!('launchOrigin' in value) || value.launchOrigin === undefined || value.launchOrigin === 'work-item-start') &&
+    (!('launchOrigin' in value) ||
+      value.launchOrigin === undefined ||
+      value.launchOrigin === 'work-item-start') &&
     (firstMessage === undefined || validFirstMessage(firstMessage)) &&
     (optionsMode === undefined || optionsMode === 'replace-model-selection') &&
     (options === undefined || isAgentSessionOptions(options)) &&

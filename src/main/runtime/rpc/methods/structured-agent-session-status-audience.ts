@@ -10,7 +10,11 @@ export function projectStructuredAgentSessionStatusAudience(
       ...event,
       sessions: event.sessions.filter((session) => readsSession(session.sessionId, session.agent)),
       ...(event.conversationNames
-        ? { conversationNames: event.conversationNames.filter((note) => readsSession(note.sessionId)) }
+        ? {
+            conversationNames: event.conversationNames.filter((note) =>
+              readsSession(note.sessionId)
+            )
+          }
         : {}),
       ...(event.namingActiveSessionIds
         ? { namingActiveSessionIds: event.namingActiveSessionIds.filter((id) => readsSession(id)) }
