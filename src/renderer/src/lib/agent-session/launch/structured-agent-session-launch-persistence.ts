@@ -1,5 +1,6 @@
 import { structuredAgentSessionTabId } from '../../../../../shared/structured-agent-session-projection'
 import { StructuredAgentSessionCreateRefusalError } from '../../structured-agent-session-launch-errors'
+import { createBrowserUuid } from '../../browser-uuid'
 import {
   validRecord,
   parseStructuredLaunchSurfaceAddress,
@@ -29,6 +30,27 @@ export class StructuredAgentLaunchPersistenceError extends StructuredAgentSessio
       'structured_agent_launch_persistence_unconfirmed'
     )
     this.name = 'StructuredAgentLaunchPersistenceError'
+  }
+}
+
+function confirmStoredLaunchValue(key: string, expected: string | null): void {
+  // Read the browser store itself; a wrapper's optimistic getItem is not a durable receipt.
+  if (Storage.prototype.getItem.call(localStorage, key) !== expected) {
+    throw new StructuredAgentLaunchPersistenceError()
+  }
+}
+
+export function probeStructuredAgentLaunchPersistence(): void {
+  try {
+    const key = `${LAUNCH_STORAGE_KEY}:probe:${createBrowserUuid()}`
+    try {
+      localStorage.setItem(key, key)
+      confirmStoredLaunchValue(key, key)
+    } finally {
+      localStorage.removeItem(key)
+    }
+  } catch {
+    throw new StructuredAgentLaunchPersistenceError()
   }
 }
 
@@ -131,9 +153,8 @@ function writeRecords(confirm = false): void {
     } else {
       localStorage.setItem(LAUNCH_STORAGE_KEY, serialized ?? '[]')
     }
-    // Read the browser store itself; a wrapper's optimistic getItem is not a durable receipt.
-    if (confirm && Storage.prototype.getItem.call(localStorage, LAUNCH_STORAGE_KEY) !== serialized) {
-      throw new StructuredAgentLaunchPersistenceError()
+    if (confirm) {
+      confirmStoredLaunchValue(LAUNCH_STORAGE_KEY, serialized)
     }
   } catch {
     if (confirm) {
