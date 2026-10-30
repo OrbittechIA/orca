@@ -29,7 +29,7 @@ let rig: RestTestRig
 let runtime: OrcaRuntimeService
 let dispatcher: RpcDispatcher
 
-async function sleep(client: RpcDispatchStreamingOptions, markAsleep = true) {
+async function sleepWorkspace(client: RpcDispatchStreamingOptions, markAsleep = true) {
   const frames: RpcResponse[] = []
   await dispatcher.dispatchStreaming(
     {
@@ -106,7 +106,7 @@ it.each([
     expect(rig.store.getRecord(SESSION)).toBeNull()
     const effect = vi.spyOn(rig.host, 'sleepWorkspace')
     const abort = vi.spyOn(rig.host['runtimeState'].acquireAborts, 'abort')
-    const sleeping = sleep(client, markAsleep)
+    const sleeping = sleepWorkspace(client, markAsleep)
     try {
       await vi.waitFor(() => expect(effect).toHaveBeenCalledOnce())
     } finally {
@@ -140,7 +140,7 @@ it.each([false, true])(
       return rig.store
     })
     const abort = vi.spyOn(rig.host['runtimeState'].acquireAborts, 'abort')
-    const result = await sleep(foreign, false)
+    const result = await sleepWorkspace(foreign, false)
     expect(result).toMatchObject({ ok: true, result: { stoppedSessionIds: [] } })
     expect(abort).not.toHaveBeenCalled()
     expect(rig.host.hasSession(SESSION)).toBe(true)
@@ -151,7 +151,7 @@ it.each([false, true])(
   'preserves ordinary and owner workspace sleep, ordinary=%s',
   async (ordinary) => {
     expect(await createScoped(ordinary)).toMatchObject({ ok: true })
-    expect(await sleep(ordinary ? foreign : owner)).toMatchObject({
+    expect(await sleepWorkspace(ordinary ? foreign : owner)).toMatchObject({
       ok: true,
       result: { stoppedSessionIds: [SESSION] }
     })

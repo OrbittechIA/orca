@@ -21,6 +21,7 @@ import {
   webRuntimeState
 } from './web-runtime-session'
 import { noopUnsubscribe } from './web-storage'
+import { createFallbackProxy } from './web-fallback-api'
 
 export function createWebSettingsApi(): Partial<PreloadApi> {
   return {
@@ -106,8 +107,10 @@ export function createWebSettingsApi(): Partial<PreloadApi> {
       },
       updatePRBotAuthorOverride: (args) => updateRuntimePRBotAuthorOverride(args),
       listFonts: () => Promise.resolve([]),
+      previewGhosttyImport: createFallbackProxy(['settings', 'previewGhosttyImport']),
+      previewWarpThemeImport: createFallbackProxy(['settings', 'previewWarpThemeImport']),
       onChanged: () => noopUnsubscribe
-    } satisfies Partial<WebSettingsApi> as unknown as WebSettingsApi,
+    } satisfies WebSettingsApi,
     agentAwake: {
       getStatus: async () => {
         const settings = getStoredSettings()

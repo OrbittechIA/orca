@@ -210,7 +210,7 @@ function projectAgentSessionTabsOut<TPayload extends SessionTabsPayload>(
       ? { tabGroupLayout: pruneStructuredTabGroupLayout(payload.tabGroupLayout, validGroupIds) }
       : {}),
     tabs: tabs.map((tab) => ({ ...tab, isActive: tab.id === active?.id }))
-  } as TPayload
+  }
 }
 
 function pruneStructuredTabGroupLayout(

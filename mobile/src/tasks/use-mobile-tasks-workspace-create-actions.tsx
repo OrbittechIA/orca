@@ -29,7 +29,34 @@ import {
   worktreePrBaseResolve
 } from './mobile-workspace-create-operations'
 
-export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateModel) {
+type WorkspaceCreateActionsInput = Pick<
+  WorkspaceSshStateModel,
+  | 'client'
+  | 'ensureWorkspaceSshReady'
+  | 'getWorkspaceTargetRepo'
+  | 'hostId'
+  | 'repos'
+  | 'resolveCreateSetupDecision'
+  | 'runtimeTaskSettings'
+  | 'setActionItem'
+  | 'setCreatingKey'
+  | 'setError'
+  | 'setOrcaYamlTrustPrompt'
+  | 'setRuntimeTaskSettings'
+  | 'setSetupPrompt'
+  | 'setWorkspaceAgent'
+  | 'setWorkspaceAgentOverridden'
+  | 'setWorkspaceCreateDraft'
+  | 'taskStateHydrated'
+  | 'tasksSupported'
+  | 'trustedOrcaHooks'
+  | 'workspaceDetectedAgentIds'
+  | 'workspaceLastAutoName'
+> & { router: Pick<WorkspaceSshStateModel['router'], 'push'> }
+
+export function useMobileTasksWorkspaceCreateActions<Model extends WorkspaceCreateActionsInput>(
+  model: Model
+) {
   const {
     client,
     ensureWorkspaceSshReady,
@@ -342,4 +369,6 @@ export function useMobileTasksWorkspaceCreateActions(model: WorkspaceSshStateMod
   return Object.assign(model, { createWorkspace })
 }
 
-export type WorkspaceCreateActionsModel = ReturnType<typeof useMobileTasksWorkspaceCreateActions>
+export type WorkspaceCreateActionsModel = ReturnType<
+  typeof useMobileTasksWorkspaceCreateActions<WorkspaceSshStateModel>
+>

@@ -11,7 +11,6 @@ import { MOBILE_RUNTIME_CLIENT_CAPABILITIES } from '../transport/mobile-runtime-
 import { createFakeRpcClient } from '../mobile-web-shell/bridge-host-test-fakes'
 import { createWorkspaceFromComposerSource } from './source-workspace-create'
 import { useMobileTasksWorkspaceCreateActions } from './use-mobile-tasks-workspace-create-actions'
-import type { WorkspaceSshStateModel } from './use-mobile-tasks-workspace-ssh-state'
 import { createMobileStructuredAgentSession } from '../session/mobile-structured-agent-session-launch'
 import { AGENT_SESSION_CREATE_MESSAGE_RUNTIME_CAPABILITY } from '../../../src/shared/agent-session-create-capabilities'
 
@@ -93,7 +92,9 @@ function policyClient(delivery = 'submit-after-ready') {
     client: {
       ...createFakeRpcClient(),
       sendRequest: async (method: string, params?: unknown) => {
-        if (method.startsWith('agentSession.')) return call(method, params, caller, runtime)
+        if (method.startsWith('agentSession.')) {
+          return call(method, params, caller, runtime)
+        }
         const result =
           method === 'settings.get'
             ? { settings: { workItemStartPromptDelivery: delivery } }
@@ -105,7 +106,9 @@ function policyClient(delivery = 'submit-after-ready') {
                   ]
                 }
               : { worktree: { id: target.worktreeId, displayName: 'Start' } }
-        if (method === 'worktree.create') workspaces.push(params)
+        if (method === 'worktree.create') {
+          workspaces.push(params)
+        }
         return { id: method, ok: true as const, result }
       }
     }
@@ -134,8 +137,7 @@ describe('mobile Start with the real dispatcher admission and mobile capabilitie
       } else {
         const noop = () => {}
         const errors: string[] = []
-        // SAFETY: this supplies every member the task creation callback reads; missing accesses fail this contract test.
-        const model = {
+        const model: Parameters<typeof useMobileTasksWorkspaceCreateActions>[0] = {
           client,
           hostId: 'host-a',
           tasksSupported: true,
@@ -146,19 +148,21 @@ describe('mobile Start with the real dispatcher admission and mobile capabilitie
           workspaceDetectedAgentIds: null,
           workspaceLastAutoName: '',
           router: { push: noop },
-          getWorkspaceTargetRepo: () => ({ id: 'repo', displayName: 'repo' }),
+          getWorkspaceTargetRepo: () => ({ id: 'repo', displayName: 'repo', path: '/workspace' }),
           ensureWorkspaceSshReady: async () => {},
-          resolveCreateSetupDecision: async () => ({ kind: 'resolved', decision: 'skip' }),
+          resolveCreateSetupDecision: async () => ({ kind: 'decision', decision: 'skip' }),
           setActionItem: noop,
           setCreatingKey: noop,
-          setError: (message: string) => errors.push(message),
+          setError: (update) => {
+            errors.push(typeof update === 'function' ? update(errors.at(-1) ?? '') : update)
+          },
           setOrcaYamlTrustPrompt: noop,
           setRuntimeTaskSettings: noop,
           setSetupPrompt: noop,
           setWorkspaceAgent: noop,
           setWorkspaceAgentOverridden: noop,
           setWorkspaceCreateDraft: noop
-        } as unknown as WorkspaceSshStateModel
+        }
         await useMobileTasksWorkspaceCreateActions(model).createWorkspace(
           {
             key: 'issue',
