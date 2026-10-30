@@ -1,20 +1,17 @@
+import { toTaskItem } from './mobile-linked-work-item-task'
 import { resolveMobileWorkItemStartRoute } from './work-item-start-route'
 import { deliverMobileWorkItemStart } from './work-item-start-delivery'
 import type { TuiAgent } from '../../../src/shared/tui-agent'
 import type { RpcClient } from '../transport/rpc-client'
 import { resolveComposerMrBase, resolveComposerPrBase } from './composer-source-base-resolve'
-import type {
-  MobileComposerCreateSelection,
-  MobileLinkedWorkItem
-} from './mobile-composer-source-types'
+import type { MobileComposerCreateSelection } from './mobile-composer-source-types'
 import { resolveMobileWorkspaceCreateName } from './mobile-workspace-name'
 import type { WorkspaceAgentChoice } from './workspace-agent-selection'
 import {
   startupAgentCreateFields,
   buildTaskWorkspaceCreateParams,
   type WorkspaceCreateParams,
-  type WorkspaceCreateSetupDecision,
-  type WorkspaceCreateTaskItem
+  type WorkspaceCreateSetupDecision
 } from './workspace-create-params'
 import { createWorktreeWithNameRetry, type WorktreeCreateResult } from './worktree-create-retry'
 import type { WorktreeCreateAgentLaunch } from './agent-launch-request'
@@ -58,55 +55,6 @@ function resolveComposerAgentLaunch(
   supported: WorktreeCreateAgentLaunch['supported']
 ): WorktreeCreateAgentLaunch | undefined {
   return agentId ? { agent: agentId, supported } : undefined
-}
-
-function toTaskItem(item: MobileLinkedWorkItem, targetRepoId: string): WorkspaceCreateTaskItem {
-  if (item.provider === 'github') {
-    return {
-      provider: 'github',
-      source: {
-        type: item.type === 'pr' ? 'pr' : 'issue',
-        repoId: item.repoId ?? targetRepoId,
-        number: item.number,
-        title: item.title,
-        url: item.url
-      }
-    }
-  }
-  if (item.provider === 'gitlab') {
-    return {
-      provider: 'gitlab',
-      source: {
-        type: item.type === 'mr' ? 'mr' : 'issue',
-        repoId: item.repoId ?? targetRepoId,
-        number: item.number,
-        title: item.title,
-        url: item.url
-      }
-    }
-  }
-  if (item.provider === 'jira') {
-    return {
-      provider: 'jira',
-      source: {
-        key: item.jiraIdentifier ?? '',
-        title: item.title,
-        url: item.url
-      }
-    }
-  }
-  return {
-    provider: 'linear',
-    source: {
-      identifier: item.linearIdentifier ?? '',
-      title: item.title,
-      url: item.url,
-      ...(item.linearWorkspaceId ? { workspaceId: item.linearWorkspaceId } : {}),
-      ...(item.linearOrganizationUrlKey
-        ? { organizationUrlKey: item.linearOrganizationUrlKey }
-        : {})
-    }
-  }
 }
 
 async function createWorkItemWorkspace(args: {
@@ -176,7 +124,9 @@ async function createWorkItemWorkspace(args: {
     worktreeCreateIdempotency: args.worktreeCreateIdempotency,
     buildParams: (name) => ({ ...params, name })
   })
-  if ('error' in result || route.kind !== 'structured' || !selectedAgent) return result
+  if ('error' in result || route.kind !== 'structured' || !selectedAgent) {
+    return result
+  }
   try {
     if (startGeneration !== client.getGeneration?.()) {
       throw new Error(

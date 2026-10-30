@@ -1,4 +1,4 @@
-import { requireWorkItemStartPreflight } from './work-item-start-preflight'
+import { prepareDirectWorkItemStart } from './launch-work-item-direct-start'
 import { resolveWorkItemStartPromptDelivery } from '../../../shared/work-item-start-prompt-delivery'
 import { planAgentCliArgsSuffix } from '@/lib/tui-agent-startup'
 import { toast } from 'sonner'
@@ -26,8 +26,7 @@ import {
   resolveDirectPrStartPoint,
   resolveDirectLaunchOwnerRow,
   resolveDirectSetupDecision,
-  planDirectWorkItemLaunch,
-  resolveDirectProspectiveAgent
+  planDirectWorkItemLaunch
 } from '@/lib/launch-work-item-direct-preflight'
 import type { LaunchWorkItemDirectArgs } from '@/lib/launch-work-item-direct-types'
 import {
@@ -144,40 +143,11 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
     return false
   }
   const projectContext = projectPreflight.context
-  const { prospectiveAgent, unavailable } = await resolveDirectProspectiveAgent(
-    store,
-    repo,
-    projectContext,
-    args
-  )
-  if (unavailable) {
-    toast.error(unavailableAgentErrorMessage())
+  const start = await prepareDirectWorkItemStart(store, owner, projectContext, args, promptDelivery)
+  if (!start) {
     return false
   }
-  let strictStart = false
-  try {
-    strictStart = await requireWorkItemStartPreflight({
-      delivery: promptDelivery,
-      agent: prospectiveAgent,
-      repoId,
-      target: repoOwnerTarget
-    })
-    if (
-      strictStart &&
-      args.launchChoice?.executionHostId &&
-      args.launchChoice.executionHostId !== repoOwnerHostId
-    ) {
-      throw new Error('The selected host differs from the Work Item Start preflight host.')
-    }
-    if (strictStart && args.launchChoice?.requestedSurface === 'terminal') {
-      throw new Error('Choose Draft to start this work item in a terminal.')
-    }
-  } catch (error) {
-    toast.error(
-      error instanceof Error ? error.message : 'Work Item Start support could not be confirmed.'
-    )
-    return false
-  }
+  const { prospectiveAgent, strictStart } = start
   const requestId = newAgentLaunchRequestId()
   const draftContent = await getDirectWorkItemDraftContent(item, repoConnectionId)
   const preflightPlan = await planDirectWorkItemLaunch({

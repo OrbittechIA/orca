@@ -1,6 +1,8 @@
-import { structuredAgentSessionCreateFingerprint } from '../../../shared/structured-agent-session-mutation'
+import {
+  applyStructuredLaunchOrigin,
+  beginStructuredLaunch
+} from './structured-agent-session-launch-start'
 import { useAppStore } from '@/store'
-import { reserveStructuredLaunchSlot } from './structured-agent-session-launch-surface'
 import type { TuiAgent } from '../../../shared/tui-agent'
 import type { ExecutionHostId } from '../../../shared/execution-host'
 import {
@@ -220,19 +222,7 @@ function structuredAgentLaunchState(
     options.hostSeedOptions,
     options.activate
   )
-  if (options.launchOrigin) {
-    const params = { ...intent.params, launchOrigin: options.launchOrigin }
-    intent.params = {
-      ...params,
-      envelope: {
-        ...params.envelope,
-        payloadFingerprint: structuredAgentSessionCreateFingerprint({
-          sessionId: intent.sessionId,
-          ...params
-        })
-      }
-    }
-  }
+  applyStructuredLaunchOrigin(intent, options.launchOrigin)
   intent.explicitLaunchOptions = options.launchOptions ? { ...options.launchOptions } : undefined
   intent.beforeCreate = options.beforeCreate
   intent.surfaceAddress = options.surfaceAddress
@@ -260,18 +250,7 @@ function structuredAgentLaunchState(
   state.onHostSeed = (seedOptions) => adoptPairedHostSeed(state, seedOptions)
   callers.onSettled = () => maybeCleanupLaunchState(state)
   structuredLaunchSelectionController(state)
-  let created: Promise<StructuredAgentLaunchReceipt>
-  try {
-    setStructuredLaunchState(state, options.launchOrigin !== undefined)
-    reserveStructuredLaunchSlot(state.intent)
-    created = launchAndReconcile(state)
-  } catch (error) {
-    if (!options.launchOrigin) {
-      throw error
-    }
-    created = Promise.reject(error)
-  }
-  state.promise = publishWithHeldOptions(state, created)
+  state.promise = publishWithHeldOptions(state, beginStructuredLaunch(state, options.launchOrigin))
   const caller = addStructuredLaunchCaller({
     group: state.callers,
     launchResult: state.promise,

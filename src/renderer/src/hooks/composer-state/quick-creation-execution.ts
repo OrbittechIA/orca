@@ -1,39 +1,5 @@
-import { requireWorkItemStartPreflight } from '@/lib/work-item-start-preflight'
-import { resolveWorkItemStartPromptDelivery } from '../../../../shared/work-item-start-prompt-delivery'
-import { ipcOrRuntimeTargetForHostId } from '@/runtime/runtime-client-target'
-import type { ComposerModel } from './composer-model'
-
-type QuickCreationExecutionInput = Pick<
-  ComposerModel,
-  | 'clearNewWorkspaceDraft'
-  | 'createMultiple'
-  | 'effectivePresetId'
-  | 'ephemeralVmRecipes'
-  | 'ephemeralVmsEnabled'
-  | 'isSubmissionCancelled'
-  | 'linkedGitLabIssue'
-  | 'linkedGitLabMR'
-  | 'normalizedSparseDirectories'
-  | 'onCreated'
-  | 'parentWorktreeId'
-  | 'persistDraft'
-  | 'persistSetupAgentStartupPolicy'
-  | 'prepareQuickSubmit'
-  | 'resetForNextCreate'
-  | 'resolvedInitialWorkspaceStatus'
-  | 'selectedEphemeralVmRecipeId'
-  | 'selectedRepoAgentLaunchFact'
-  | 'selectedRepoExecutionHostId'
-  | 'selectedRepoIsGit'
-  | 'selectedRepoIsRemote'
-  | 'selectedRepoTarget'
-  | 'selectedRepoStartupShell'
-  | 'selectedWorkspaceTarget'
-  | 'settings'
-  | 'sparseEnabled'
-  | 'taskSourceContext'
-  | 'telemetrySource'
->
+import type { QuickCreationExecutionInput } from './quick-creation-input-contract'
+import { useQuickWorkItemStart } from './quick-work-item-start'
 
 import { useCallback } from 'react'
 import type { TuiAgent } from '../../../../shared/tui-agent'
@@ -44,7 +10,6 @@ import { settleComposerSubmit } from '@/lib/composer-submit-cancellation'
 import { runBackgroundWorktreeCreation } from '@/lib/worktree-creation-flow'
 import type { ComposerCreateHandoff } from '@/lib/composer-create-handoff'
 import { translate } from '@/i18n/i18n'
-import { resolveQuickCreateLinkedWorkItemPrompt } from '@/lib/linked-work-item-context'
 import { buildQuickComposerStartup } from './quick-startup-plan'
 import { buildQuickCreationRequest, type QuickSubmitOptions } from './quick-creation-request'
 import type { PendingSmartGitHubSubmitResolution } from './source-selection-decisions'
@@ -81,6 +46,7 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
     taskSourceContext,
     telemetrySource
   } = input
+  const prepareWorkItemStart = useQuickWorkItemStart(input)
 
   const executeQuickCreation = useCallback(
     async (
@@ -125,38 +91,8 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
         trimmedNote
       } = prepared
 
-      const promptLinkedWorkItem = agent === null ? null : submitLinkedWorkItem
-      const workItemDelivery = resolveWorkItemStartPromptDelivery(
-        settings?.workItemStartPromptDelivery
-      )
-      const strictStart = Boolean(promptLinkedWorkItem && workItemDelivery === 'submit-after-ready')
-      if (strictStart) {
-        if (ephemeralVmsEnabled && selectedEphemeralVmRecipeId) {
-          throw new Error(
-            'Work Item Start cannot confirm support before creating this VM. Choose Draft.'
-          )
-        }
-        if (
-          options?.launchChoice?.executionHostId &&
-          options.launchChoice.executionHostId !==
-            (workspaceRunContext?.hostId ?? selectedRepoExecutionHostId)
-        ) {
-          throw new Error('The selected host differs from the Work Item Start preflight host.')
-        }
-        if (options?.launchChoice?.route === 'terminal-tui') {
-          throw new Error('Choose Draft to start this work item in a terminal.')
-        }
-        const target = workspaceRunContext?.hostId
-          ? ipcOrRuntimeTargetForHostId(workspaceRunContext.hostId)
-          : (selectedRepoTarget ?? ipcOrRuntimeTargetForHostId(selectedRepoExecutionHostId))
-        if (!target) throw new Error('The Work Item Start execution host could not be confirmed.')
-        await requireWorkItemStartPreflight({ delivery: workItemDelivery, agent, repoId, target })
-      }
-
-      const { prompt: quickPrompt, draftPrompt: linkedDraftPrompt } =
-        resolveQuickCreateLinkedWorkItemPrompt(promptLinkedWorkItem, trimmedNote)
-      const quickDraftPrompt = strictStart ? undefined : linkedDraftPrompt
-      const launchPrompt = strictStart ? (linkedDraftPrompt ?? quickPrompt) : quickPrompt
+      const { strictStart, quickPrompt, quickDraftPrompt, launchPrompt } =
+        await prepareWorkItemStart(prepared, repoId, workspaceRunContext, options)
 
       const {
         startupPlan,
@@ -341,6 +277,7 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
       persistDraft,
       persistSetupAgentStartupPolicy,
       prepareQuickSubmit,
+      prepareWorkItemStart,
       resetForNextCreate,
       resolvedInitialWorkspaceStatus,
       selectedEphemeralVmRecipeId,

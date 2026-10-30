@@ -1,3 +1,5 @@
+import { structuredAgentSessionCreateIntentFingerprint } from './structured-agent-session-create-fingerprint'
+export { structuredAgentSessionCreateIntentFingerprint } from './structured-agent-session-create-fingerprint'
 import {
   structuredAgentSessionCreateWorktreeTargetsEqual,
   structuredAgentSessionCreateLocationMatchesTarget,
@@ -27,7 +29,6 @@ import type {
   StructuredAgentSessionLaunchAuthority,
   StructuredAgentSessionFirstMessage
 } from '../../../../shared/structured-agent-session-create'
-import { structuredAgentSessionCreateFingerprint } from '../../../../shared/structured-agent-session-mutation'
 import { structuredAgentSessionOptionOverridesRefusal } from '../../../native-chat/agent-session-wire/structured-agent-session-options-read'
 import type { StructuredAgentSessionCreateOptions } from '../../../native-chat/agent-session-wire/structured-agent-session-create'
 import type { OrcaRuntimeService } from '../../orca-runtime'
@@ -51,24 +52,6 @@ export type PreparedStructuredAgentSessionCreate = {
   tab: { workspaceId: string; agent: StructuredAgentId } | null
   /** Absent for older clients and provider-dependent in-process callers. */
   atRest?: { firstMessage?: StructuredAgentSessionFirstMessage }
-}
-
-/** New creates keep the immutable client intent in the ledger; legacy creates keep attach identity. */
-export function structuredAgentSessionCreateIntentFingerprint(params: {
-  envelope: AgentSessionMutationEnvelope
-  worktree: string
-  agent: string
-  resumeFrom?: StructuredAgentSessionResumeSource
-  launchOrigin?: StructuredAgentSessionLaunchOrigin
-  tabId?: string
-  firstMessage?: StructuredAgentSessionFirstMessage
-  optionsMode?: 'replace-model-selection'
-  options?: Readonly<Record<string, string>>
-}): string {
-  return structuredAgentSessionCreateFingerprint({
-    ...params,
-    sessionId: params.envelope.sessionId
-  })
 }
 
 /** Run throwing pre-commit work inside resolveUncommittedStructuredCreate so clients receive a no-effects refusal. */

@@ -1,10 +1,7 @@
+import { readStoredWebUIState } from './web-ui-state'
 import { resolveWorkItemStartPromptDelivery } from '../../../../shared/work-item-start-prompt-delivery'
 import type { PreloadApi } from '../../../../preload/api-types'
-import {
-  getDefaultSettings,
-  getDefaultUIState,
-  getWorktreeCardModeProperties
-} from '../../../../shared/constants'
+import { getDefaultSettings, getDefaultUIState } from '../../../../shared/constants'
 import { normalizeWorktreeVisibilityDefaults } from '../../../../shared/external-worktree-visibility'
 import type { GlobalSettings } from '../../../../shared/global-settings-types'
 import { osc52ClipboardDefaultOnOverridesPersistedOff } from '../../../../shared/osc52-clipboard-settings'
@@ -16,7 +13,6 @@ import {
 import { readStoredWebRuntimeEnvironment } from '../web-runtime-environment'
 import {
   mergeSettings,
-  mergeWebUIState,
   migrateStoredWebSettings,
   runtimeChatPermissionSetting
 } from './web-preference-normalization'
@@ -302,20 +298,5 @@ export function readLocalWebUIState(): PersistedUIState {
   const defaults = getDefaultUIState()
   // Settings migration arms OSC 52’s UI notice; reading UI first would later overwrite that arm after its one-shot stamp.
   const storedSettings = getStoredSettings()
-  const stored = readJson<Partial<PersistedUIState>>(UI_STORAGE_KEY, {})
-  const base = {
-    ...defaults,
-    // Why: mirror the main-process missing-property seed from legacy card layout mode when runtime ui.get is unavailable.
-    worktreeCardProperties: getWorktreeCardModeProperties(
-      storedSettings.compactWorktreeCards ? 'Compact' : 'Default'
-    )
-  }
-  if (typeof stored.rightSidebarOpen === 'boolean') {
-    return mergeWebUIState(base, stored)
-  }
-  return mergeWebUIState(base, {
-    ...stored,
-    // Why: web fallback lacks main-process normalization; migrate the retired setting only when local UI preference is absent.
-    rightSidebarOpen: storedSettings.rightSidebarOpenByDefault
-  })
+  return readStoredWebUIState(defaults, storedSettings)
 }

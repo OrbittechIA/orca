@@ -1,3 +1,5 @@
+import { ProviderHandle, StructuredAgent } from './structured-agent-session-provider-params'
+export { ProviderHandle, StructuredAgent } from './structured-agent-session-provider-params'
 import { AgentSessionSelectionSchema } from '../agent-session-execution-options'
 import {
   SendBody,
@@ -13,7 +15,6 @@ import {
 } from './structured-agent-session-identifiers'
 import { z } from 'zod'
 import { CREATE_TAB_FIELDS } from './structured-agent-session-create-tab-params'
-import { isStructuredAgentId } from '../agent-session-provider-handle-encoding'
 import { normalizeExecutionHostId } from '../execution-host'
 import { AGENT_SESSION_RESPONSE_OPTION_ID_MAX_LENGTH } from '../agent-session-question-answer'
 import {
@@ -45,20 +46,6 @@ export const MAX_RESPONSE_OPTION_ID_LENGTH = AGENT_SESSION_RESPONSE_OPTION_ID_MA
 
 /** One relaunch cannot offer more chats than a profile plausibly holds. */
 export const MAX_RESTART_RESUME_SESSIONS = 512
-
-export const ProviderHandle = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('codex'), threadId: Identifier('Invalid thread id') }).strict(),
-  z
-    .object({
-      kind: z.literal('claude'),
-      sessionId: Identifier('Invalid provider session id'),
-      leafUuid: Identifier('Invalid leaf uuid').nullable()
-    })
-    .strict()
-])
-
-/** Host-registered agents; clients gate names beyond Claude/Codex on the registered-agents capability. */
-export const StructuredAgent = z.string().refine(isStructuredAgentId, 'Invalid agent')
 
 export const ExecutionHostId = z
   .string()

@@ -1,15 +1,22 @@
+import {
+  NOW,
+  NATIVE,
+  WSL,
+  SSH,
+  FOLDER,
+  MATCHED,
+  INDETERMINATE,
+  UNUSED,
+  operationId,
+  reserveRequest,
+  processIdentity,
+  handleLink
+} from './agent-session-record-store.test-fixture'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { AgentSessionOwnerProbe } from '../../shared/agent-session-lease-adjudication'
-import type {
-  AgentSessionExecutionLocation,
-  AgentSessionLease,
-  AgentSessionProcessIdentity,
-  AgentSessionRecord
-} from '../../shared/agent-session-record'
-import type { AgentSessionProviderHandleLink } from '../../shared/agent-session-provider-handle'
+import type { AgentSessionLease, AgentSessionRecord } from '../../shared/agent-session-record'
 import type { PersistedAgentSessionRecord } from '../../shared/agent-session-legacy-handoff-lease'
 import type { AgentSessionRecordStore } from './agent-session-record-store'
 import {
@@ -21,83 +28,7 @@ import {
 import { AGENT_SESSION_CLAIM_KEY_RETENTION_MS } from './agent-session/ownership/agent-session-claim-key-retention'
 import { openTestJournalHostDatabase } from '../native-chat/agent-session-journal/journal-host-database-test-support'
 import type { AgentSessionReserveRequest } from './agent-session/ownership/agent-session-reservation-admission'
-import {
-  claudeProviderHandle,
-  codexProviderHandle
-} from '../../shared/agent-session-provider-handle-encoding'
-
-const NOW = 1_800_000_000_000
-
-const NATIVE: AgentSessionExecutionLocation = {
-  executionHostId: 'local',
-  wslDistro: null,
-  workspaceId: 'workspace-1',
-  workspaceKind: 'git-worktree'
-}
-const WSL: AgentSessionExecutionLocation = { ...NATIVE, wslDistro: 'Ubuntu-22.04' }
-const SSH: AgentSessionExecutionLocation = { ...NATIVE, executionHostId: 'ssh:build-box' }
-const FOLDER: AgentSessionExecutionLocation = {
-  ...NATIVE,
-  workspaceId: 'workspace-2',
-  workspaceKind: 'folder'
-}
-
-const MATCHED: AgentSessionOwnerProbe = { outcome: 'identity-matched', matchedOn: ['spawn-token'] }
-const INDETERMINATE: AgentSessionOwnerProbe = { outcome: 'indeterminate', reason: 'no answer' }
-const UNUSED: AgentSessionOwnerProbe = { outcome: 'reservation-unused' }
-
-let counter = 0
-
-function operationId(now = NOW): string {
-  counter += 1
-  return `${now}-${String(counter)
-    .padStart(32, '0')
-    .replaceAll(/[^0-9a-f]/g, '0')}`
-}
-
-function reserveRequest(
-  overrides: Partial<AgentSessionReserveRequest> = {}
-): AgentSessionReserveRequest {
-  return {
-    sessionId: 'session-alpha',
-    location: NATIVE,
-    provider: 'claude',
-    accountHome: { variable: 'CLAUDE_CONFIG_DIR', path: '/home/dev/.claude-work' },
-    expectedFence: null,
-    spawnToken: 'spawn-a',
-    claimKeyId: 'key-1',
-    handoffOperationId: null,
-    probe: INDETERMINATE,
-    operation: { callerKey: 'client-1', operationId: operationId(), fingerprint: 'fp-1' },
-    now: NOW,
-    ...overrides
-  }
-}
-
-function processIdentity(
-  overrides: Partial<AgentSessionProcessIdentity> = {}
-): AgentSessionProcessIdentity {
-  return {
-    hostId: 'local',
-    pid: 4242,
-    processStartTimeMs: 1_700_000_000_000,
-    spawnToken: 'spawn-a',
-    ...overrides
-  }
-}
-
-function handleLink(
-  overrides: Partial<AgentSessionProviderHandleLink> = {}
-): AgentSessionProviderHandleLink {
-  return {
-    linkId: 'link-1',
-    handle: claudeProviderHandle('provider-session-1', 'leaf-1'),
-    origin: 'created',
-    mintedAtFence: 1,
-    observedAt: NOW,
-    ...overrides
-  }
-}
+import { codexProviderHandle } from '../../shared/agent-session-provider-handle-encoding'
 
 let directory: string
 
