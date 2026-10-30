@@ -88,6 +88,19 @@ describe('structured agent params', () => {
     expect(SendParams.safeParse(send).success).toBe(true)
   })
 
+  it('accepts only the 224 origin metadata without accepting client authority', () => {
+    const params = { envelope: ENVELOPE, worktree: 'wt', agent: 'codex' }
+    const origin = { ...params, launchOrigin: 'work-item-start' }
+    expect(CreateIntentParams.parse(origin)).toEqual(origin)
+    for (const launchOrigin of ['other-origin', '', null, true]) {
+      expect(CreateIntentParams.safeParse({ ...params, launchOrigin }).success).toBe(false)
+    }
+    expect(
+      CreateIntentParams.safeParse({ ...origin, launchAuthority: { callerKey: 'other' } }).success
+    ).toBe(false)
+    expect(CreateIntentParams.safeParse({ ...origin, callerKey: 'other' }).success).toBe(false)
+  })
+
   it.each(['claude', 'codex', 'grok', 'qwen-code'])('accept the agent id %s', (agent) => {
     expect(CreateSupportParams.safeParse({ worktree: 'wt', agent }).success).toBe(true)
     expect(ModelCatalogParams.safeParse({ agent }).success).toBe(true)

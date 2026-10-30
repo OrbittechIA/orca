@@ -7,6 +7,8 @@ import {
   structuredAgentSessionCreateFingerprint
 } from './structured-agent-session-mutation'
 
+export type StructuredAgentSessionLaunchOrigin = 'work-item-start'
+
 /** Send conversation identity only; the executing host derives transcript/account paths so paired clients cannot choose files or credentials. */
 export type StructuredAgentSessionResumeSource = {
   /** claude: the session id. codex: the thread id. */
@@ -20,6 +22,8 @@ export type StructuredAgentSessionCreateParams = {
   worktree: string
   agent: StructuredAgentId
   resumeFrom?: StructuredAgentSessionResumeSource
+  /** Compatibility metadata; caller authority comes from the transport. */
+  launchOrigin?: StructuredAgentSessionLaunchOrigin
   /** Sent only to a host advertising `AGENT_SESSION_CREATE_TAB_ID_RUNTIME_CAPABILITY`. */
   tabId?: string
   /** Sent only to a host advertising `AGENT_SESSION_CREATE_MESSAGE_RUNTIME_CAPABILITY`. */
@@ -56,6 +60,8 @@ export function structuredAgentSessionCreateParams(args: {
   worktree: string
   agent: StructuredAgentId
   resumeFrom?: StructuredAgentSessionResumeSource
+  /** Compatibility metadata; caller authority comes from the transport. */
+  launchOrigin?: StructuredAgentSessionLaunchOrigin
   tabId?: string
   firstMessage?: StructuredAgentSessionFirstMessage
   optionsMode?: 'replace-model-selection'
@@ -69,6 +75,7 @@ export function structuredAgentSessionCreateParams(args: {
     worktree: args.worktree,
     agent: args.agent,
     ...(args.resumeFrom ? { resumeFrom: args.resumeFrom } : {}),
+    ...(args.launchOrigin ? { launchOrigin: args.launchOrigin } : {}),
     ...(args.tabId ? { tabId: args.tabId } : {}),
     ...(args.firstMessage ? { firstMessage: args.firstMessage } : {}),
     ...(args.optionsMode ? { optionsMode: args.optionsMode } : {}),

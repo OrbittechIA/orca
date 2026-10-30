@@ -2,6 +2,7 @@ import '../unused-default-rpc-methods.test-fixture'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
 import { AGENT_SESSION_CREATE_MESSAGE_RUNTIME_CAPABILITY } from '../../../../shared/agent-session-create-capabilities'
+import { structuredAgentSessionCreateFingerprint } from '../../../../shared/structured-agent-session-mutation'
 import { structuredAgentSessionCreateParams } from '../../../../shared/structured-agent-session-create'
 import {
   createRestTestRig,
@@ -124,6 +125,71 @@ it.each([
     expect(rig.adapter.dispatch).not.toHaveBeenCalled()
   }
 )
+
+it('keeps origin intent in the ledger across capability changes and rejects divergent retries', async () => {
+  const original = params()
+  const input = {
+    ...original,
+    launchOrigin: 'work-item-start' as const,
+    envelope: {
+      ...original.envelope,
+      payloadFingerprint: structuredAgentSessionCreateFingerprint({
+        sessionId: SESSION,
+        ...original,
+        launchOrigin: 'work-item-start'
+      })
+    }
+  }
+  expect(await call('agentSession.create', input, legacy)).toMatchObject({
+    ok: true,
+    result: { ok: true }
+  })
+  expect(await call('agentSession.create', input, capable)).toMatchObject({
+    ok: true,
+    result: { ok: true, replayed: true, value: { sessionId: SESSION } }
+  })
+  const { launchOrigin: _origin, ...withoutOrigin } = input
+  for (const changed of [withoutOrigin, { ...input, resumeFrom: { providerSessionId: 'other' } }]) {
+    expect(await call('agentSession.create', changed, capable)).toMatchObject({
+      ok: true,
+      result: { ok: false, refusal: { code: 'agent_session_operation_conflict' } }
+    })
+  }
+  for (const changedIntent of [params(), params({ model: 'different-model' })]) {
+    expect(await call('agentSession.create', changedIntent, capable)).toMatchObject({
+      ok: true,
+      result: { ok: false, refusal: { code: 'agent_session_operation_conflict' } }
+    })
+  }
+  expect(rig.adapter.acquire).not.toHaveBeenCalled()
+  expect((await rig.host.journalSnapshot(SESSION)).submissions).toEqual([])
+})
+
+it('refuses adding origin metadata to an already acquired operation instead of adopting it', async () => {
+  const input = params()
+  expect(await call('agentSession.create', input, legacy)).toMatchObject({
+    ok: true,
+    result: { ok: true }
+  })
+  const changed = {
+    ...input,
+    launchOrigin: 'work-item-start' as const,
+    envelope: {
+      ...input.envelope,
+      payloadFingerprint: structuredAgentSessionCreateFingerprint({
+        sessionId: SESSION,
+        ...input,
+        launchOrigin: 'work-item-start'
+      })
+    }
+  }
+  expect(await call('agentSession.create', changed, capable)).toMatchObject({
+    ok: true,
+    result: { ok: false, refusal: { code: 'agent_session_operation_conflict' } }
+  })
+  expect(rig.adapter.acquire).toHaveBeenCalledOnce()
+  expect((await rig.host.journalSnapshot(SESSION)).submissions).toEqual([])
+})
 
 it('the old client retains acquired create and waits for acquisition before publishing', async () => {
   const acquired = rig.adapter.acquire.getMockImplementation()

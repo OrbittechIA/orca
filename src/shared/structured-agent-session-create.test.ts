@@ -27,6 +27,7 @@ function nextUuid(): string {
 function createParams(
   overrides: {
     resumeFrom?: StructuredAgentSessionResumeSource
+    launchOrigin?: 'work-item-start'
     tabId?: string
     firstMessage?: StructuredAgentSessionFirstMessage
     options?: Record<string, string>
@@ -43,6 +44,35 @@ function createParams(
 }
 
 describe('structured agent session create params', () => {
+  it('preserves the 224 origin digest and separates it from blank, resumed and first-message creates', () => {
+    const fields = {
+      sessionId: 'codex_01234567_89ab_cdef_0123_456789abcdef',
+      worktree: 'id:repo::/workspace/app',
+      agent: 'codex'
+    }
+    expect(structuredAgentSessionCreateFingerprint(fields)).toBe(
+      '20accfcb11591f2bd7749fe765253e813d76ec1d73cb90c0c4981671092b0b34'
+    )
+    expect(
+      structuredAgentSessionCreateFingerprint({ ...fields, launchOrigin: 'work-item-start' })
+    ).toBe('16ff8dc59f549bb6fa600d2836908fc3b4f5555e42ac9b5faba618d73d0f4962')
+    const original = createParams({ launchOrigin: 'work-item-start' })
+    expect(original.launchOrigin).toBe('work-item-start')
+    for (const changed of [
+      createParams(),
+      createParams({ launchOrigin: 'work-item-start', resumeFrom: RESUME }),
+      createParams({
+        launchOrigin: 'work-item-start',
+        firstMessage: {
+          clientMessageId: 'opening',
+          body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'start' }] }
+        }
+      })
+    ]) {
+      expect(changed.envelope.payloadFingerprint).not.toBe(original.envelope.payloadFingerprint)
+    }
+  })
+
   it('fingerprints the first message identity, content and opening option picks', () => {
     const firstMessage: StructuredAgentSessionFirstMessage = {
       clientMessageId: 'message-1',

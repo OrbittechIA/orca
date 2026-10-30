@@ -18,8 +18,10 @@ import type { StructuredAgentSessionHost } from '../../../native-chat/agent-sess
 import type { StructuredAgentSessionCaller } from '../../../native-chat/agent-session-wire/structured-agent-session-host-types'
 import type {
   StructuredAgentSessionResumeSource,
+  StructuredAgentSessionLaunchOrigin,
   StructuredAgentSessionFirstMessage
 } from '../../../../shared/structured-agent-session-create'
+import { structuredAgentSessionCreateFingerprint } from '../../../../shared/structured-agent-session-mutation'
 import { structuredAgentSessionOptionOverridesRefusal } from '../../../native-chat/agent-session-wire/structured-agent-session-options-read'
 import type { StructuredAgentSessionCreateOptions } from '../../../native-chat/agent-session-wire/structured-agent-session-create'
 import type { OrcaRuntimeService } from '../../orca-runtime'
@@ -50,23 +52,15 @@ export function structuredAgentSessionCreateIntentFingerprint(params: {
   worktree: string
   agent: string
   resumeFrom?: StructuredAgentSessionResumeSource
+  launchOrigin?: StructuredAgentSessionLaunchOrigin
   tabId?: string
   firstMessage?: StructuredAgentSessionFirstMessage
   optionsMode?: 'replace-model-selection'
   options?: Readonly<Record<string, string>>
 }): string {
-  return computeAgentSessionPayloadFingerprint({
-    method: 'agentSession.create',
-    sessionId: params.envelope.sessionId,
-    fields: {
-      worktree: params.worktree,
-      agent: params.agent,
-      resumeFrom: params.resumeFrom,
-      tabId: params.tabId,
-      firstMessage: params.firstMessage,
-      optionsMode: params.optionsMode,
-      options: params.options
-    }
+  return structuredAgentSessionCreateFingerprint({
+    ...params,
+    sessionId: params.envelope.sessionId
   })
 }
 
@@ -80,6 +74,7 @@ export async function prepareStructuredAgentSessionCreateForWorktree(args: {
   agent: StructuredAgentId
   caller: StructuredAgentSessionCaller
   resumeFrom?: StructuredAgentSessionResumeSource
+  launchOrigin?: StructuredAgentSessionLaunchOrigin
   structuredAgentCliSourceEvidence?: StructuredAgentCliSourceEvidence
   /** Explicit picks override seed keys at rest; acquired in-process launches replace the seed. */
   optionsMode?: 'replace-model-selection'
@@ -116,13 +111,16 @@ export async function prepareStructuredAgentSessionCreateForWorktree(args: {
       : host.deps.store.getOperationRow(args.caller.callerKey, args.envelope.clientOperationId)
   // A capability update cannot change the contract of an already-recorded create.
   const legacyReplay =
+    args.launchOrigin === undefined &&
     args.firstMessage === undefined &&
     args.options === undefined &&
     priorOperation?.fingerprint === attachFingerprint
+  // Origin-bearing retries must retain their create intent instead of adopting an attach ledger row.
   const atRest =
-    args.atRest !== undefined &&
-    (priorOperation?.fingerprint === args.envelope.payloadFingerprint ||
-      (args.atRest === true && !legacyReplay))
+    args.launchOrigin !== undefined ||
+    (args.atRest !== undefined &&
+      (priorOperation?.fingerprint === args.envelope.payloadFingerprint ||
+        (args.atRest === true && !legacyReplay)))
   const hostFingerprint = atRest ? args.envelope.payloadFingerprint : attachFingerprint
   if (atRest && args.options) {
     const refusal = structuredAgentSessionOptionOverridesRefusal(
