@@ -1,4 +1,5 @@
 import { defineMethod } from '../core'
+import { scopeWorktreePsStructuredIdentity } from './worktree-ps-structured-identity-scope'
 import { resolveWorktreeCatalogSnapshot } from '../worktree-catalog-snapshot'
 import { coarsenWorktreePsActivity } from '../worktree-ps-coarse-activity'
 import { markWorktreePsOtherClientRows } from '../worktree-ps-other-client-marks'
@@ -21,7 +22,7 @@ export const WORKTREE_CATALOG_METHODS = [
     params: WorktreePsParams,
     handler: async (params, context) => {
       const pendingAtScan = snapshotPendingWorktreeRemovals()
-      const result = markWorktreePsOtherClientRows(
+      const markedResult = markWorktreePsOtherClientRows(
         projectWorktreePsRemovals(
           await context.runtime.getWorktreePs(
             params.limit,
@@ -36,6 +37,7 @@ export const WORKTREE_CATALOG_METHODS = [
         ),
         context
       )
+      const result = scopeWorktreePsStructuredIdentity(markedResult)
       // Why: callers that never send the field get the byte-exact legacy response.
       if (params.afterSnapshotId === undefined) {
         return result

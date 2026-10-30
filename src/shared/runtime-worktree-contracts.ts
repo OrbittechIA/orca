@@ -25,6 +25,8 @@ export type RuntimeWorktreeSetResult = {
 }
 
 export type RuntimeWorktreeAgentRow = {
+  /** Host-summary identity; omitted when caller admission cannot be established. Older hosts omit it. */
+  sessionId?: string
   paneKey: string
   parentPaneKey: string | null
   state: AgentStatusState

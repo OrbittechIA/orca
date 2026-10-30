@@ -39,6 +39,7 @@ export function attachRuntimeWorktreeAgentRows(args: {
     const orchestration = args.orchestrationByPaneKey?.[source.paneKey]
     const row: RuntimeWorktreeAgentRow = {
       paneKey: source.paneKey,
+      ...(source.sessionId !== undefined ? { sessionId: source.sessionId } : {}),
       parentPaneKey: orchestration?.parentPaneKey ?? null,
       state: source.state,
       ...(source.workingMode ? { workingMode: source.workingMode } : {}),

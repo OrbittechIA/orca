@@ -9,6 +9,8 @@ import type { ProgramStatusFacet } from '../../shared/program-status/facet'
 
 export type RuntimeWorktreeAgentSource = Pick<AgentStatusIpcPayload, 'subagents'> & {
   children?: AgentChildWorkView[]
+  /** Identity joined from this host's published summary, never terminal text. */
+  sessionId?: string
   paneKey: string
   ptyId?: string
   /** Issued handle the hook row was observed under; keys the agentWait lookup. */

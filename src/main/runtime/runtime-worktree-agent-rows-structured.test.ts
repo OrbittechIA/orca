@@ -90,6 +90,7 @@ describe('worktree ps reports structured sessions', () => {
     })
     const first = catalog([child])
     expect(first.worktrees[0]?.agents[0]).toMatchObject({
+      sessionId: SESSION,
       children: [child],
       subagentObservation: 'live'
     })

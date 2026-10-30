@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { collectRuntimeWorktreeAgentSources } from './runtime-worktree-agent-sources'
+import type { AgentSessionStatusSummary } from '../../shared/agent-session-wire'
+import {
+  structuredAgentSessionPaneKey,
+  structuredAgentSessionTabId
+} from '../../shared/structured-agent-session-projection'
 import type { AgentStatusIpcPayload } from '../../shared/agent-status-types'
 
 const paneKey = 'worktree:tab:0'
@@ -103,6 +108,83 @@ describe('worktree agent source admission', () => {
     expect(sources.get(paneKey)?.programStatus).toEqual(programStatus)
     expect(collectRuntimeWorktreeAgentSources(connected).get(paneKey)).not.toHaveProperty(
       'programStatus'
+    )
+  })
+})
+
+describe('published structured session identity', () => {
+  const sessionId = 'codex_session_12345678'
+  const tabId = structuredAgentSessionTabId(sessionId)
+  const paneKey = structuredAgentSessionPaneKey(tabId, sessionId)
+  const entry: AgentStatusIpcPayload = {
+    ...hookRow,
+    tabId,
+    paneKey,
+    structuredHost: 'owned',
+    prompt: `sessionId=${sessionId}`
+  }
+  const summary: AgentSessionStatusSummary = {
+    sessionId,
+    workspaceId: 'worktree',
+    agent: 'codex',
+    status: 'working',
+    latestPrompt: entry.prompt,
+    hostExecutionOwned: true,
+    updatedAt: now
+  }
+
+  function sources(
+    snapshot: AgentStatusIpcPayload = entry,
+    published: AgentSessionStatusSummary | undefined = summary,
+    mirrored = new Map<string, string>()
+  ) {
+    return [
+      ...collectRuntimeWorktreeAgentSources({
+        ...connected,
+        hookSnapshots: [snapshot],
+        mirroredWorktreeIdByTabId: mirrored,
+        readStructuredSummary: () => published
+      }).values()
+    ]
+  }
+
+  it('forwards identity only from the exact published host summary', () => {
+    expect(sources()[0]).toMatchObject({ sessionId, children: [] })
+    const missing = collectRuntimeWorktreeAgentSources({
+      ...connected,
+      hookSnapshots: [entry],
+      readStructuredSummary: () => undefined
+    })
+    expect(missing.get(paneKey)).not.toHaveProperty('sessionId')
+    for (const published of [
+      { ...summary, sessionId: 'another_session_12345678' },
+      { ...summary, workspaceId: 'another-worktree' }
+    ]) {
+      expect(sources(entry, published)[0]).not.toHaveProperty('sessionId')
+    }
+  })
+
+  it('keeps remote and terminal text rows without turning their text into identity', () => {
+    for (const snapshot of [
+      { ...entry, connectionId: 'ssh-connection' },
+      { ...entry, structuredHost: undefined },
+      { ...entry, tabId: undefined },
+      { ...entry, tabId: 'another-tab' },
+      { ...entry, paneKey: 'another-pane' }
+    ]) {
+      const rows = sources(snapshot)
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).not.toHaveProperty('sessionId')
+      expect(rows[0]?.prompt).toBe(entry.prompt)
+    }
+  })
+
+  it('does not retain identity when mirrored topology moves the row to another workspace', () => {
+    expect(sources(entry, summary, new Map([[tabId, 'another-worktree']]))[0]).toMatchObject({
+      worktreeId: 'another-worktree'
+    })
+    expect(sources(entry, summary, new Map([[tabId, 'another-worktree']]))[0]).not.toHaveProperty(
+      'sessionId'
     )
   })
 })

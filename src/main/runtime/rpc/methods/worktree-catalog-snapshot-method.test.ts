@@ -227,3 +227,54 @@ describe('worktree.ps snapshot polls', () => {
     )
   })
 })
+
+describe('worktree.ps structured identity admission', () => {
+  const agent = {
+    sessionId: 'codex_session_12345678',
+    paneKey: 'structured-pane',
+    parentPaneKey: null,
+    state: 'working' as const,
+    agentType: 'codex' as const,
+    prompt: 'keep the official row',
+    taskTitle: null,
+    displayName: null,
+    lastAssistantMessage: null,
+    toolName: null,
+    toolInput: null,
+    interrupted: false,
+    stateStartedAt: 1,
+    updatedAt: 1
+  }
+
+  it.each([
+    { kind: 'local-cli' as const },
+    { kind: 'desktop' as const },
+    { kind: 'paired-device' as const, deviceId: 'another-device' }
+  ])('omits identity for $kind when per-session ownership is unknown', async (caller) => {
+    const row = psRow({ agents: [agent] })
+    const dispatcher = new RpcDispatcher({ runtime: makeRuntime(row), methods: WORKTREE_METHODS })
+    const response = await dispatcher.dispatchStreaming(
+      { id: 'identity', authToken: 'token', method: 'worktree.ps', params: { limit: 10_000 } },
+      () => {},
+      { caller }
+    )
+    const { sessionId: _sessionId, ...visible } = agent
+    expect(response).toMatchObject({ ok: true, result: { worktrees: [{ agents: [visible] }] } })
+    expect(JSON.stringify(response)).not.toContain('"sessionId"')
+    expect(row.agents[0]?.sessionId).toBe(agent.sessionId)
+  })
+
+  it('filters before snapshot hashing so withheld identities cannot change a caller snapshot', async () => {
+    const dispatcher = new RpcDispatcher({
+      runtime: makeRuntime(
+        psRow({ agents: [agent] }),
+        psRow({ agents: [{ ...agent, sessionId: 'codex_another_session' }] })
+      ),
+      methods: WORKTREE_METHODS
+    })
+    const first = await poll(dispatcher, { limit: 10_000, afterSnapshotId: null })
+    expect(JSON.stringify(first)).not.toContain('"sessionId"')
+    const next = await poll(dispatcher, { limit: 10_000, afterSnapshotId: first.snapshotId })
+    expect(next).toEqual({ unchanged: true, snapshotId: first.snapshotId })
+  })
+})

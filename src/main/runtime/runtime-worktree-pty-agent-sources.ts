@@ -21,7 +21,7 @@ export type ConnectedPtyEvidence = {
 }
 
 /** Join only the host-owned summary of this exact chat, never a remote pane with a similar id. */
-function publishedStructuredChildren(
+function publishedStructuredSummary(
   entry: AgentStatusIpcPayload,
   read: ((sessionId: string) => AgentSessionStatusSummary | undefined) | undefined
 ) {
@@ -35,7 +35,9 @@ function publishedStructuredChildren(
     return undefined
   }
   const summary = read(sessionId)
-  return summary?.workspaceId === entry.worktreeId ? (summary?.children ?? []) : undefined
+  return summary?.sessionId === sessionId && summary.workspaceId === entry.worktreeId
+    ? summary
+    : undefined
 }
 
 /** Admit hook-server rows using their execution-host evidence. */
@@ -54,7 +56,7 @@ export function collectRuntimeWorktreePtyAgentSources(args: {
       continue
     }
     const hookPayload = pickParsedAgentStatusPayload(entry)
-    const children = publishedStructuredChildren(entry, args.readStructuredSummary)
+    const summary = publishedStructuredSummary(entry, args.readStructuredSummary)
     rowSources.set(entry.paneKey, {
       paneKey: entry.paneKey,
       ptyId: entry.terminalHandle
@@ -77,7 +79,7 @@ export function collectRuntimeWorktreePtyAgentSources(args: {
       stateStartedAt: entry.stateStartedAt,
       // A replay advances delivery order, not the age of the evidence shown by worktree.ps.
       updatedAt: entry.evidenceObservedAt ?? entry.receivedAt,
-      ...(children !== undefined ? { children } : {}),
+      ...(summary ? { sessionId: summary.sessionId, children: summary.children ?? [] } : {}),
       ...(entry.subagents !== undefined ? { subagents: entry.subagents } : {}),
       ...(entry.structuredHost ? { structuredHost: entry.structuredHost } : {}),
       ...(entry.programStatus ? { programStatus: entry.programStatus } : {})
@@ -106,7 +108,14 @@ export function collectRuntimeWorktreePtyAgentSources(args: {
       continue
     }
     const worktreeId = mirroredWorktreeId ?? source.worktreeId
-    sources.push({ ...source, tabId, worktreeId, ...(hasLivePty ? { hasLivePty: true } : {}) })
+    const { sessionId, ...fields } = source
+    sources.push({
+      ...fields,
+      tabId,
+      worktreeId,
+      ...(sessionId !== undefined && worktreeId === source.worktreeId ? { sessionId } : {}),
+      ...(hasLivePty ? { hasLivePty: true } : {})
+    })
   }
   return sources
 }
