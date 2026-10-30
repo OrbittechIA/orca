@@ -1,6 +1,7 @@
 import '../../../src/main/runtime/rpc/unused-default-rpc-methods.test-fixture'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { call, hostStub } from '../../../src/main/runtime/rpc/methods/structured-agent-session-rpc.test-fixture'
+import { ordinaryStructuredSessionStoreFixture } from '../../../src/main/runtime/rpc/methods/structured-agent-session-rpc-client.test-fixture'
 import { setStructuredAgentSessionHost } from '../../../src/main/native-chat/agent-session-wire/structured-agent-session-registry'
 import type { StructuredAgentSessionHost } from '../../../src/main/native-chat/agent-session-wire/structured-agent-session-host'
 import { MOBILE_RUNTIME_CLIENT_CAPABILITIES } from '../transport/mobile-runtime-client-capabilities'
@@ -40,6 +41,7 @@ let host: StructuredAgentSessionHost
 beforeEach(() => {
   disk.clear()
   const base = hostStub()
+  Object.assign(base.deps.store, ordinaryStructuredSessionStoreFixture([]))
   host = { ...base, create: vi.fn<StructuredAgentSessionHost['create']>(async (owner, params) => {
     const attached = await base.attach(owner, params)
     return attached.ok ? { ...attached, value: { ...attached.value, sessionId: params.envelope.sessionId } } : attached
