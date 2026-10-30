@@ -6,7 +6,7 @@ import {
 import { getStructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-registry'
 import type { RuntimeWorktreePsResult } from '../../../../shared/runtime-worktree-contracts'
 
-/** Publish identity only with exact persisted launch ownership. */
+/** Core attach uses trusted CLI inventory; remote handles follow persisted session admission. */
 export function scopeWorktreePsStructuredIdentity<T extends RuntimeWorktreePsResult>(
   result: T,
   context?: Pick<RpcContext, 'caller' | 'clientKind' | 'clientCapabilities'>
