@@ -1,3 +1,8 @@
+import type {
+  StructuredAgentSessionLaunchOrigin,
+  StructuredAgentSessionLaunchAuthority
+} from '../../../shared/structured-agent-session-create'
+
 import { activeProviderContext } from '../../../shared/agent-session-provider-context'
 // Store CAS and idempotency rows make retried create/ensure replay instead of reserving another owner.
 
@@ -40,6 +45,8 @@ import { structuredAgentSessionRefusalMessage } from './structured-agent-session
 
 /** Clients cannot assert spawn tokens, claim keys or owner death; only host observations grant authority. */
 export type AgentSessionAttachParams = {
+  launchOrigin?: StructuredAgentSessionLaunchOrigin
+  launchAuthority?: StructuredAgentSessionLaunchAuthority
   envelope: AgentSessionMutationEnvelope
   location: AgentSessionExecutionLocation
   provider: StructuredAgentId
@@ -200,6 +207,8 @@ export function reserveRequestFor(input: {
   const { params, authority } = input
   return {
     sessionId: input.sessionId,
+    ...(params.launchOrigin ? { launchOrigin: params.launchOrigin } : {}),
+    ...(params.launchAuthority ? { launchAuthority: params.launchAuthority } : {}),
     location: params.location,
     provider: params.provider,
     accountHome: params.accountHome,

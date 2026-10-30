@@ -10,6 +10,7 @@ import {
   type StructuredAgentSessionStatusSubscriber
 } from '../../../native-chat/agent-session-wire/structured-agent-session-status-feed'
 import type { OrcaRuntimeService } from '../../orca-runtime'
+import type { RpcCallerIdentity } from '../rpc-caller-identity'
 import type { RpcAnyMethodDeclaration, RpcRequest, RpcResponse } from '../core'
 import { RpcDispatcher } from '../dispatcher'
 import { STRUCTURED_AGENT_SESSION_METHODS } from './structured-agent-session'
@@ -214,6 +215,7 @@ export function hostStub(): StructuredAgentSessionHost {
   const store = {
     getOperationRow: vi.fn(() => null),
     getRecord: vi.fn(() => null),
+    listConversations: vi.fn(() => []),
     getConversation: vi.fn(() => null)
   }
   // Not a call: the logger the host hands a runtime caller that reports for it.
@@ -229,6 +231,10 @@ export function dispatcher(
   Object.assign(runtimeCalls, {
     getStructuredAgentSessionCreateSupport: vi.fn(async () => ({ supported: true })),
     structuredAgentSessionLaunchSeedOptions: vi.fn(() => undefined),
+    resolveStructuredAgentSessionCreateWorktreeTarget: vi.fn(async () => ({
+      worktreeId: 'workspace-1', workspacePath: '/workspace', instanceId: null,
+      identityKey: null, executionHostId: 'local', creatorKind: 'host', creatorDeviceId: null
+    })),
     resolveStructuredAgentSessionCreateIntent: vi.fn(async (params) => ({
       envelope: params.envelope,
       location: {
@@ -272,6 +278,8 @@ export async function call(
   params: unknown,
   client?: {
     clientId?: string
+    caller?: RpcCallerIdentity
+    pairedDeviceId?: string
     clientKind?: 'mobile' | 'runtime'
     clientCapabilities?: readonly string[]
     signal?: AbortSignal

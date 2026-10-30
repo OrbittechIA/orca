@@ -1,10 +1,15 @@
+import {
+  supportsStructuredAgentSessions,
+  clientRendersStructuredAgent
+} from './structured-agent-session-audience'
+export {
+  supportsStructuredAgentSessions,
+  clientRendersStructuredAgent,
+  clientReadsStructuredSessionAgent
+} from './structured-agent-session-audience'
 import { AGENT_SESSION_COMMANDS_ON_REQUEST_CAPABILITY } from '../../../../shared/structured-agent-session-surface-capabilities'
 import {
-  CLAUDE_STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
-  PI_STRUCTURED_DIALOGS_RUNTIME_CAPABILITY,
   STRUCTURED_AGENT_SESSION_CLIENT_LAUNCH_MODE_CAPABILITY,
-  STRUCTURED_AGENT_SESSION_REGISTERED_AGENTS_RUNTIME_CAPABILITY,
-  STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
   type RuntimeCapability
 } from '../../../../shared/protocol-version'
 import { AGENT_SESSION_OPTIONAL_MODEL_CLIENT_CAPABILITY } from '../../../../shared/agent-session-optional-model-capability'
@@ -26,37 +31,6 @@ export function clientReadsOptionsWithoutModel(
   )
 }
 
-/** Admit by client wire capability, independent of the host user's launch preference. In-process callers share this build and need no negotiation. */
-export function supportsStructuredAgentSessions(
-  context: Pick<RpcContext, 'clientCapabilities' | 'clientKind'>
-): boolean {
-  return (
-    context.clientKind === undefined ||
-    context.clientCapabilities?.includes(STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY) === true
-  )
-}
-
-/** One audience rule for tabs and restart offers. Pi also needs dialog-shape support. */
-export function clientRendersStructuredAgent(
-  clientCapabilities: readonly RuntimeCapability[] | undefined,
-  agent: string
-): boolean {
-  if (!clientCapabilities?.includes(STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY)) {
-    return false
-  }
-  if (agent === 'codex') {
-    return true
-  }
-  if (agent === 'pi' && !clientCapabilities.includes(PI_STRUCTURED_DIALOGS_RUNTIME_CAPABILITY)) {
-    return false
-  }
-  return clientCapabilities.includes(
-    agent === 'claude'
-      ? CLAUDE_STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY
-      : STRUCTURED_AGENT_SESSION_REGISTERED_AGENTS_RUNTIME_CAPABILITY
-  )
-}
-
 /** History opens Claude/Codex for any structured-capable client; other agents require explicit rendering support. */
 export function clientOpensStructuredChatFromHistory(
   context: Pick<RpcContext, 'clientCapabilities' | 'clientKind'>,
@@ -67,18 +41,6 @@ export function clientOpensStructuredChatFromHistory(
     (context.clientKind === undefined ||
       isAgentSessionHandleProvider(agent) ||
       clientRendersStructuredAgent(context.clientCapabilities, agent))
-  )
-}
-
-/** Preserve the existing session audience for every agent except Pi. */
-export function clientReadsStructuredSessionAgent(
-  context: Pick<RpcContext, 'clientCapabilities' | 'clientKind'>,
-  agent: string
-): boolean {
-  return (
-    agent !== 'pi' ||
-    context.clientKind === undefined ||
-    clientRendersStructuredAgent(context.clientCapabilities, agent)
   )
 }
 

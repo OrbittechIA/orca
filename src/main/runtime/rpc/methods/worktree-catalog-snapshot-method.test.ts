@@ -1,3 +1,10 @@
+import {
+  getStructuredAgentSessionHost,
+  setStructuredAgentSessionHost
+} from '../../../native-chat/agent-session-wire/structured-agent-session-registry'
+import { hostStub } from './structured-agent-session-rpc.test-fixture'
+import { agentSessionRecordFixture } from '../../../../shared/agent-session-record.test-fixture'
+import { scopeWorktreePsStructuredIdentity } from './worktree-ps-structured-identity-scope'
 import '../unused-default-rpc-methods.test-fixture'
 import { describe, expect, it, vi } from 'vitest'
 import type { OrcaRuntimeService } from '../../orca-runtime'
@@ -245,6 +252,26 @@ describe('worktree.ps structured identity admission', () => {
     stateStartedAt: 1,
     updatedAt: 1
   }
+
+  it('publishes the validated summary identity only to its persisted exact owner', () => {
+    const previous = getStructuredAgentSessionHost()
+    const host = hostStub()
+    const record = { ...agentSessionRecordFixture(), sessionId: agent.sessionId,
+      launchOrigin: 'work-item-start' as const,
+      launchAuthority: { kind: 'paired-device' as const, deviceId: 'owner' } }
+    vi.spyOn(host.deps.store, 'getRecord').mockReturnValue(record)
+    setStructuredAgentSessionHost(host)
+    try {
+      const result = { worktrees: [psRow({ agents: [agent] })], totalCount: 1, truncated: false }
+      expect(scopeWorktreePsStructuredIdentity(result, { caller: { kind: 'paired-device', deviceId: 'owner' } })).toBe(result)
+      for (const caller of [{ kind: 'paired-device', deviceId: 'foreign' }, { kind: 'desktop' }, { kind: 'local-cli' }] as const) {
+        expect(scopeWorktreePsStructuredIdentity(result, { caller }).worktrees[0]?.agents[0]?.sessionId).toBeUndefined()
+      }
+      expect(result.worktrees[0]?.agents[0]?.sessionId).toBe(agent.sessionId)
+    } finally {
+      setStructuredAgentSessionHost(previous)
+    }
+  })
 
   it.each([
     { kind: 'local-cli' as const },

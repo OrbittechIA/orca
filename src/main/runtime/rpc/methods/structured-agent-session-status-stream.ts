@@ -1,3 +1,4 @@
+import { projectStructuredAgentSessionStatusAudience } from './structured-agent-session-status-audience'
 // `agentSession.subscribeStatus` — every structured session's projected status on one stream.
 //
 // Session lists read turn state from here instead of replaying transcripts: one stream per client
@@ -5,7 +6,7 @@
 
 import { prepareStructuredTabsIfSupported } from './structured-session-tab-restore'
 import { defineStreamingMethod, type RpcContext } from '../core'
-import { requireStructuredHost as requireHost } from './structured-agent-session-gate'
+import { canReachStructuredSession, requireStructuredHost as requireHost } from './structured-agent-session-gate'
 import { structuredAgentSessionStatusSubscriptionId } from './structured-agent-session-subscription-id'
 import { clientReadsStructuredSessionAgent } from './structured-agent-session-policy'
 
@@ -63,35 +64,12 @@ export const STRUCTURED_AGENT_SESSION_STATUS_METHODS = [
       dispose = host.subscribeStatus({
         id: subscriptionId,
         emit: (event) => {
-          if (event.type === 'snapshot') {
-            emit({
-              ...event,
-              ...(event.conversationNames
-                ? {
-                    conversationNames: event.conversationNames.filter((note) => {
-                      const record = host.deps.store.getConversation(note.sessionId)
-                      return record && clientReadsStructuredSessionAgent(ctx, record.provider)
-                    })
-                  }
-                : {}),
-              ...(event.namingActiveSessionIds
-                ? {
-                    namingActiveSessionIds: event.namingActiveSessionIds.filter((sessionId) => {
-                      const record = host.deps.store.getConversation(sessionId)
-                      return record && clientReadsStructuredSessionAgent(ctx, record.provider)
-                    })
-                  }
-                : {}),
-              sessions: event.sessions.filter((session) =>
-                clientReadsStructuredSessionAgent(ctx, session.agent)
-              )
-            })
-          } else if (
-            event.type !== 'status' ||
-            clientReadsStructuredSessionAgent(ctx, event.session.agent)
-          ) {
-            emit(event)
-          }
+          const visible = projectStructuredAgentSessionStatusAudience(event, (sessionId, agent) => {
+            const provider = agent ?? host.deps.store.getConversation(sessionId)?.provider
+            return provider !== undefined && canReachStructuredSession(ctx, host, sessionId) &&
+              clientReadsStructuredSessionAgent(ctx, provider)
+          })
+          if (visible) emit(visible)
         }
       })
       if (stream.isClosed()) {

@@ -7,6 +7,12 @@ import type { StructuredAgentSessionHost } from '../../../native-chat/agent-sess
 import type { StructuredAgentSessionCaller } from '../../../native-chat/agent-session-wire/structured-agent-session-host-types'
 import type { RpcContext } from '../core'
 import { rpcCallerOperationKey } from '../rpc-caller-identity'
+import { canAccessWorkItemStartStructuredSession } from './structured-agent-session-launch-authority'
+export {
+  structuredWorkItemStartCallerAuthority,
+  canAccessWorkItemStartStructuredSession
+} from './structured-agent-session-launch-authority'
+
 import { structuredAgentSessionHostRefusal } from '../../structured-agent-session-host-refusal'
 import {
   createSupportFollowsHostSetting,
@@ -14,6 +20,27 @@ import {
   isStructuredNativeChatDefaultFor,
   supportsStructuredAgentSessions
 } from './structured-agent-session-policy'
+
+export function canReachStructuredSession(
+  ctx: RpcContext,
+  host: StructuredAgentSessionHost,
+  sessionId: string
+): boolean {
+  const record = host.deps?.store?.getRecord?.(sessionId)
+  return record?.launchOrigin === 'work-item-start'
+    ? canAccessWorkItemStartStructuredSession(ctx, sessionId, host)
+    : supportsStructuredSessions(ctx)
+}
+
+export function requireStructuredSessionAdmission(
+  ctx: RpcContext,
+  host: StructuredAgentSessionHost,
+  sessionId: string
+): void {
+  if (!canReachStructuredSession(ctx, host, sessionId)) {
+    throw agentSessionRefusalError('structured_agent_session_unsupported', { reason: 'clientCapabilityMissing' })
+  }
+}
 
 /** In-process callers share the host build; remote callers must advertise structured-session support. */
 export function supportsStructuredSessions(ctx: RpcContext): boolean {
@@ -60,14 +87,22 @@ export function requireStructuredSessionHost(
   sessionId: string
 ): StructuredAgentSessionHost {
   const host = requireStructuredHost(ctx)
+  requireStructuredSessionAdmission(ctx, host, sessionId)
   requireStructuredAgentAudience(ctx, host.sessionAgent(sessionId) ?? '')
   return host
 }
 
 /** Close/cancel/unsubscribe/release check wire capability and host only; new-work admission conditions must never strand already-owned children. */
-export function requireStructuredCleanupHost(ctx: RpcContext): StructuredAgentSessionHost {
+export function requireStructuredCleanupHost(
+  ctx: RpcContext,
+  sessionId?: string
+): StructuredAgentSessionHost {
   requireStructuredCapability(ctx)
-  return requireHostOrRefusal()
+  const host = requireHostOrRefusal()
+  if (sessionId) {
+    requireStructuredSessionAdmission(ctx, host, sessionId)
+  }
+  return host
 }
 
 /** Return the host or its failure, including journal-open refusal; this process cannot stop children it never started. */

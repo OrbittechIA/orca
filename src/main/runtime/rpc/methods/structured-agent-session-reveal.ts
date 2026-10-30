@@ -13,7 +13,7 @@ import {
   ensureStructuredHostInstalled,
   requireStructuredCapability,
   requireStructuredAgentAudience,
-  requireStructuredHost
+  requireStructuredSessionHost
 } from './structured-agent-session-gate'
 import { OptionsParams } from './structured-agent-session-schemas'
 
@@ -27,7 +27,7 @@ export const STRUCTURED_AGENT_SESSION_REVEAL_METHODS = [
       await ensureStructuredHostInstalled(ctx)
       let revealed: StructuredAgentSessionReveal
       try {
-        const host = requireStructuredHost(ctx)
+        const host = requireStructuredSessionHost(ctx, params.sessionId)
         requireStructuredAgentAudience(ctx, host.sessionAgent(params.sessionId) ?? '')
         revealed = await host.revealSession(params.sessionId)
       } catch (error) {

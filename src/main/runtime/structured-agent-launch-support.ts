@@ -145,6 +145,7 @@ export async function structuredAgentHostLaunchSources(
 export async function resolveHostStructuredAgentCreateSupport(input: {
   agent: StructuredAgentId
   worktreeSelector: string
+  workspacePath?: string
   location: AgentSessionExecutionLocation
   runtime: LaunchSupportRuntime
 }): Promise<StructuredAgentSessionCreateSupport> {
@@ -155,7 +156,7 @@ export async function resolveHostStructuredAgentCreateSupport(input: {
     supportsLocation &&
     (await structuredAgentSupportsLaunch(
       agent,
-      async () => (await runtime.resolveRuntimeFileTarget(input.worktreeSelector)).worktree.path,
+      async () => input.workspacePath ?? (await runtime.resolveRuntimeFileTarget(input.worktreeSelector)).worktree.path,
       runtime
     ))
   const support = resolveStructuredAgentSessionCreateSupport({

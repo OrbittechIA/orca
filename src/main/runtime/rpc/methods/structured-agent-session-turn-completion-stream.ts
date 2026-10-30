@@ -2,7 +2,8 @@
 
 import { defineMethod, defineStreamingMethod } from '../core'
 import {
-  requireStructuredCapability,
+  requireStructuredSessionHost,
+  canReachStructuredSession,
   requireStructuredHost as requireHost
 } from './structured-agent-session-gate'
 import {
@@ -20,7 +21,7 @@ export const STRUCTURED_AGENT_SESSION_TURN_COMPLETION_METHODS = [
     permission: 'workspace',
     params: AcknowledgeAttentionParams,
     handler: (params, ctx) => {
-      requireStructuredCapability(ctx)
+      requireStructuredSessionHost(ctx, params.sessionId)
       ctx.runtime.retireStructuredAttention({
         sessionId: params.sessionId,
         observedCursor: params.observedCursor
@@ -52,7 +53,7 @@ export const STRUCTURED_AGENT_SESSION_TURN_COMPLETION_METHODS = [
                 : undefined
           if (
             sessionId === undefined ||
-            clientReadsStructuredSessionAgent(ctx, host.sessionAgent(sessionId) ?? '')
+            (canReachStructuredSession(ctx, host, sessionId) && clientReadsStructuredSessionAgent(ctx, host.sessionAgent(sessionId) ?? ''))
           ) {
             emit(event)
           }

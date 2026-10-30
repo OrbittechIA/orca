@@ -27,6 +27,11 @@ import { getProfileUserDataPath } from '../../orca-profiles/profile-storage-path
 import { isFloatingWorkspaceSelector } from '../../../shared/floating-workspace-worktree'
 import type { AgentSessionAccountHome } from '../../../shared/agent-session-account-home'
 import type { StructuredAgentId } from '../../../shared/agent-session-provider-handle'
+import { structuredAgentSessionCreateWorktreeTarget } from '../structured-agent-session-create-worktree-target'
+import { getRepoExecutionHostId, LOCAL_EXECUTION_HOST_ID } from '../../../shared/execution-host'
+import { getLocalProjectWorktreeGitOptions } from '../../project-runtime-git-options'
+import { parseWslUncPath } from '../../../shared/wsl-paths'
+
 
 export abstract class OrcaRuntimeWithGetStructuredAgentSessionCreateSupport extends StructuredSessionWorkspaceScope {
   protected abstract restoreStructuredAgentSessionTabsOnce(
@@ -57,6 +62,26 @@ export abstract class OrcaRuntimeWithGetStructuredAgentSessionCreateSupport exte
       return { supported: false, reason: 'chat-program' }
     }
     return support
+  }
+
+  async resolveStructuredAgentSessionCreateWorktreeTarget(worktreeSelector: string) {
+    const { worktree } = await this.resolveRuntimeFileTarget(worktreeSelector)
+    return structuredAgentSessionCreateWorktreeTarget(worktree)
+  }
+
+  async getWorkItemStartPreCreateSupport(repoSelector: string, agent: StructuredAgentId) {
+    const repo = await this.resolveRepoSelector(repoSelector)
+    const executionHostId = getRepoExecutionHostId(repo)
+    const wslDistro = executionHostId === LOCAL_EXECUTION_HOST_ID
+      ? (getLocalProjectWorktreeGitOptions(this.requireStore(), repo).wslDistro ?? parseWslUncPath(repo.path)?.distro ?? null)
+      : null
+    return resolveHostStructuredAgentCreateSupport({
+      agent,
+      worktreeSelector: repoSelector,
+      workspacePath: repo.path,
+      location: { executionHostId, wslDistro, workspaceId: repo.id, workspaceKind: repo.kind === 'folder' ? 'folder' : 'git-worktree' },
+      runtime: this
+    })
   }
 
   /** Use this runtime's registered definition to pin account home; reads/create must not install the host just to inspect it. */

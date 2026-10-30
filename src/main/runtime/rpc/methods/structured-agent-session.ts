@@ -1,3 +1,5 @@
+import { canAccessWorkItemStartStructuredRecord } from './structured-agent-session-launch-authority'
+import { agentSessionRefusalError } from '../../../../shared/agent-session-wire-refusals'
 import { clientRequestsCommands } from './structured-agent-session-policy'
 import {
   clientReadsCurrentRequests,
@@ -23,6 +25,9 @@ import {
   ensureStructuredHostInstalled as ensureHostInstalled,
   requireInstalledStructuredHost as requireInstalledHost,
   requireStructuredCapability,
+  requireStructuredSessionAdmission,
+  structuredWorkItemStartCallerAuthority,
+  canReachStructuredSession,
   requireStructuredCleanupHost,
   requireStructuredCreateSupportAdmission,
   requireStructuredSessionHost as requireSessionHost,
@@ -103,11 +108,20 @@ export const STRUCTURED_AGENT_SESSION_METHODS = [
     permission: 'workspace',
     params: CreateSupportParams,
     handler: async (params, ctx) => {
-      requireStructuredCreateSupportAdmission(ctx, params.agent)
-      const support = await ctx.runtime.getStructuredAgentSessionCreateSupport(
-        params.worktree,
-        params.agent
-      )
+      if (params.launchOrigin) {
+        requireStructuredCapability(ctx)
+        const authority = structuredWorkItemStartCallerAuthority(ctx)
+        if (!authority) throw agentSessionRefusalError('structured_agent_session_unsupported', { reason: 'clientCapabilityMissing' })
+        if ('worktree' in params && authority.kind === 'paired-device') {
+          const target = await ctx.runtime.resolveStructuredAgentSessionCreateWorktreeTarget(params.worktree)
+          if (target.creatorDeviceId !== authority.deviceId) throw agentSessionRefusalError('structured_agent_session_unsupported', { reason: 'clientCapabilityMissing' })
+        }
+      } else {
+        requireStructuredCreateSupportAdmission(ctx, params.agent)
+      }
+      const support = 'repo' in params
+        ? await ctx.runtime.getWorkItemStartPreCreateSupport(params.repo, params.agent)
+        : await ctx.runtime.getStructuredAgentSessionCreateSupport(params.worktree, params.agent)
       // Optional: older clients ignore it, and a client seeds its picker with what create will use.
       const seedOptions = support.supported
         ? ctx.runtime.structuredAgentSessionLaunchSeedOptions(params.agent)
@@ -140,7 +154,7 @@ export const STRUCTURED_AGENT_SESSION_METHODS = [
     name: 'agentSession.cancel',
     permission: 'workspace',
     params: CancelParams,
-    handler: async (params, ctx) => requireStructuredCleanupHost(ctx).cancel(callerFor(ctx), params)
+    handler: async (params, ctx) => requireStructuredCleanupHost(ctx, params.envelope.sessionId).cancel(callerFor(ctx), params)
   }),
   ...STRUCTURED_AGENT_SESSION_QUEUED_METHODS,
   defineMethod({
@@ -150,6 +164,7 @@ export const STRUCTURED_AGENT_SESSION_METHODS = [
     params: OptionsParams,
     handler: async (params, ctx) => {
       requireStructuredCapability(ctx)
+      const host = requireStructuredCleanupHost(ctx, params.sessionId)
       // Record close before requiring host so even failed closes fence racing creates.
       if (ORCA_LAYOUT_OWNER_IS_MAIN) {
         noteStructuredAgentSessionClose(
@@ -158,7 +173,6 @@ export const STRUCTURED_AGENT_SESSION_METHODS = [
             null) !== null
         )
       }
-      const host = requireStructuredCleanupHost(ctx)
       // Terminal-disposal closes use this RPC without the session-tabs retirement RPC.
       if (typeof host.setSessionTabVisibility === 'function') {
         await host.setSessionTabVisibility(params.sessionId, false)
@@ -174,8 +188,16 @@ export const STRUCTURED_AGENT_SESSION_METHODS = [
     params: SleepWorkspaceParams,
     handler: async (params, ctx) => {
       requireStructuredCapability(ctx)
+      const admissionHost = getStructuredAgentSessionHost()
+      for (const record of admissionHost?.deps.store.listConversations() ?? []) {
+        if (admissionHost && record.location.workspaceId === params.workspaceId) requireStructuredSessionAdmission(ctx, admissionHost, record.sessionId)
+      }
       if (params.markAsleep) {
-        return (await requireInstalledHost(ctx)).sleepWorkspace(params.workspaceId, true)
+        const host = await requireInstalledHost(ctx)
+        for (const record of host.deps.store.listConversations()) {
+          if (record.location.workspaceId === params.workspaceId) requireStructuredSessionAdmission(ctx, host, record.sessionId)
+        }
+        return host.sleepWorkspace(params.workspaceId, true)
       }
       const installed = getStructuredAgentSessionHost()
       if (installed) {
@@ -204,6 +226,9 @@ export const STRUCTURED_AGENT_SESSION_METHODS = [
               record.location.workspaceId === params.workspaceId &&
               record.location.executionHostId === LOCAL_EXECUTION_HOST_ID
           )
+        if (records.some((record) => record.launchOrigin === 'work-item-start' && !canAccessWorkItemStartStructuredRecord(ctx, record))) {
+          throw agentSessionRefusalError('structured_agent_session_unsupported', { reason: 'clientCapabilityMissing' })
+        }
         const stoppedSessionIds = records
           .filter((record) => record.neverStarted)
           .map((record) => record.sessionId)
@@ -263,7 +288,7 @@ export const STRUCTURED_AGENT_SESSION_METHODS = [
         projectQueuePublication: (publication) =>
           projectQueuedImageCardPublication(publication, ctx),
         emit: (event) =>
-          emit(
+          canReachStructuredSession(ctx, host, params.sessionId) && emit(
             projectTurnItemEvent(
               projectBackgroundTaskEvent(event, ctx),
               ctx,
@@ -285,7 +310,7 @@ export const STRUCTURED_AGENT_SESSION_METHODS = [
     permission: 'workspace',
     params: UnsubscribeParams,
     handler: async (params, ctx) => {
-      requireStructuredCleanupHost(ctx)
+      requireStructuredCleanupHost(ctx, params.sessionId)
       const base = subscriptionBaseFor(ctx, params.sessionId)
       if (params.subscriptionId) {
         ctx.runtime.cleanupSubscription(`${base}:${params.subscriptionId}`)

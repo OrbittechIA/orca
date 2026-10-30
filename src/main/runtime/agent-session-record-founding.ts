@@ -17,6 +17,8 @@ export type AgentSessionRecordIdentity = Pick<
   | 'options'
   | 'launchArgs'
   | 'launchDirectory'
+  | 'launchOrigin'
+  | 'launchAuthority'
 >
 
 export function agentSessionRecordIdentityFields(
@@ -29,6 +31,8 @@ export function agentSessionRecordIdentityFields(
   return {
     schemaVersion: AGENT_SESSION_RECORD_SCHEMA_VERSION,
     sessionId: identity.sessionId,
+    ...(identity.launchOrigin ? { launchOrigin: identity.launchOrigin } : {}),
+    ...(identity.launchAuthority ? { launchAuthority: { ...identity.launchAuthority } } : {}),
     location: identity.location,
     provider: identity.provider,
     accountHome: identity.accountHome,

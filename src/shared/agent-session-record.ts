@@ -1,3 +1,9 @@
+import type {
+  StructuredAgentSessionLaunchOrigin,
+  StructuredAgentSessionLaunchAuthority
+} from './structured-agent-session-create'
+import { isStructuredAgentSessionLaunchAuthority } from './structured-agent-session-launch-authority'
+
 import { isAgentSessionRewindRecord, type AgentSessionRewindRecord } from './agent-session-rewind'
 import { isAgentSessionLaunchArgs } from './agent-session-launch-args'
 import { isAgentSessionConversationName } from './agent-session/agent-session-conversation-name'
@@ -117,6 +123,8 @@ export type AgentSessionLease = {
 }
 
 export type AgentSessionRecord = {
+  launchOrigin?: StructuredAgentSessionLaunchOrigin
+  launchAuthority?: StructuredAgentSessionLaunchAuthority
   schemaVersion: typeof AGENT_SESSION_RECORD_SCHEMA_VERSION
   sessionId: string
   location: AgentSessionExecutionLocation
@@ -316,6 +324,9 @@ export function isPersistedAgentSessionObservationRecord(
       isAgentSessionExecutionLocation(record.location) &&
       isStructuredAgentId(record.provider) &&
       isAgentSessionAccountHome(record.accountHome) &&
+      (record.launchOrigin === undefined || record.launchOrigin === 'work-item-start') &&
+      (record.launchAuthority === undefined ||
+        (record.launchOrigin === 'work-item-start' && isStructuredAgentSessionLaunchAuthority(record.launchAuthority))) &&
       (record.launchDirectory === undefined ||
         isBoundedString(record.launchDirectory, MAX_PATH_LENGTH)) &&
       (record.options === undefined || isAgentSessionOptions(record.options)) &&

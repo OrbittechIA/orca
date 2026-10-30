@@ -1,3 +1,8 @@
+import {
+  isStructuredAgentSessionLaunchAuthority,
+  structuredAgentSessionLaunchAuthoritiesEqual
+} from '../../../../shared/structured-agent-session-launch-authority'
+
 /** Evaluate reservation identity/replay/CAS without I/O; commit applies the winning record and operation row in one store transaction. */
 
 import { agentSessionRefusalError } from '../../../../shared/agent-session-wire-refusals'
@@ -50,7 +55,7 @@ import {
 import { assertReservedTabUnheld } from '../agent-session-tab-table'
 export { assertReservedTabUnheld } from '../agent-session-tab-table'
 
-export type AgentSessionReserveRequest = {
+export type AgentSessionReserveRequest = Pick<AgentSessionRecord, 'launchOrigin' | 'launchAuthority'> & {
   /** Host-resolved floating directory committed with the first owner reservation. */
   launchDirectory?: string
   sessionId: string
@@ -143,6 +148,10 @@ export function admitPendingAgentSessionReservationReplay(
 }
 
 export function validateAgentSessionReservationInput(request: AgentSessionReserveRequest): void {
+  if ((request.launchOrigin !== undefined || request.launchAuthority !== undefined) &&
+    (request.launchOrigin !== 'work-item-start' || !isStructuredAgentSessionLaunchAuthority(request.launchAuthority))) {
+    throw agentSessionRefusalError('agent_session_conflict', { reason: 'identityMismatch' })
+  }
   if (request.launchEnv && !isAgentSessionLaunchEnv(request.launchEnv)) {
     throw new Error('agent_session_launch_env_invalid')
   }
@@ -186,6 +195,7 @@ export function applyAgentSessionReservation(
     return { record: createAgentSessionRecord(request, reservation), disposition: 'created' }
   }
   const existing = selected.record
+  assertAgentSessionLaunchIdentity(existing, request)
   if (
     !agentSessionExecutionLocationsEqual(existing.location, request.location) ||
     existing.provider !== request.provider ||
@@ -302,6 +312,7 @@ export function commitAgentSessionReservation(
   }
   if (decision.decision === 'replay') {
     const record = requireAgentSessionRecordForReplay(state, decision.row, request.sessionId)
+    assertAgentSessionLaunchIdentity(record, request)
     if (decision.row.outcome.status !== 'pending' || request.handoffOperationId === null) {
       return { record, disposition: 'replayed', operationRow: decision.row }
     }
@@ -325,4 +336,20 @@ function reserveWithOperationRow(
   state.operations.set(agentSessionOperationKey(row.callerKey, row.operationId), row)
   state.records.set(result.record.sessionId, result.record)
   return { ...result, operationRow: row }
+}
+
+/** Internal reacquisition without launch metadata retains the record's immutable owner. */
+export function assertAgentSessionLaunchIdentity(
+  record: AgentSessionRecord,
+  request: Pick<AgentSessionReserveRequest, 'launchOrigin' | 'launchAuthority'>
+): void {
+  if (request.launchOrigin === undefined && request.launchAuthority === undefined) {
+    return
+  }
+  if (
+    record.launchOrigin !== request.launchOrigin ||
+    !structuredAgentSessionLaunchAuthoritiesEqual(record.launchAuthority, request.launchAuthority)
+  ) {
+    throw agentSessionRefusalError('agent_session_conflict', { reason: 'identityMismatch' })
+  }
 }

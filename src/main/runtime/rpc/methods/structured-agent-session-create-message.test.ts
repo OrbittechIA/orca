@@ -21,6 +21,7 @@ import { stopCreatedChat } from '../../../native-chat/agent-session-wire/structu
 import { AgentSessionPreSpawnError } from '../../../native-chat/agent-session-wire/structured-agent-session-adapter'
 
 const legacy = {
+  caller: { kind: 'desktop' as const },
   clientId: 'device-1',
   clientKind: 'runtime' as const,
   clientCapabilities: [STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY]

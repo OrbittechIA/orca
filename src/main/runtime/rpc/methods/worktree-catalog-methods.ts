@@ -37,7 +37,7 @@ export const WORKTREE_CATALOG_METHODS = [
         ),
         context
       )
-      const result = scopeWorktreePsStructuredIdentity(markedResult)
+      const result = scopeWorktreePsStructuredIdentity(markedResult, context)
       // Why: callers that never send the field get the byte-exact legacy response.
       if (params.afterSnapshotId === undefined) {
         return result

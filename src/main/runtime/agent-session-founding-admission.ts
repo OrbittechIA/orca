@@ -6,6 +6,7 @@ import {
 import { agentSessionOperationKey } from '../../shared/agent-session-operation-ledger'
 import { foundAgentSessionRecord } from './agent-session-record-founding'
 import {
+  assertAgentSessionLaunchIdentity,
   assertAdoptedConversationUnowned,
   assertReservedTabUnheld,
   evaluateAgentSessionReserveOperation,
@@ -32,8 +33,10 @@ export function commitAgentSessionFounding(
     throw agentSessionRefusalError(decision.code, decision.details)
   }
   if (decision.decision === 'replay') {
+    const record = requireAgentSessionRecordForReplay(state, decision.row, request.sessionId)
+    assertAgentSessionLaunchIdentity(record, request)
     return {
-      record: requireAgentSessionRecordForReplay(state, decision.row, request.sessionId),
+      record,
       disposition: 'replayed',
       operationRow: decision.row
     }

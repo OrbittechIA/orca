@@ -34,7 +34,7 @@ export const STRUCTURED_AGENT_SESSION_QUEUED_METHODS = [
       // Releasing a lease is cleanup: no admission condition may strand it until its deadline.
       const host =
         params.action === 'release'
-          ? requireStructuredCleanupHost(ctx)
+          ? requireStructuredCleanupHost(ctx, params.sessionId)
           : requireSessionHost(ctx, params.sessionId)
       return host.queuedMessageEditHold(callerFor(ctx), params)
     }

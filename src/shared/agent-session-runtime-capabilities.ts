@@ -1,3 +1,8 @@
+import { WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY } from './work-item-start-structured-session-capability'
+export {
+  WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY,
+  WORK_ITEM_START_STRUCTURED_SESSION_CLIENT_CAPABILITY
+} from './work-item-start-structured-session-capability'
 import { AGENT_SESSION_ATTENTION_RUNTIME_CAPABILITIES } from './agent-session-attention-capabilities'
 import { AGENT_SESSION_BACKGROUND_TASK_CHILD_VIEWS_CAPABILITY } from './agent-session-background-task-child-views-capability'
 import { AGENT_SESSION_CONTINUE_INTERRUPTED_RUNTIME_CAPABILITY } from './agent-session-continue-interrupted-capability'
@@ -98,6 +103,7 @@ export const AGENT_SESSION_BACKGROUND_TASK_ROW_STOP_CAPABILITY =
   'agent-session.background-task-row-stop.v1' as const
 
 export const AGENT_SESSION_RUNTIME_CAPABILITIES = [
+  WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY,
   ...AGENT_SESSION_STOP_RUNTIME_CAPABILITIES,
   ...AGENT_SESSION_CREATE_RUNTIME_CAPABILITIES,
   AGENT_SESSION_BOUNDARY_RUNTIME_CAPABILITY,

@@ -1,3 +1,8 @@
+import {
+  structuredAgentSessionCreateWorktreeTargetsEqual,
+  structuredAgentSessionCreateLocationMatchesTarget,
+  type StructuredAgentSessionCreateWorktreeTarget
+} from '../../structured-agent-session-create-worktree-target'
 import { seededPermissionMode } from '../../../../shared/native-chat/input/native-chat-session-option-defaults'
 // Resolve the host launch identity, then commit an at-rest create or the compatible acquired path.
 
@@ -19,6 +24,7 @@ import type { StructuredAgentSessionCaller } from '../../../native-chat/agent-se
 import type {
   StructuredAgentSessionResumeSource,
   StructuredAgentSessionLaunchOrigin,
+  StructuredAgentSessionLaunchAuthority,
   StructuredAgentSessionFirstMessage
 } from '../../../../shared/structured-agent-session-create'
 import { structuredAgentSessionCreateFingerprint } from '../../../../shared/structured-agent-session-mutation'
@@ -37,6 +43,7 @@ import type { ChatTabPlacement } from '../../agent-session/agent-session-tab-lay
 
 export type PreparedStructuredAgentSessionCreate = {
   host: StructuredAgentSessionHost
+  validateTarget?: () => Promise<void>
   attachParams: AgentSessionAttachParams
   hostLaunchDirectory?: string
   catalogModels?: StructuredAgentSessionCreateOptions['catalogModels']
@@ -75,6 +82,8 @@ export async function prepareStructuredAgentSessionCreateForWorktree(args: {
   caller: StructuredAgentSessionCaller
   resumeFrom?: StructuredAgentSessionResumeSource
   launchOrigin?: StructuredAgentSessionLaunchOrigin
+  launchAuthority?: StructuredAgentSessionLaunchAuthority
+  expectedWorktreeTarget?: StructuredAgentSessionCreateWorktreeTarget
   structuredAgentCliSourceEvidence?: StructuredAgentCliSourceEvidence
   /** Explicit picks override seed keys at rest; acquired in-process launches replace the seed. */
   optionsMode?: 'replace-model-selection'
@@ -142,11 +151,33 @@ export async function prepareStructuredAgentSessionCreateForWorktree(args: {
       ? { ...resolved.options, ...args.options }
       : { ...seededPermissionMode(resolved.options), ...args.options }
     : resolved.options
+  const expectedTarget = args.expectedWorktreeTarget
+  const validateTarget = expectedTarget
+    ? async () => {
+        const current = await args.runtime.resolveStructuredAgentSessionCreateWorktreeTarget(args.worktree)
+        if (
+          !structuredAgentSessionCreateWorktreeTargetsEqual(expectedTarget, current) ||
+          !structuredAgentSessionCreateLocationMatchesTarget(expectedTarget, resolved.location)
+        ) {
+          throw new AgentSessionRefusalError(
+            refuse(
+              'agent_session_conflict',
+              { reason: 'identityMismatch' },
+              'The workspace changed before the chat could be created.'
+            )
+          )
+        }
+      }
+    : undefined
+  await validateTarget?.()
   return {
     host,
+    ...(validateTarget ? { validateTarget } : {}),
     ...(hostLaunchDirectory ? { hostLaunchDirectory } : {}),
     attachParams: {
       ...resolvedAttach,
+      ...(args.launchOrigin ? { launchOrigin: args.launchOrigin } : {}),
+      ...(args.launchAuthority ? { launchAuthority: args.launchAuthority } : {}),
       ...(picked ? { options: picked } : {}),
       ...(args.tabId ? { surfaceTabId: args.tabId } : {}),
       provider: resolved.provider,
@@ -173,6 +204,13 @@ export async function commitStructuredAgentSessionCreate(args: {
   tabPlacement?: ChatTabPlacement
 }): Promise<AgentSessionMutationResult<AgentSessionAttachResult>> {
   const { prepared } = args
+  const checked = await resolveUncommittedStructuredCreate(async () => {
+    await prepared.validateTarget?.()
+    return prepared
+  })
+  if ('refusal' in checked) {
+    return { ok: false, refusal: checked.refusal }
+  }
   const tab = prepared.tab
   const tabPlace = {
     ...(args.placedByWindow ? { placedByWindow: true } : {}),
