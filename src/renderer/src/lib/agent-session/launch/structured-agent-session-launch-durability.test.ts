@@ -30,6 +30,8 @@ import { resetStructuredAgentSessionSendsForTests } from '@/components/native-ch
 import { discardStructuredLaunchPrompts } from '../../structured-agent-session-launch-prompt'
 
 const KEY = 'orca:structuredAgentLaunches:v1'
+const originalSetItem = localStorage.setItem
+const originalGetItem = localStorage.getItem
 let restore: (() => void) | undefined
 
 function workItemStart() {
@@ -72,6 +74,11 @@ describe('Work Item Start recovery durability', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
+    // happy-dom's Storage proxy cannot delete bound methods when spies restore them.
+    Object.defineProperties(localStorage, {
+      setItem: { value: originalSetItem, configurable: true, writable: true },
+      getItem: { value: originalGetItem, configurable: true, writable: true }
+    })
     cleanupCreateMessageFixture(restore)
   })
 

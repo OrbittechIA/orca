@@ -15,6 +15,8 @@ import {
 } from './agent-session/launch/structured-agent-session-launch-persistence'
 
 const KEY = 'orca:structuredAgentLaunches:v1'
+const originalSetItem = localStorage.setItem
+const originalGetItem = localStorage.getItem
 
 function preflight(delivery = 'submit-after-ready', target: RuntimeClientTarget = { kind: 'local' }) {
   return requireWorkItemStartPreflight({ delivery, target, agent: 'codex', repoId: 'repo-1' })
@@ -56,6 +58,11 @@ describe('desktop Work Item Start storage preflight', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    // happy-dom's Storage proxy cannot delete bound methods when spies restore them.
+    Object.defineProperties(localStorage, {
+      setItem: { value: originalSetItem, configurable: true, writable: true },
+      getItem: { value: originalGetItem, configurable: true, writable: true }
+    })
   })
 
   it('confirms native Storage before allowing structured Start and leaves the held journal untouched', async () => {
