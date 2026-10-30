@@ -260,9 +260,18 @@ function structuredAgentLaunchState(
   state.onHostSeed = (seedOptions) => adoptPairedHostSeed(state, seedOptions)
   callers.onSettled = () => maybeCleanupLaunchState(state)
   structuredLaunchSelectionController(state)
-  setStructuredLaunchState(state)
-  reserveStructuredLaunchSlot(state.intent)
-  state.promise = publishWithHeldOptions(state, launchAndReconcile(state))
+  let created: Promise<StructuredAgentLaunchReceipt>
+  try {
+    setStructuredLaunchState(state, options.launchOrigin !== undefined)
+    reserveStructuredLaunchSlot(state.intent)
+    created = launchAndReconcile(state)
+  } catch (error) {
+    if (!options.launchOrigin) {
+      throw error
+    }
+    created = Promise.reject(error)
+  }
+  state.promise = publishWithHeldOptions(state, created)
   const caller = addStructuredLaunchCaller({
     group: state.callers,
     launchResult: state.promise,

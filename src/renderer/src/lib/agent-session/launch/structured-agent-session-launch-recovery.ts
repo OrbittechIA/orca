@@ -13,6 +13,11 @@ import type { StructuredAgentSessionLaunchIntent } from '@/lib/launch-structured
 import { callStructuredAgentSession } from '@/runtime/structured-agent-session-client'
 import { readStructuredSessionTabInventory } from '@/runtime/structured-session-tab-inventory'
 import { publishStructuredAgentSessionCreateHydration } from '../../structured-agent-session-create-hydration'
+import {
+  StructuredAgentLaunchPersistenceError,
+  writeStructuredAgentLaunchRecord
+} from './structured-agent-session-launch-persistence'
+import { structuredAgentLaunchRecordFor } from './structured-agent-session-launch-record'
 
 export type StructuredAgentLaunchReceipt = {
   sessionId: string
@@ -41,6 +46,45 @@ export class StructuredAgentSessionLaunchCancelledError extends Error {
 function throwIfLaunchCancelled(state: StructuredLaunchRecoveryState): void {
   if (state.cancelled) {
     throw new StructuredAgentSessionLaunchCancelledError()
+  }
+}
+
+async function launchWithRecoveryRecord(
+  state: StructuredLaunchRecoveryState,
+  priorCreateOutcomeUnknown: boolean
+): Promise<StructuredAgentLaunchReceipt> {
+  const { intent } = state
+  if (!intent.params.launchOrigin) {
+    return launchStructuredAgentSession(
+      intent,
+      state.onHostSeed,
+      priorCreateOutcomeUnknown,
+      () => state.cancelled
+    )
+  }
+  try {
+    if (priorCreateOutcomeUnknown && !intent.params.firstMessage) {
+      throw new StructuredAgentLaunchPersistenceError()
+    }
+    writeStructuredAgentLaunchRecord(
+      structuredAgentLaunchRecordFor(
+        intent,
+        priorCreateOutcomeUnknown ? 'visibility-unknown' : 'pending'
+      ),
+      true
+    )
+    return await launchStructuredAgentSession(
+      intent,
+      state.onHostSeed,
+      priorCreateOutcomeUnknown,
+      () => state.cancelled
+    )
+  } catch (error) {
+    if (error instanceof StructuredAgentLaunchPersistenceError && priorCreateOutcomeUnknown) {
+      state.visibilityUnknown = true
+      state.onVisibilityChanged?.()
+    }
+    throw error
   }
 }
 
@@ -80,7 +124,7 @@ export async function recoverPublishedSessionReceipt(
       )
     : undefined
   if (state.intent.params.firstMessage && !firstMessage) {
-    return launchStructuredAgentSession(state.intent, state.onHostSeed, true, () => state.cancelled)
+    return launchWithRecoveryRecord(state, true)
   }
   if (state.intent.createMessageSupport === true) {
     publishStructuredAgentSessionCreateHydration(state.intent, history.page, fence)
@@ -100,12 +144,7 @@ async function retrySameIntent(
 ): Promise<StructuredAgentLaunchReceipt> {
   throwIfLaunchCancelled(state)
   try {
-    const receipt = await launchStructuredAgentSession(
-      state.intent,
-      state.onHostSeed,
-      true,
-      () => state.cancelled
-    )
+    const receipt = await launchWithRecoveryRecord(state, true)
     throwIfLaunchCancelled(state)
     return receipt
   } catch (error) {
@@ -134,12 +173,7 @@ export async function launchAndReconcile(
   throwIfLaunchCancelled(state)
   let receipt: StructuredAgentLaunchReceipt
   try {
-    receipt = await launchStructuredAgentSession(
-      state.intent,
-      state.onHostSeed,
-      false,
-      () => state.cancelled
-    )
+    receipt = await launchWithRecoveryRecord(state, false)
   } catch (error) {
     if (state.cancelled) {
       throw new StructuredAgentSessionLaunchCancelledError()
@@ -149,7 +183,10 @@ export async function launchAndReconcile(
     }
     try {
       return await recoverPublishedSessionReceipt(state)
-    } catch {
+    } catch (recoveryError) {
+      if (recoveryError instanceof StructuredAgentLaunchPersistenceError) {
+        throw recoveryError
+      }
       return retrySameIntent(state, error)
     }
   }
@@ -166,6 +203,9 @@ export async function reconcileUnknownLaunch(
   try {
     return await recoverPublishedSessionReceipt(state)
   } catch (error) {
+    if (error instanceof StructuredAgentLaunchPersistenceError) {
+      throw error
+    }
     return retrySameIntent(state, error)
   }
 }

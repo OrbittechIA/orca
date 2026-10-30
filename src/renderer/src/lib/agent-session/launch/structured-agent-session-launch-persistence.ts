@@ -1,4 +1,5 @@
 import { structuredAgentSessionTabId } from '../../../../../shared/structured-agent-session-projection'
+import { StructuredAgentSessionCreateRefusalError } from '../../structured-agent-session-launch-errors'
 import {
   validRecord,
   parseStructuredLaunchSurfaceAddress,
@@ -20,6 +21,16 @@ const tombstones = new Map<string, ExecutionHostId>()
 const remoteTombstoneCancelledAt = new Map<string, number>()
 const REMOTE_TOMBSTONE_TTL_MS = 30 * 24 * 60 * 60 * 1000
 let loaded = false
+
+export class StructuredAgentLaunchPersistenceError extends StructuredAgentSessionCreateRefusalError {
+  constructor() {
+    super(
+      'Work Item Start could not confirm its recovery record. Free browser storage and retry, or launch manually.',
+      'structured_agent_launch_persistence_unconfirmed'
+    )
+    this.name = 'StructuredAgentLaunchPersistenceError'
+  }
+}
 
 function load(): void {
   if (loaded) {
@@ -106,17 +117,28 @@ function serializeTombstone(sessionId: string, executionHostId: ExecutionHostId)
       }
 }
 
-function writeRecords(): void {
+function writeRecords(confirm = false): void {
   if (typeof localStorage === 'undefined') {
+    if (confirm) {
+      throw new StructuredAgentLaunchPersistenceError()
+    }
     return
   }
   try {
+    const serialized = records.size === 0 ? null : JSON.stringify([...records.values()])
     if (records.size === 0) {
       localStorage.removeItem(LAUNCH_STORAGE_KEY)
     } else {
-      localStorage.setItem(LAUNCH_STORAGE_KEY, JSON.stringify([...records.values()]))
+      localStorage.setItem(LAUNCH_STORAGE_KEY, serialized ?? '[]')
+    }
+    // Read the browser store itself; a wrapper's optimistic getItem is not a durable receipt.
+    if (confirm && Storage.prototype.getItem.call(localStorage, LAUNCH_STORAGE_KEY) !== serialized) {
+      throw new StructuredAgentLaunchPersistenceError()
     }
   } catch {
+    if (confirm) {
+      throw new StructuredAgentLaunchPersistenceError()
+    }
     // Recovery bookkeeping must never prevent launch.
     console.warn('[structured-agent-launch] could not persist launch state')
   }
@@ -171,11 +193,12 @@ export function readStructuredAgentLaunchRecord(
 }
 
 export function writeStructuredAgentLaunchRecord(
-  record: StructuredAgentLaunchPersistedRecord
+  record: StructuredAgentLaunchPersistedRecord,
+  confirm = false
 ): void {
   load()
   records.set(record.sessionId, record)
-  writeRecords()
+  writeRecords(confirm)
 }
 
 export function deleteStructuredAgentLaunchRecord(sessionId: string): void {

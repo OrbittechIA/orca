@@ -27,6 +27,11 @@ import {
 } from './structured-agent-session-launch-options'
 import { structuredAgentSessionDrawnValues } from '../../../shared/structured-agent-session-option-snapshot'
 import { encodeStructuredAgentSessionOptionValue } from '../../../shared/structured-agent-session-option-codec'
+import {
+  StructuredAgentLaunchPersistenceError,
+  writeStructuredAgentLaunchRecord
+} from './agent-session/launch/structured-agent-session-launch-persistence'
+import { structuredAgentLaunchRecordFor } from './agent-session/launch/structured-agent-session-launch-record'
 
 /** Freeze what create carries once; an ambiguous reply always replays the same payload.
  *  `hostTakesExplicitOptions`: the host advertises the create options-mode capability. */
@@ -56,6 +61,9 @@ export function prepareStructuredLaunchCreateMessage(
     return
   }
   const firstMessage = prepareStructuredLaunchPromptForCreate(intent.sessionId, intent.target)
+  if (intent.params.launchOrigin && !firstMessage) {
+    throw new StructuredAgentLaunchPersistenceError()
+  }
   const { options: requested, selection } = structuredLaunchCreateOptions(state)
   const options =
     requested && state.selection.explicit && !optionsMode
@@ -80,6 +88,15 @@ export function prepareStructuredLaunchCreateMessage(
     }
   }
   intent.createPrepared = true
+  if (intent.params.launchOrigin) {
+    writeStructuredAgentLaunchRecord(
+      structuredAgentLaunchRecordFor(
+        intent,
+        state.visibilityUnknown ? 'visibility-unknown' : 'pending'
+      ),
+      true
+    )
+  }
   notifyStructuredLaunchListeners()
 }
 

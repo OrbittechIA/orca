@@ -23,6 +23,7 @@ import {
 } from './structured-agent-session-launch-registry'
 import { recordUnlistedCreatedChat } from '../../structured-agent-session-unlisted-created-chats'
 import { forgetStructuredSessionSelection } from '../../structured-agent-session-selection-controller'
+import { StructuredAgentLaunchPersistenceError } from './structured-agent-session-launch-persistence'
 
 function cleanupLaunchState(state: StructuredLaunchState): void {
   if (deleteStructuredLaunchStateIfCurrent(state)) {
@@ -113,7 +114,11 @@ export function trackLaunchSettlement(
       } else {
         delete state.failure
       }
-      if (error instanceof StructuredAgentSessionCreateRefusalError) {
+      if (error instanceof StructuredAgentLaunchPersistenceError && state.visibilityUnknown) {
+        state.callers.outcome = 'unknown'
+        materializeStructuredLaunchSurface(state.intent)
+        notifyStructuredLaunchListeners()
+      } else if (error instanceof StructuredAgentSessionCreateRefusalError) {
         settleStructuredLaunchRefusal(state)
       } else if (!state.visibilityUnknown) {
         settleStructuredLaunchCallers(state.callers, 'failed')

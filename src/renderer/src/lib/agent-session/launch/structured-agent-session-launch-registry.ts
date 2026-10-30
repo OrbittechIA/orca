@@ -105,9 +105,9 @@ export function getStructuredLaunchStateBySessionId(
   return structuredLaunchesBySessionId.get(sessionId)
 }
 
-export function setStructuredLaunchState(state: StructuredLaunchState): void {
+export function setStructuredLaunchState(state: StructuredLaunchState, confirm = false): void {
   structuredLaunchesBySessionId.set(state.intent.sessionId, state)
-  persistStructuredLaunchState(state)
+  persistStructuredLaunchState(state, confirm)
 }
 
 export function deleteStructuredLaunchStateIfCurrent(state: StructuredLaunchState): boolean {
@@ -119,16 +119,19 @@ export function deleteStructuredLaunchStateIfCurrent(state: StructuredLaunchStat
   return true
 }
 
-function persistStructuredLaunchState(state: StructuredLaunchState): void {
+function persistStructuredLaunchState(state: StructuredLaunchState, confirm = false): void {
   const lifecycle = launchStateLifecycle(state)
   if (lifecycle === 'published' || lifecycle === 'cancelled') {
     deleteStructuredAgentLaunchRecord(state.intent.sessionId)
     return
   }
-  writeStructuredAgentLaunchRecord({
-    ...structuredAgentLaunchRecordFor(state.intent, lifecycle),
-    ...(lifecycle === 'failed' ? { failedAt: state.callers.failedAt } : {})
-  })
+  writeStructuredAgentLaunchRecord(
+    {
+      ...structuredAgentLaunchRecordFor(state.intent, lifecycle),
+      ...(lifecycle === 'failed' ? { failedAt: state.callers.failedAt } : {})
+    },
+    confirm
+  )
 }
 
 export function getPersistedStructuredAgentLaunchRecord(
