@@ -80,7 +80,7 @@ function setup(nativeChat: boolean) {
         id: 'scoped',
         activeTabId: 'agent-session:owner-closed',
         tabOrder: START_IDS.map((id) => `agent-session:${id}`),
-        recentTabIds: [...START_IDS].reverse().map((id) => `agent-session:${id}`)
+        recentTabIds: START_IDS.toReversed().map((id) => `agent-session:${id}`)
       }
     ],
     tabGroupLayout: {
@@ -244,7 +244,7 @@ it('omits unproved chat rows when the host is unavailable without hiding other t
   expect(projected.activeTabType).toBe('terminal')
 })
 
-it('preserves ordinary read-only conversations while scoped conversations still require a record', () => {
+it('admits read-only conversations using their persisted launch authority', () => {
   const { snapshot, host, records } = setup(false)
   const ordinary = records.get('ordinary')!
   const scoped = records.get('owner-open')!
@@ -262,7 +262,7 @@ it('preserves ordinary read-only conversations while scoped conversations still 
     clientCapabilities: [STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY],
     caller: { kind: 'paired-device', deviceId: 'owner' }
   })
-  expectAdmitted(projected, [])
+  expectAdmitted(projected, ['owner-open'])
 })
 
 it('selects the replacement tab group when the hidden tab group still has an ordinary chat', () => {

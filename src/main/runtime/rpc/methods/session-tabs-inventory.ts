@@ -9,7 +9,7 @@ import { createSessionTabsRetirementProofDelta } from './session-tabs-retirement
 import { prepareStructuredTabsIfSupported } from './structured-session-tab-restore'
 import { createSessionTabsTabDeltaEncoder } from '../../../../shared/session-tabs-tab-delta'
 import { getStructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-registry'
-import { canAccessWorkItemStartStructuredSession } from './structured-agent-session-launch-authority'
+import { structuredSessionTabVisibleToCaller } from './structured-agent-session-launch-authority'
 
 type SessionTabsInventory = {
   snapshots: RuntimeMobileSessionTabsResult[]
@@ -53,17 +53,7 @@ export function projectSessionTabsForContext(
     snapshot,
     context.clientKind,
     context.clientCapabilities,
-    (sessionId) => {
-      const record =
-        host?.deps?.store?.getRecord?.(sessionId) ??
-        host?.deps?.store?.getConversation?.(sessionId)
-      return (
-        !!record &&
-        (record.launchOrigin !== 'work-item-start' ||
-          (host?.isSessionTabVisible(sessionId) === true &&
-            canAccessWorkItemStartStructuredSession(context, sessionId, host)))
-      )
-    }
+    (sessionId) => structuredSessionTabVisibleToCaller(context, host, sessionId)
   )
 }
 

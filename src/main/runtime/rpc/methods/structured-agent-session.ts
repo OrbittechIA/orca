@@ -1,4 +1,4 @@
-import { canAccessWorkItemStartStructuredRecord } from './structured-agent-session-launch-authority'
+import { STRUCTURED_AGENT_SESSION_WORKSPACE_SLEEP_METHODS } from './structured-agent-session-workspace-sleep'
 import { agentSessionRefusalError } from '../../../../shared/agent-session-wire-refusals'
 import { clientRequestsCommands } from './structured-agent-session-policy'
 import {
@@ -25,7 +25,7 @@ import {
   ensureStructuredHostInstalled as ensureHostInstalled,
   requireInstalledStructuredHost as requireInstalledHost,
   requireStructuredCapability,
-  requireStructuredSessionAdmission,
+  requireStructuredAgentAudience,
   structuredWorkItemStartCallerAuthority,
   canReachStructuredSession,
   requireStructuredCleanupHost,
@@ -67,13 +67,11 @@ import {
   OptionsParams,
   RewindParams,
   SendParams,
-  SleepWorkspaceParams,
   SubscribeParams,
   UnsubscribeParams
 } from './structured-agent-session-schemas'
 import { sendStructuredAgentSessionForClient } from './structured-agent-session-send-compatibility'
 import { getStructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-registry'
-import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
 import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../../shared/layout-owner-switch'
 import {
   noteStructuredAgentSessionClose,
@@ -109,19 +107,30 @@ export const STRUCTURED_AGENT_SESSION_METHODS = [
     params: CreateSupportParams,
     handler: async (params, ctx) => {
       if (params.launchOrigin) {
-        requireStructuredCapability(ctx)
+        requireStructuredAgentAudience(ctx, params.agent)
         const authority = structuredWorkItemStartCallerAuthority(ctx)
-        if (!authority) throw agentSessionRefusalError('structured_agent_session_unsupported', { reason: 'clientCapabilityMissing' })
+        if (!authority) {
+          throw agentSessionRefusalError('structured_agent_session_unsupported', {
+            reason: 'clientCapabilityMissing'
+          })
+        }
         if ('worktree' in params && authority.kind === 'paired-device') {
-          const target = await ctx.runtime.resolveStructuredAgentSessionCreateWorktreeTarget(params.worktree)
-          if (target.creatorDeviceId !== authority.deviceId) throw agentSessionRefusalError('structured_agent_session_unsupported', { reason: 'clientCapabilityMissing' })
+          const target = await ctx.runtime.resolveStructuredAgentSessionCreateWorktreeTarget(
+            params.worktree
+          )
+          if (target.creatorDeviceId !== authority.deviceId) {
+            throw agentSessionRefusalError('structured_agent_session_unsupported', {
+              reason: 'clientCapabilityMissing'
+            })
+          }
         }
       } else {
         requireStructuredCreateSupportAdmission(ctx, params.agent)
       }
-      const support = 'repo' in params
-        ? await ctx.runtime.getWorkItemStartPreCreateSupport(params.repo, params.agent)
-        : await ctx.runtime.getStructuredAgentSessionCreateSupport(params.worktree, params.agent)
+      const support =
+        'repo' in params
+          ? await ctx.runtime.getWorkItemStartPreCreateSupport(params.repo, params.agent)
+          : await ctx.runtime.getStructuredAgentSessionCreateSupport(params.worktree, params.agent)
       // Optional: older clients ignore it, and a client seeds its picker with what create will use.
       const seedOptions = support.supported
         ? ctx.runtime.structuredAgentSessionLaunchSeedOptions(params.agent)
@@ -154,7 +163,8 @@ export const STRUCTURED_AGENT_SESSION_METHODS = [
     name: 'agentSession.cancel',
     permission: 'workspace',
     params: CancelParams,
-    handler: async (params, ctx) => requireStructuredCleanupHost(ctx, params.envelope.sessionId).cancel(callerFor(ctx), params)
+    handler: async (params, ctx) =>
+      requireStructuredCleanupHost(ctx, params.envelope.sessionId).cancel(callerFor(ctx), params)
   }),
   ...STRUCTURED_AGENT_SESSION_QUEUED_METHODS,
   defineMethod({
@@ -182,66 +192,7 @@ export const STRUCTURED_AGENT_SESSION_METHODS = [
       return { ok: true as const }
     }
   }),
-  defineMethod({
-    name: 'agentSession.sleepWorkspace',
-    permission: 'workspace',
-    params: SleepWorkspaceParams,
-    handler: async (params, ctx) => {
-      requireStructuredCapability(ctx)
-      const admissionHost = getStructuredAgentSessionHost()
-      for (const record of admissionHost?.deps.store.listConversations() ?? []) {
-        if (admissionHost && record.location.workspaceId === params.workspaceId) requireStructuredSessionAdmission(ctx, admissionHost, record.sessionId)
-      }
-      if (params.markAsleep) {
-        const host = await requireInstalledHost(ctx)
-        for (const record of host.deps.store.listConversations()) {
-          if (record.location.workspaceId === params.workspaceId) requireStructuredSessionAdmission(ctx, host, record.sessionId)
-        }
-        return host.sleepWorkspace(params.workspaceId, true)
-      }
-      const installed = getStructuredAgentSessionHost()
-      if (installed) {
-        return installed.sleepWorkspace(params.workspaceId, params.markAsleep)
-      }
-      let store: Awaited<ReturnType<typeof ctx.runtime.openAgentSessionRecordStore>>
-      try {
-        store = await ctx.runtime.openAgentSessionRecordStore()
-      } catch (error) {
-        const appeared = getStructuredAgentSessionHost()
-        if (appeared) {
-          return appeared.sleepWorkspace(params.workspaceId, params.markAsleep)
-        }
-        console.warn('[agent-session] workspace sleep record inventory unavailable', error)
-        return { stoppedSessionIds: [], failures: [{ reason: 'inventory-unavailable' }] }
-      }
-      const appeared = getStructuredAgentSessionHost()
-      if (appeared) {
-        return appeared.sleepWorkspace(params.workspaceId, params.markAsleep)
-      }
-      try {
-        const records = store
-          .listConversations()
-          .filter(
-            (record) =>
-              record.location.workspaceId === params.workspaceId &&
-              record.location.executionHostId === LOCAL_EXECUTION_HOST_ID
-          )
-        if (records.some((record) => record.launchOrigin === 'work-item-start' && !canAccessWorkItemStartStructuredRecord(ctx, record))) {
-          throw agentSessionRefusalError('structured_agent_session_unsupported', { reason: 'clientCapabilityMissing' })
-        }
-        const stoppedSessionIds = records
-          .filter((record) => record.neverStarted)
-          .map((record) => record.sessionId)
-        const failures = records
-          .filter((record) => !record.neverStarted)
-          .map((record) => ({ sessionId: record.sessionId, reason: 'stop-unverifiable' as const }))
-        return failures.length > 0 ? { stoppedSessionIds, failures } : { stoppedSessionIds }
-      } catch (error) {
-        console.warn('[agent-session] workspace sleep record inventory failed', error)
-        return { stoppedSessionIds: [], failures: [{ reason: 'inventory-unavailable' }] }
-      }
-    }
-  }),
+  ...STRUCTURED_AGENT_SESSION_WORKSPACE_SLEEP_METHODS,
   ...STRUCTURED_AGENT_SESSION_PROMPT_RESPONSE_METHODS,
   defineMethod({
     name: 'agentSession.history',
@@ -288,7 +239,8 @@ export const STRUCTURED_AGENT_SESSION_METHODS = [
         projectQueuePublication: (publication) =>
           projectQueuedImageCardPublication(publication, ctx),
         emit: (event) =>
-          canReachStructuredSession(ctx, host, params.sessionId) && emit(
+          canReachStructuredSession(ctx, host, params.sessionId) &&
+          emit(
             projectTurnItemEvent(
               projectBackgroundTaskEvent(event, ctx),
               ctx,

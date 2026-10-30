@@ -115,15 +115,17 @@ export function createStructuredAgentSessionConversationLifetime(
   const closeForWorkspaceSleep = async (
     sessionId: string,
     workspaceId: string,
-    executionHostId: ExecutionHostId
+    executionHostId: ExecutionHostId,
+    admitsSession?: (sessionId: string) => boolean
   ): Promise<WorkspaceSleepCloseResult | null> => {
     const matches = (): boolean => {
       const location = deps().store.getConversation(sessionId)?.location
       return location?.workspaceId === workspaceId && location.executionHostId === executionHostId
     }
+    const admitted = (): boolean => matches() && admitsSession?.(sessionId) !== false
     const starts = workspaceSleepStartAborts(() => host.context().runtimeState, sessionId)
     // Pending creates have no record yet; their queued close waits for founding.
-    if (matches() && deps().store.getRecord(sessionId)) {
+    if (admitted() && deps().store.getRecord(sessionId)) {
       const journal = sessions.get(sessionId)?.journal
       if (journal) {
         closeStructuredAgentSessionHandovers(journal)
@@ -131,7 +133,7 @@ export function createStructuredAgentSessionConversationLifetime(
       starts.abort()
     }
     const closed = serialize(sessionId, async () => {
-      if (!matches()) {
+      if (!admitted()) {
         return null
       }
       readRefusals.forget(sessionId)

@@ -194,7 +194,7 @@ export class StructuredAgentSessionHost {
     this.lifetime.close(sessionId, cause)
 
   /** Stop hidden children too, using one bounded host snapshot. */
-  sleepWorkspace = (workspaceId: string, markAsleep?: boolean) =>
+  sleepWorkspace = (...args: HostTypes.WorkspaceSleepArgs) =>
     sleepStructuredAgentSessionWorkspace(
       {
         deps: this.deps,
@@ -207,8 +207,7 @@ export class StructuredAgentSessionHost {
         childWorkIncomplete: this.clientDelivery.childWorkIncomplete,
         publishRecordNotes: this.clientDelivery.publishRecordNotes
       },
-      workspaceId,
-      markAsleep
+      ...args
     )
 
   supportsCreate = (location: AgentSessionExecutionLocation, agent: string): boolean =>

@@ -24,6 +24,7 @@ import { SessionTabsUnsubscribeAllParams } from '../../../../shared/rpc-contract
 import { SESSION_TABS_SPLIT_GROUP_PLACEMENT_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
 import { createSessionTabsTabDeltaEncoder } from '../../../../shared/session-tabs-tab-delta'
 import { ORCA_SIDEBAR_INPUTS_IS_MAIN } from '../../../../shared/sidebar-inputs-switch'
+import { requireInstalledStructuredHost } from './structured-agent-session-gate'
 
 export const SESSION_TAB_METHODS = [
   defineMethod({
@@ -59,6 +60,9 @@ export const SESSION_TAB_METHODS = [
     params: CreateTerminalTab,
     handler: async (params, context) => {
       const { runtime, signal, clientKind, pairedDeviceId, clientCapabilities } = context
+      if (params.sourceChatFork) {
+        await requireInstalledStructuredHost(context, params.sourceChatFork.sessionId)
+      }
       if (params.command) {
         await assertLegacyAiVaultResumeCommandAllowed(params.command, () =>
           runtime.ensureStructuredAgentSessionHost()
@@ -110,8 +114,15 @@ export const SESSION_TAB_METHODS = [
     permission: 'workspace',
     params: WorktreeTabSelector,
     handler: async (params, context, emit) => {
-      const { runtime, connectionId, requestId, pairedDeviceId, clientKind, clientCapabilities, signal } =
-        context
+      const {
+        runtime,
+        connectionId,
+        requestId,
+        pairedDeviceId,
+        clientKind,
+        clientCapabilities,
+        signal
+      } = context
       let subscriptionId: string | null = null
       let released = false
       let endOnRelease = true
@@ -179,9 +190,7 @@ export const SESSION_TAB_METHODS = [
         const tabDelta = createSessionTabsTabDeltaEncoder(clientCapabilities)
         emit({
           type: 'snapshot',
-          ...tabDelta.full(
-            withProofDelta(projectSessionTabsForContext(initial, context))
-          )
+          ...tabDelta.full(withProofDelta(projectSessionTabsForContext(initial, context)))
         })
         if (released) {
           return
@@ -210,9 +219,7 @@ export const SESSION_TAB_METHODS = [
             emit({
               type: 'updated',
               ...tabDelta.update(
-                withProofDelta(
-                  projectSessionTabsForContext(streamSnapshot, context)
-                )
+                withProofDelta(projectSessionTabsForContext(streamSnapshot, context))
               )
             })
           }

@@ -5,6 +5,7 @@ import type {
   StructuredAgentSessionConversationOpenOptions
 } from './structured-agent-session-conversation-open'
 import type { createStructuredAgentSessionConversationLifetime } from './structured-agent-session-conversation-lifetime'
+
 import type { UnsentSendHold } from '../agent-session-journal/journal-unsent-send-hold'
 import type { AgentSessionStopOutcome } from './structured-agent-session-adapter-stop'
 import type { StructuredAgentSessionRequestFailure } from './structured-agent-session-request-failures'
@@ -49,6 +50,12 @@ import type { StructuredAgentRegistry } from './structured-agent-registry'
 import type { StructuredAgentSessionStartupLimits } from './structured-agent-session-startup-attempt-contract'
 import type { AgentChatPermissionChoice } from '../../../shared/agent-chat-permission-mode'
 import type { AgentSessionSwitchResult } from '../../../shared/agent-session-switch-execution'
+
+export type WorkspaceSleepArgs = [
+  workspaceId: string,
+  markAsleep?: boolean,
+  admitsSession?: (sessionId: string) => boolean
+]
 
 export type StructuredAgentSessionCaller = { callerKey: string }
 

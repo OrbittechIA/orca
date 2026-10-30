@@ -18,6 +18,7 @@ describe('session tab RPC methods', () => {
   it('routes mobile-only activation without notifying desktop clients', async () => {
     const runtime = {
       getRuntimeId: () => 'test-runtime',
+      listMobileSessionTabs: vi.fn().mockResolvedValue(visibleSnapshot()),
       activateMobileSessionTab: vi.fn().mockResolvedValue({
         worktree: 'wt-1',
         publicationEpoch: 'epoch-1',
@@ -78,6 +79,7 @@ describe('session tab RPC methods', () => {
   it('forwards an automatic activation intent to the runtime', async () => {
     const runtime = {
       getRuntimeId: () => 'test-runtime',
+      listMobileSessionTabs: vi.fn().mockResolvedValue(visibleSnapshot()),
       activateMobileSessionTab: vi.fn().mockResolvedValue({ tabs: [] })
     } as unknown as OrcaRuntimeService
     const dispatcher = new RpcDispatcher({ runtime, methods: SESSION_TAB_METHODS })
@@ -104,6 +106,7 @@ describe('session tab RPC methods', () => {
   it('passes no intent for a client that omits the field', async () => {
     const runtime = {
       getRuntimeId: () => 'test-runtime',
+      listMobileSessionTabs: vi.fn().mockResolvedValue(visibleSnapshot()),
       activateMobileSessionTab: vi.fn().mockResolvedValue({ tabs: [] })
     } as unknown as OrcaRuntimeService
     const dispatcher = new RpcDispatcher({ runtime, methods: SESSION_TAB_METHODS })
@@ -127,6 +130,7 @@ describe('session tab RPC methods', () => {
   it('refuses a reasonless close without invoking destructive runtime logic', async () => {
     const runtime = {
       getRuntimeId: () => 'test-runtime',
+      listMobileSessionTabs: vi.fn().mockResolvedValue(visibleSnapshot()),
       refuseUnattributedMobileSessionTabClose: vi.fn().mockResolvedValue({
         closed: true,
         refused: true,
@@ -151,6 +155,7 @@ describe('session tab RPC methods', () => {
   it('passes explicit user intent to host adjudication', async () => {
     const runtime = {
       getRuntimeId: () => 'test-runtime',
+      listMobileSessionTabs: vi.fn().mockResolvedValue(visibleSnapshot()),
       refuseUnattributedMobileSessionTabClose: vi.fn(),
       closeMobileSessionTab: vi.fn().mockResolvedValue({ closed: true })
     } as unknown as OrcaRuntimeService
@@ -281,6 +286,7 @@ describe('session tab RPC methods', () => {
     async (reason) => {
       const runtime = {
         getRuntimeId: () => 'test-runtime',
+        listMobileSessionTabs: vi.fn().mockResolvedValue(visibleSnapshot()),
         closeMobileSessionTab: vi.fn()
       } as unknown as OrcaRuntimeService
       const dispatcher = new RpcDispatcher({ runtime, methods: SESSION_TAB_METHODS })
@@ -303,6 +309,7 @@ describe('session tab RPC methods', () => {
     async (reason) => {
       const runtime = {
         getRuntimeId: () => 'test-runtime',
+        listMobileSessionTabs: vi.fn().mockResolvedValue(visibleSnapshot()),
         closeMobileSessionTab: vi.fn().mockResolvedValue({ closed: true })
       } as unknown as OrcaRuntimeService
       const dispatcher = new RpcDispatcher({ runtime, methods: SESSION_TAB_METHODS })
@@ -329,6 +336,7 @@ describe('session tab RPC methods', () => {
   it('dispatches tab moves through the runtime', async () => {
     const runtime = {
       getRuntimeId: () => 'test-runtime',
+      listMobileSessionTabs: vi.fn().mockResolvedValue(visibleSnapshot()),
       moveMobileSessionTab: vi.fn().mockResolvedValue({
         moved: true
       })
@@ -339,24 +347,25 @@ describe('session tab RPC methods', () => {
       makeRequest('session.tabs.move', {
         worktree: 'id:wt-1',
         tabId: 'tab-1::leaf-1',
-        targetGroupId: 'group-left',
+        targetGroupId: 'group-1',
         kind: 'reorder',
-        tabOrder: ['tab-2::leaf-1', 'tab-1::leaf-1']
+        tabOrder: ['tab-1']
       })
     )
 
     expect(response.ok).toBe(true)
     expect(runtime.moveMobileSessionTab).toHaveBeenCalledWith('id:wt-1', {
-      tabId: 'tab-1::leaf-1',
-      targetGroupId: 'group-left',
+      tabId: 'tab-1',
+      targetGroupId: 'group-1',
       kind: 'reorder',
-      tabOrder: ['tab-2::leaf-1', 'tab-1::leaf-1']
+      tabOrder: ['tab-1']
     })
   })
 
   it('rejects ambiguous tab move payloads', async () => {
     const runtime = {
       getRuntimeId: () => 'test-runtime',
+      listMobileSessionTabs: vi.fn().mockResolvedValue(visibleSnapshot()),
       moveMobileSessionTab: vi.fn()
     } as unknown as OrcaRuntimeService
     const dispatcher = new RpcDispatcher({ runtime, methods: SESSION_TAB_METHODS })
@@ -379,6 +388,7 @@ describe('session tab RPC methods', () => {
   it('dispatches split tab moves without reorder-only fields', async () => {
     const runtime = {
       getRuntimeId: () => 'test-runtime',
+      listMobileSessionTabs: vi.fn().mockResolvedValue(visibleSnapshot()),
       moveMobileSessionTab: vi.fn().mockResolvedValue({ moved: true })
     } as unknown as OrcaRuntimeService
     const dispatcher = new RpcDispatcher({ runtime, methods: SESSION_TAB_METHODS })
@@ -387,7 +397,7 @@ describe('session tab RPC methods', () => {
       makeRequest('session.tabs.move', {
         worktree: 'id:wt-1',
         tabId: 'tab-1',
-        targetGroupId: 'group-2',
+        targetGroupId: 'group-1',
         kind: 'split',
         splitDirection: 'right'
       })
@@ -396,7 +406,7 @@ describe('session tab RPC methods', () => {
     expect(response.ok).toBe(true)
     expect(runtime.moveMobileSessionTab).toHaveBeenCalledWith('id:wt-1', {
       tabId: 'tab-1',
-      targetGroupId: 'group-2',
+      targetGroupId: 'group-1',
       kind: 'split',
       splitDirection: 'right'
     })

@@ -1,5 +1,17 @@
 import '../unused-default-rpc-methods.test-fixture'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { agentSessionRecordFixture } from '../../../native-chat/agent-session-record-test-fixture'
+import { StructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-host'
+import {
+  hostTestState,
+  replaceHostTestState
+} from '../../../native-chat/agent-session-wire/structured-agent-session-host-test-harness'
+import { setStructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-registry'
+import { abandonStructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-host-test-abandon'
+import {
+  openTestAgentSessionRecordStore,
+  seedTestAgentSessionRecordStore
+} from '../../agent-session-record-store-test-harness'
 import {
   CLAUDE_STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
   STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
@@ -10,6 +22,22 @@ import type { OrcaRuntimeService } from '../../orca-runtime'
 import { RpcDispatcher } from '../dispatcher'
 import type { RpcDispatchStreamingOptions } from '../dispatcher-stream-options'
 import { SESSION_TAB_METHODS } from './session-tabs'
+
+beforeEach(async () => {
+  const rig = hostTestState()
+  await abandonStructuredAgentSessionHost(rig.host)
+  await seedTestAgentSessionRecordStore(rig.root, {
+    records: [
+      agentSessionRecordFixture({ sessionId: 'codex-session', provider: 'codex' }),
+      agentSessionRecordFixture({ sessionId: 'claude-session', provider: 'claude' })
+    ]
+  })
+  const store = await openTestAgentSessionRecordStore(rig.root)
+  const host = new StructuredAgentSessionHost({ ...rig.host.deps, store })
+  replaceHostTestState({ store, host })
+  setStructuredAgentSessionHost(host)
+})
+afterEach(() => setStructuredAgentSessionHost(null))
 
 const METHODS = [
   {

@@ -1,3 +1,4 @@
+import { ordinaryStructuredSessionStoreFixture } from './structured-agent-session-rpc-client.test-fixture'
 // Share one dispatcher harness; repopulate stable hostCalls/runtimeCalls objects per test so imports keep their identities.
 
 import { vi } from 'vitest'
@@ -11,7 +12,7 @@ import {
 } from '../../../native-chat/agent-session-wire/structured-agent-session-status-feed'
 import type { OrcaRuntimeService } from '../../orca-runtime'
 import type { RpcCallerIdentity } from '../rpc-caller-identity'
-import type { RpcAnyMethodDeclaration, RpcRequest, RpcResponse } from '../core'
+import type { RpcAnyMethodDeclaration, RpcResponse } from '../core'
 import { RpcDispatcher } from '../dispatcher'
 import { STRUCTURED_AGENT_SESSION_METHODS } from './structured-agent-session'
 import { createStructuredAgentSessionLogger } from '../../../native-chat/agent-session-wire/structured-agent-session-logger'
@@ -56,10 +57,6 @@ export function attachParams(overrides: Record<string, unknown> = {}) {
     providerHandle: { kind: 'codex', threadId: 'thread-1' },
     ...overrides
   }
-}
-
-function request(method: string, params: unknown): RpcRequest {
-  return { id: 'request-1', authToken: 'token', method, params }
 }
 
 export const hostCalls: Record<string, ReturnType<typeof vi.fn>> = {}
@@ -212,12 +209,7 @@ export function hostStub(): StructuredAgentSessionHost {
     subscribeTurnCompletions: vi.fn(() => () => undefined),
     unsubscribe: vi.fn()
   })
-  const store = {
-    getOperationRow: vi.fn(() => null),
-    getRecord: vi.fn(() => null),
-    listConversations: vi.fn(() => []),
-    getConversation: vi.fn(() => null)
-  }
+  const store = ordinaryStructuredSessionStoreFixture([SESSION, STATUS_SESSION])
   // Not a call: the logger the host hands a runtime caller that reports for it.
   Reflect.set(hostCalls, 'deps', { logger: recordingStructuredAgentSessionLogger().logger, store })
   return hostCalls as unknown as StructuredAgentSessionHost
@@ -232,8 +224,13 @@ export function dispatcher(
     getStructuredAgentSessionCreateSupport: vi.fn(async () => ({ supported: true })),
     structuredAgentSessionLaunchSeedOptions: vi.fn(() => undefined),
     resolveStructuredAgentSessionCreateWorktreeTarget: vi.fn(async () => ({
-      worktreeId: 'workspace-1', workspacePath: '/workspace', instanceId: null,
-      identityKey: null, executionHostId: 'local', creatorKind: 'host', creatorDeviceId: null
+      worktreeId: 'workspace-1',
+      workspacePath: '/workspace',
+      instanceId: null,
+      identityKey: null,
+      executionHostId: 'local',
+      creatorKind: 'host',
+      creatorDeviceId: null
     })),
     resolveStructuredAgentSessionCreateIntent: vi.fn(async (params) => ({
       envelope: params.envelope,
@@ -289,7 +286,7 @@ export async function call(
 ): Promise<RpcResponse> {
   const replies: RpcResponse[] = []
   await dispatcher(runtimeOverrides, methods).dispatchStreaming(
-    request(method, params),
+    { id: 'request-1', authToken: 'token', method, params },
     (raw) => replies.push(JSON.parse(raw) as RpcResponse),
     client
   )
@@ -308,7 +305,7 @@ export async function openStream(
 ): Promise<RpcResponse[]> {
   const replies: RpcResponse[] = []
   await dispatcher().dispatchStreaming(
-    request(method, params),
+    { id: 'request-1', authToken: 'token', method, params },
     (raw) => replies.push(JSON.parse(raw) as RpcResponse),
     client
   )

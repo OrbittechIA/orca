@@ -5,9 +5,8 @@ import {
   CloseLifecycleTab,
   CloseTab
 } from '../../../../shared/rpc-contract/session-tabs-schemas-params'
-import { assertProjectedSessionTabVisible } from './session-tab-browser-placement-projection'
 import { assertAgentSessionTabDestructiveMutationSupported } from './session-tab-agent-status-projection'
-import { projectSessionTabsForClient } from './session-tabs-inventory'
+import { admitSessionTabMutation } from './session-tab-mutation-admission'
 
 export const SESSION_TAB_CLOSE_METHODS = [
   defineMethod({
@@ -15,24 +14,13 @@ export const SESSION_TAB_CLOSE_METHODS = [
     permission: 'workspace',
     params: CloseTab,
     handler: async (params, context) => {
-      if (context.clientKind) {
-        const raw = await context.runtime.listMobileSessionTabs(
-          params.worktree,
-          context.pairedDeviceId
-        )
-        const visible = projectSessionTabsForClient(
-          raw,
-          context.clientKind,
-          context.clientCapabilities
-        )
-        assertProjectedSessionTabVisible(visible, params.tabId)
-        assertAgentSessionTabDestructiveMutationSupported(
-          raw,
-          params.tabId,
-          context.clientKind,
-          context.clientCapabilities
-        )
-      }
+      const { raw } = await admitSessionTabMutation(context, params.worktree, params.tabId)
+      assertAgentSessionTabDestructiveMutationSupported(
+        raw,
+        params.tabId,
+        context.clientKind,
+        context.clientCapabilities
+      )
       const requiresIntent =
         context.clientKind === undefined ||
         (context.clientKind === 'runtime' &&
@@ -94,24 +82,13 @@ export const SESSION_TAB_CLOSE_METHODS = [
     permission: 'workspace',
     params: CloseLifecycleTab,
     handler: async (params, context) => {
-      if (context.clientKind) {
-        const raw = await context.runtime.listMobileSessionTabs(
-          params.worktree,
-          context.pairedDeviceId
-        )
-        const visible = projectSessionTabsForClient(
-          raw,
-          context.clientKind,
-          context.clientCapabilities
-        )
-        assertProjectedSessionTabVisible(visible, params.tabId)
-        assertAgentSessionTabDestructiveMutationSupported(
-          raw,
-          params.tabId,
-          context.clientKind,
-          context.clientCapabilities
-        )
-      }
+      const { raw } = await admitSessionTabMutation(context, params.worktree, params.tabId)
+      assertAgentSessionTabDestructiveMutationSupported(
+        raw,
+        params.tabId,
+        context.clientKind,
+        context.clientCapabilities
+      )
       return withSpan(
         'runtime.session-tabs.close-lifecycle',
         async (span) => {

@@ -7,7 +7,10 @@ import type { StructuredAgentSessionHost } from '../../../native-chat/agent-sess
 import type { StructuredAgentSessionCaller } from '../../../native-chat/agent-session-wire/structured-agent-session-host-types'
 import type { RpcContext } from '../core'
 import { rpcCallerOperationKey } from '../rpc-caller-identity'
-import { canAccessWorkItemStartStructuredSession } from './structured-agent-session-launch-authority'
+import {
+  canReadStructuredSessionRecord,
+  structuredSessionAdmissionRecord
+} from './structured-agent-session-launch-authority'
 export {
   structuredWorkItemStartCallerAuthority,
   canAccessWorkItemStartStructuredSession
@@ -26,10 +29,7 @@ export function canReachStructuredSession(
   host: StructuredAgentSessionHost,
   sessionId: string
 ): boolean {
-  const record = host.deps?.store?.getRecord?.(sessionId)
-  return record?.launchOrigin === 'work-item-start'
-    ? canAccessWorkItemStartStructuredSession(ctx, sessionId, host)
-    : supportsStructuredSessions(ctx)
+  return canReadStructuredSessionRecord(ctx, structuredSessionAdmissionRecord(host, sessionId))
 }
 
 export function requireStructuredSessionAdmission(
@@ -38,7 +38,9 @@ export function requireStructuredSessionAdmission(
   sessionId: string
 ): void {
   if (!canReachStructuredSession(ctx, host, sessionId)) {
-    throw agentSessionRefusalError('structured_agent_session_unsupported', { reason: 'clientCapabilityMissing' })
+    throw agentSessionRefusalError('structured_agent_session_unsupported', {
+      reason: 'clientCapabilityMissing'
+    })
   }
 }
 

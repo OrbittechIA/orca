@@ -7,7 +7,8 @@ import {
   assertProjectedSessionTabVisible,
   translateProjectedSessionTabMove
 } from './session-tab-browser-placement-projection'
-import { projectSessionTabsForClient } from './session-tabs-inventory'
+import { projectSessionTabsForContext } from './session-tabs-inventory'
+import { admitSessionTabMutation } from './session-tab-mutation-admission'
 import {
   ActivateTab,
   MovePaneToNewTab,
@@ -21,15 +22,9 @@ export const SESSION_TAB_MUTATION_METHODS = [
     name: 'session.tabs.activate',
     permission: 'workspace',
     params: ActivateTab,
-    handler: async (params, { runtime, clientKind, pairedDeviceId, clientCapabilities }) => {
-      if (clientKind) {
-        const visible = projectSessionTabsForClient(
-          await runtime.listMobileSessionTabs(params.worktree, pairedDeviceId),
-          clientKind,
-          clientCapabilities
-        )
-        assertProjectedSessionTabVisible(visible, params.tabId)
-      }
+    handler: async (params, context) => {
+      const { runtime, clientKind, pairedDeviceId } = context
+      await admitSessionTabMutation(context, params.worktree, params.tabId)
       const result = await runtime.activateMobileSessionTab(
         params.worktree,
         params.tabId,
@@ -45,7 +40,7 @@ export const SESSION_TAB_MUTATION_METHODS = [
           })
         }
       )
-      const projected = projectSessionTabsForMutationClient(result, clientKind, clientCapabilities)
+      const projected = projectSessionTabsForContext(result, context)
       // One reply's answer, outside the projection: the fallback is never part of the tab snapshot.
       return result.startupCwdFallback
         ? { ...projected, startupCwdFallback: result.startupCwdFallback }
@@ -56,13 +51,14 @@ export const SESSION_TAB_MUTATION_METHODS = [
     name: 'session.tabs.move',
     permission: 'workspace',
     params: MoveTab,
-    handler: async (params, { runtime, pairedDeviceId, clientCapabilities, clientKind }) => {
-      let translated: Parameters<typeof translateProjectedSessionTabMove>[2] = params
-      if (clientKind) {
-        const raw = await runtime.listMobileSessionTabs(params.worktree, pairedDeviceId)
-        const projected = projectSessionTabsForClient(raw, clientKind, clientCapabilities)
-        translated = translateProjectedSessionTabMove(raw, projected, params)
-      }
+    handler: async (params, context) => {
+      const { runtime } = context
+      const { raw, projected } = await admitSessionTabMutation(
+        context,
+        params.worktree,
+        params.tabId
+      )
+      const translated = translateProjectedSessionTabMove(raw, projected, params)
       const base = { tabId: translated.tabId, targetGroupId: translated.targetGroupId }
       if (translated.kind === 'reorder') {
         return runtime.moveMobileSessionTab(params.worktree, {
@@ -89,15 +85,9 @@ export const SESSION_TAB_MUTATION_METHODS = [
     name: 'session.tabs.updatePaneLayout',
     permission: 'workspace',
     params: UpdatePaneLayout,
-    handler: async (params, { runtime, pairedDeviceId, clientCapabilities, clientKind }) => {
-      await assertVisibleMutationTab(
-        runtime,
-        params.worktree,
-        params.tabId,
-        pairedDeviceId,
-        clientKind,
-        clientCapabilities
-      )
+    handler: async (params, context) => {
+      const { runtime } = context
+      await admitSessionTabMutation(context, params.worktree, params.tabId)
       return runtime.updateMobileSessionPaneLayout(params.worktree, {
         tabId: params.tabId,
         root: params.root,
@@ -112,15 +102,16 @@ export const SESSION_TAB_MUTATION_METHODS = [
     name: 'session.tabs.movePaneToNewTab',
     permission: 'workspace',
     params: MovePaneToNewTab,
-    handler: async (params, { runtime, pairedDeviceId, clientCapabilities, clientKind }) => {
-      await assertVisibleMutationTab(
-        runtime,
+    handler: async (params, context) => {
+      const { runtime } = context
+      const { raw, projected } = await admitSessionTabMutation(
+        context,
         params.worktree,
-        params.sourceTabId,
-        pairedDeviceId,
-        clientKind,
-        clientCapabilities
+        params.sourceTabId
       )
+      if (raw.tabs.some((tab) => tab.id === params.targetTabId)) {
+        assertProjectedSessionTabVisible(projected, params.targetTabId)
+      }
       return runtime.moveMobileSessionLeafToNewTab(
         params.worktree,
         {
@@ -129,13 +120,7 @@ export const SESSION_TAB_MUTATION_METHODS = [
           leafId: params.leafId
         },
         (move) => commitLeafMoveAndRekey({ store: runtime.requireStore(), runtime }, move),
-        await resolveMovedPanePlacement(
-          runtime,
-          params,
-          pairedDeviceId,
-          clientKind,
-          clientCapabilities
-        )
+        resolveMovedPanePlacement(raw, projected, params)
       )
     }
   }),
@@ -143,15 +128,9 @@ export const SESSION_TAB_MUTATION_METHODS = [
     name: 'session.tabs.setTabProps',
     permission: 'workspace',
     params: SetTabProps,
-    handler: async (params, { runtime, pairedDeviceId, clientCapabilities, clientKind }) => {
-      await assertVisibleMutationTab(
-        runtime,
-        params.worktree,
-        params.tabId,
-        pairedDeviceId,
-        clientKind,
-        clientCapabilities
-      )
+    handler: async (params, context) => {
+      const { runtime } = context
+      await admitSessionTabMutation(context, params.worktree, params.tabId)
       return runtime.setMobileSessionTabProps(params.worktree, {
         tabId: params.tabId,
         ...(params.color !== undefined ? { color: params.color } : {}),
@@ -167,28 +146,23 @@ export const SESSION_TAB_MUTATION_METHODS = [
  * The drop position in the host's own order: a client's index counts only the tabs it is shown, as
  * `session.tabs.move` translates it. A group the client cannot name leaves the tab appended.
  */
-async function resolveMovedPanePlacement(
-  runtime: OrcaRuntimeService,
-  params: { worktree: string; sourceTabId: string; targetGroupId?: string; index?: number },
-  pairedDeviceId: string | undefined,
-  clientKind: 'mobile' | 'runtime' | undefined,
-  clientCapabilities: Parameters<typeof projectSessionTabsForClient>[2]
-): Promise<MovedPanePlacement | undefined> {
+function resolveMovedPanePlacement(
+  raw: Awaited<ReturnType<OrcaRuntimeService['listMobileSessionTabs']>>,
+  projected: typeof raw,
+  params: { sourceTabId: string; targetGroupId?: string; index?: number }
+): MovedPanePlacement | undefined {
   const { targetGroupId, index } = params
   if (!targetGroupId) {
     return undefined
   }
-  if (!clientKind || index === undefined) {
-    return { targetGroupId, ...(index !== undefined ? { index } : {}) }
-  }
-  const raw = await runtime.listMobileSessionTabs(params.worktree, pairedDeviceId)
   try {
     // The new tab does not exist yet, so its source tab stands in for it; only the index is read.
-    const translated = translateProjectedSessionTabMove(
-      raw,
-      projectSessionTabsForClient(raw, clientKind, clientCapabilities),
-      { kind: 'move-to-group', tabId: params.sourceTabId, targetGroupId, index }
-    )
+    const translated = translateProjectedSessionTabMove(raw, projected, {
+      kind: 'move-to-group',
+      tabId: params.sourceTabId,
+      targetGroupId,
+      index
+    })
     return translated.kind === 'move-to-group' && translated.index !== undefined
       ? { targetGroupId, index: translated.index }
       : { targetGroupId }
@@ -201,25 +175,4 @@ async function resolveMovedPanePlacement(
     }
     throw error
   }
-}
-
-const projectSessionTabsForMutationClient = projectSessionTabsForClient
-
-async function assertVisibleMutationTab(
-  runtime: OrcaRuntimeService,
-  worktree: string,
-  tabId: string,
-  pairedDeviceId: string | undefined,
-  clientKind: 'mobile' | 'runtime' | undefined,
-  clientCapabilities: Parameters<typeof projectSessionTabsForClient>[2]
-): Promise<void> {
-  if (!clientKind) {
-    return
-  }
-  const visible = projectSessionTabsForClient(
-    await runtime.listMobileSessionTabs(worktree, pairedDeviceId),
-    clientKind,
-    clientCapabilities
-  )
-  assertProjectedSessionTabVisible(visible, tabId)
 }

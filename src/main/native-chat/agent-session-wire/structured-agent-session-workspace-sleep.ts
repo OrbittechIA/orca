@@ -25,7 +25,8 @@ type WorkspaceSleepVerdict = { stopped: true } | { stopped: false; fence: number
 export async function sleepStructuredAgentSessionWorkspace(
   host: WorkspaceSleepHost,
   workspaceId: string,
-  markAsleep = false
+  markAsleep = false,
+  admitsSession?: (sessionId: string) => boolean
 ): Promise<AgentSessionWorkspaceSleepResult> {
   let records: ReturnType<StructuredAgentSessionHostDeps['store']['listConversations']>
   try {
@@ -51,13 +52,15 @@ export async function sleepStructuredAgentSessionWorkspace(
       const stop = await host.lifetime.closeForWorkspaceSleep(
         sessionId,
         workspaceId,
-        LOCAL_EXECUTION_HOST_ID
+        LOCAL_EXECUTION_HOST_ID,
+        admitsSession
       )
       return host.tasks.serialize(sessionId, async () => {
         const record = host.deps.store.getConversation(sessionId)
         if (
           !stop ||
           !record ||
+          admitsSession?.(sessionId) === false ||
           !belongs(record.location) ||
           record.currentFence !== stop.fence ||
           host.deps.store.admittedSendCount(sessionId) !== stop.admittedSends
