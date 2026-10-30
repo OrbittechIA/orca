@@ -211,6 +211,8 @@ it('refuses fresh create on an older store that cannot prove absence', async () 
 it.each(['agentSession.create', 'agentSession.ensure'])(
   'preserves fresh ordinary location attach through %s',
   async (method) => {
+    rig.host.deps.adapter.supportsLocation = (location) =>
+      location.executionHostId === 'local' && location.wslDistro === null
     const params = hostTestAttachParams(null, {
       location: {
         executionHostId: 'local',
@@ -219,7 +221,8 @@ it.each(['agentSession.create', 'agentSession.ensure'])(
         workspaceKind: 'folder'
       }
     })
-    expect(await call(method, params, owner)).toMatchObject({
+    const response = await call(method, params, owner)
+    expect(response, JSON.stringify(response)).toMatchObject({
       ok: true,
       result: { ok: true, value: { sessionId: SESSION } }
     })
