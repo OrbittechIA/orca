@@ -24,6 +24,7 @@ import {
   SESSION,
   STRUCTURED_CLIENT as OLD_STRUCTURED_CLIENT
 } from './structured-agent-session-rpc.test-fixture'
+import { ordinaryStructuredSessionStoreFixture } from './structured-agent-session-rpc-client.test-fixture'
 
 const STRUCTURED_CLIENT = {
   clientKind: 'runtime' as const,
@@ -155,6 +156,7 @@ describe('agentSession.modelCatalog', () => {
   })
 
   it('reads the catalog for the directory the named worktree runs in on this host', async () => {
+    record = { ...agentSessionRecordFixture(), sessionId: SESSION, provider: 'codex' }
     const resolveStructuredAgentSessionLocalWorkspacePath = vi.fn(async () => '/repo/wt')
     await call(
       'agentSession.modelCatalog',
@@ -193,6 +195,7 @@ describe('agentSession.modelCatalog', () => {
   })
 
   it('passes a wait for the listing through to the catalog', async () => {
+    record = { ...agentSessionRecordFixture(), sessionId: SESSION, provider: 'codex' }
     await call(
       'agentSession.modelCatalog',
       { agent: 'codex', sessionId: SESSION, waitForListing: true },
@@ -299,7 +302,7 @@ describe('agentSession.modelCatalog before anything built the host', () => {
       Object.assign(hostStub(), {
         deps: {
           modelCatalog: { read, demand: vi.fn(async () => {}) },
-          store: { getRecord: () => null, getConversation: () => null },
+          store: ordinaryStructuredSessionStoreFixture([SESSION]),
           adapter: {}
         }
       })

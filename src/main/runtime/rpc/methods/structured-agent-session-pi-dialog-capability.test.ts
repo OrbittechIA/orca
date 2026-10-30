@@ -38,6 +38,8 @@ import {
   CLEANUP_METHODS,
   WORK_METHODS
 } from './structured-agent-session-gate-classification.test-fixture'
+import { agentSessionRecordFixture } from '../../../native-chat/agent-session-record-test-fixture'
+import { getStructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-registry'
 
 const OLD_CLIENT = {
   ...STRUCTURED_CLIENT,
@@ -68,6 +70,31 @@ const DESKTOP_CLIENT = {
   clientCapabilities: [...DESKTOP_RENDERER_RUNTIME_CLIENT_CAPABILITIES]
 }
 const UNSUPPORTED = { message: expect.stringContaining('structured_agent_session_unsupported') }
+
+/** Live streams publish only sessions whose ordinary record the host proves. */
+function recordStreamedSessions(): void {
+  const records = new Map([
+    [
+      SESSION,
+      agentSessionRecordFixture({
+        sessionId: SESSION,
+        provider: 'pi',
+        accountHome: { variable: 'PI_CODING_AGENT_DIR', path: '/home/work/.pi' }
+      })
+    ],
+    [
+      'codex-session',
+      agentSessionRecordFixture({
+        sessionId: 'codex-session',
+        provider: 'codex',
+        accountHome: { variable: 'CODEX_HOME', path: '/home/work/.codex' }
+      })
+    ]
+  ])
+  vi.spyOn(getStructuredAgentSessionHost()!.deps.store, 'getRecord').mockImplementation(
+    (id) => records.get(id) ?? null
+  )
+}
 
 beforeEach(installStructuredHostStub)
 afterEach(clearStructuredHostStub)
@@ -250,6 +277,7 @@ describe('Pi dialog-shape client capability', () => {
   })
 
   it('filters Pi status from the opening snapshot and live updates', async () => {
+    recordStreamedSessions()
     const codex: AgentSessionStatusSummary = {
       sessionId: 'codex-session',
       workspaceId: 'workspace-1',
@@ -292,6 +320,7 @@ describe('Pi dialog-shape client capability', () => {
   })
 
   it('filters Pi turn completions from the global live stream', async () => {
+    recordStreamedSessions()
     hostCalls.sessionAgent.mockImplementation((sessionId: string) =>
       sessionId === SESSION ? 'pi' : 'codex'
     )
@@ -341,6 +370,7 @@ describe('Pi dialog-shape client capability', () => {
   })
 
   it('filters Pi prompt alerts from a client that asked for prompts', async () => {
+    recordStreamedSessions()
     hostCalls.sessionAgent.mockImplementation((sessionId: string) =>
       sessionId === SESSION ? 'pi' : 'codex'
     )

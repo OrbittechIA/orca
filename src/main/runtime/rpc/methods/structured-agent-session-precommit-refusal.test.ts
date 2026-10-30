@@ -51,12 +51,15 @@ function hostStub(): StructuredAgentSessionHost {
     cursor: { epoch: 'epoch-a', sequence: 0 },
     value: { sessionId: SESSION, fence: 1, page: {}, unconfirmedClientMessageIds: [] }
   }))
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: legacy create reads the empty ledger, calls attach and logs failures.
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: create proves the session absent, reads the empty ledger, calls attach and logs failures.
   return {
     attach,
     deps: {
       logger: recordingStructuredAgentSessionLogger().logger,
-      store: { getOperationRow: vi.fn(() => null) }
+      store: {
+        getOperationRow: vi.fn(() => null),
+        selectWritableRecord: vi.fn(() => ({ kind: 'missing' as const }))
+      }
     }
   } as unknown as StructuredAgentSessionHost
 }

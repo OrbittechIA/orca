@@ -4,6 +4,7 @@ import type { OrcaRuntimeService } from '../../orca-runtime'
 import { RpcDispatcher } from '../dispatcher'
 import { SESSION_TAB_METHODS } from './session-tabs'
 import { UpdatePaneLayout } from '../../../../shared/rpc-contract/session-tabs-schemas-params'
+import { visibleSnapshot } from './session-tabs-snapshot.test-fixture'
 
 const LAYOUT_PARAMS = {
   worktree: 'id:wt-1',
@@ -22,9 +23,10 @@ const LAYOUT_PARAMS = {
 
 async function dispatchUpdatePaneLayout(params: Record<string, unknown>) {
   const updateMobileSessionPaneLayout = vi.fn().mockResolvedValue({ updated: true })
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the method only reaches updateMobileSessionPaneLayout when no clientKind is set.
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: with no clientKind the method lists tabs to admit the target, then calls updateMobileSessionPaneLayout.
   const runtime = {
     getRuntimeId: () => 'test-runtime',
+    listMobileSessionTabs: vi.fn().mockResolvedValue(visibleSnapshot()),
     updateMobileSessionPaneLayout
   } as unknown as OrcaRuntimeService
   const dispatcher = new RpcDispatcher({ runtime, methods: SESSION_TAB_METHODS })

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
 const { handleMock, onMock, removeAllListenersMock, removeHandlerMock, fromWebContentsMock } =
   vi.hoisted(() => ({
@@ -25,6 +25,9 @@ import { registerRuntimeHandlers } from './runtime'
 import { TERMINAL_FIT_RESTORE_DEADLINE_MS } from '../../shared/terminal-fit-restore-deadline'
 import { PROJECT_SECTION_PARITY_SERVED } from '../../shared/project-section-parity.test-fixture'
 import { readMobileProjectSections } from '../runtime/mobile-project-sections-snapshot'
+import { agentSessionRecordFixture } from '../native-chat/agent-session-record-test-fixture'
+import { setStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
+import { hostStub } from '../runtime/rpc/methods/structured-agent-session-rpc.test-fixture'
 
 function runtimeCallEvent() {
   const mainFrame = {}
@@ -212,6 +215,14 @@ describe('registerRuntimeHandlers', () => {
       agent: 'claude',
       isActive: true
     }
+    // Tabs project only chats whose ordinary record the host proves.
+    const record = agentSessionRecordFixture({ sessionId: claudeTab.sessionId, provider: 'claude' })
+    setStructuredAgentSessionHost(
+      Object.assign(hostStub(), {
+        deps: { store: { getRecord: (id: string) => (id === record.sessionId ? record : null) } }
+      })
+    )
+    onTestFinished(() => setStructuredAgentSessionHost(null))
     const runtime = {
       getRuntimeId: vi.fn().mockReturnValue('runtime-1'),
       getClientSettings: vi.fn(() => ({ experimentalNativeChat: true })),

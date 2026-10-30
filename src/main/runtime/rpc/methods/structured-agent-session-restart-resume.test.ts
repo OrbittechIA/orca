@@ -3,6 +3,7 @@ import '../unused-default-rpc-methods.test-fixture'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { setStructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-registry'
+import { agentSessionRecordFixture } from '../../../native-chat/agent-session-record-test-fixture'
 import {
   restartRowsFor,
   type StructuredAgentSessionRestartAudience
@@ -69,12 +70,19 @@ function installRestartHost() {
       })
     )
   }
-  setStructuredAgentSessionHost(
-    Object.assign(hostStub(), {
-      restartResume,
-      knownAgentIds: () => ['claude', 'codex', 'grok']
-    })
+  const host = Object.assign(hostStub(), {
+    restartResume,
+    knownAgentIds: () => ['claude', 'codex', 'grok']
+  })
+  // Offers name ordinary chats the host has records for.
+  const records = new Map(
+    [CLAUDE_OFFER, GROK_OFFER].map(
+      ({ sessionId, agent }) =>
+        [sessionId, agentSessionRecordFixture({ sessionId, provider: agent })] as const
+    )
   )
+  vi.spyOn(host.deps.store, 'getRecord').mockImplementation((id) => records.get(id) ?? null)
+  setStructuredAgentSessionHost(host)
   return { restartResume, offers: () => offers }
 }
 
