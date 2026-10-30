@@ -8,10 +8,7 @@ export {
   clientReadsStructuredSessionAgent
 } from './structured-agent-session-audience'
 import { AGENT_SESSION_COMMANDS_ON_REQUEST_CAPABILITY } from '../../../../shared/structured-agent-session-surface-capabilities'
-import {
-  STRUCTURED_AGENT_SESSION_CLIENT_LAUNCH_MODE_CAPABILITY,
-  type RuntimeCapability
-} from '../../../../shared/protocol-version'
+import { STRUCTURED_AGENT_SESSION_CLIENT_LAUNCH_MODE_CAPABILITY } from '../../../../shared/protocol-version'
 import { AGENT_SESSION_OPTIONAL_MODEL_CLIENT_CAPABILITY } from '../../../../shared/agent-session-optional-model-capability'
 import {
   isNativeChatDefaultFor,

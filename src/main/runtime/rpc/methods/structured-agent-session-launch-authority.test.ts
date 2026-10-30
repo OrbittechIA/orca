@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest'
+import type { AgentSessionRecord } from '../../../../shared/agent-session-record'
 import type { StructuredAgentSessionLaunchAuthority } from '../../../../shared/structured-agent-session-create'
 import {
   canAccessWorkItemStartStructuredRecord,
@@ -34,7 +35,7 @@ it('requires the exact transport owner, including desktop, and never grants an u
 })
 
 it('filters every status field and incremental frame with the same owner predicate', () => {
-  const rows = new Map([
+  const rows = new Map<string, Pick<AgentSessionRecord, 'launchOrigin' | 'launchAuthority'>>([
     ['owned', record],
     ['foreign', { ...record, launchAuthority: { kind: 'local-desktop' } as const }]
   ])

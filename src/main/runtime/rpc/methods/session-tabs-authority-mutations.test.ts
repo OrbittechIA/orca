@@ -4,6 +4,7 @@ import { agentSessionRecordFixture } from '../../../native-chat/agent-session-re
 import { STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
 import type { RuntimeMobileSessionTabsResult } from '../../../../shared/runtime-types'
 import { OrcaRuntimeService } from '../../orca-runtime'
+import { delegatedMobileSessionTabClose } from '../../mobile-session-tab-close-outcome'
 import { seedTestAgentSessionRecordStore } from '../../agent-session-record-store-test-harness'
 import {
   createRestTestRig,
@@ -145,7 +146,7 @@ beforeEach(async () => {
   }
   runtime = new OrcaRuntimeService()
   vi.spyOn(runtime, 'listMobileSessionTabs').mockResolvedValue(snapshot)
-  vi.spyOn(runtime, 'closeMobileSessionTab').mockResolvedValue({ closed: true })
+  vi.spyOn(runtime, 'closeMobileSessionTab').mockResolvedValue(delegatedMobileSessionTabClose())
   vi.spyOn(runtime, 'activateMobileSessionTab').mockImplementation(async () => ({
     ...snapshot,
     startupCwdFallback: 'workspace-root'

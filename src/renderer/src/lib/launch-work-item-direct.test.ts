@@ -16,6 +16,7 @@ describe('launchWorkItemDirect', () => {
     await expect(
       launchWorkItemDirect({
         repoId: 'repo-1',
+        launchSource: 'task_page',
         agentOverride: 'codex',
         openModalFallback: vi.fn(),
         item: { type: 'issue', number: 79, title: 'Start', url: 'https://example.com/79' }
