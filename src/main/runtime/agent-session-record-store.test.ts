@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { AgentSessionLease, AgentSessionRecord } from '../../shared/agent-session-record'
+import type { AgentSessionOwnerProbe } from '../../shared/agent-session-lease-adjudication'
 import type { PersistedAgentSessionRecord } from '../../shared/agent-session-legacy-handoff-lease'
 import type { AgentSessionRecordStore } from './agent-session-record-store'
 import {
