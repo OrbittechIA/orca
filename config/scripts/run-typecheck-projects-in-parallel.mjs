@@ -29,6 +29,13 @@ export function admissibleHeapGib(totalBytes) {
   return Math.max(1, (totalBytes / BYTES_PER_GIB) * 0.75)
 }
 
+export function effectiveTypecheckMemoryBytes(
+  totalBytes = totalmem(),
+  constrainedBytes = process.constrainedMemory?.() ?? 0
+) {
+  return constrainedBytes > 0 ? Math.min(totalBytes, constrainedBytes) : totalBytes
+}
+
 // Schedule heaviest first within core/memory budgets; oversized project runs alone so small hosts still progress.
 export function planTypecheckBatches(projects, { budgetGib, parallelism }) {
   const pending = [...projects].sort((left, right) => right.heapGib - left.heapGib)
@@ -252,7 +259,7 @@ export async function runTypecheckProjects({
   root = repoRoot,
   projects = TYPECHECK_PROJECTS,
   spawnCompiler = spawnProcess,
-  memoryBytes = totalmem(),
+  memoryBytes = effectiveTypecheckMemoryBytes(),
   parallelism = availableParallelism()
 } = {}) {
   const batches = typecheckBatches(projects, { compiler, bunConcurrency, memoryBytes, parallelism })

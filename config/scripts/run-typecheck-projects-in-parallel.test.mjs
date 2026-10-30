@@ -17,6 +17,7 @@ import {
   MOBILE_TYPECHECK_PROJECTS,
   TYPECHECK_PROJECTS,
   admissibleHeapGib,
+  effectiveTypecheckMemoryBytes,
   planTypecheckBatches,
   resolveProjectCompiler,
   resolveTypecheckBunExecutable,
@@ -31,6 +32,27 @@ const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
 
 const CI_RUNNER = { totalBytes: 16 * 1024 ** 3, parallelism: 4 }
 const DEV_LAPTOP = { totalBytes: 64 * 1024 ** 3, parallelism: 18 }
+
+it('uses the execution memory limit instead of admitting parallel host-sized typechecks', () => {
+  const host = 32 * 1024 ** 3
+  const limit = 1280 * 1024 ** 2
+  expect(effectiveTypecheckMemoryBytes(host, limit)).toBe(limit)
+  expect(effectiveTypecheckMemoryBytes(host, 0)).toBe(host)
+  expect(effectiveTypecheckMemoryBytes(host, host * 2)).toBe(host)
+  const batches = typecheckBatches(TYPECHECK_PROJECTS, {
+    compiler: 'tsrs',
+    bunConcurrency: 2,
+    memoryBytes: effectiveTypecheckMemoryBytes(host, limit),
+    parallelism: 8
+  })
+  expect(
+    batches
+      .flat()
+      .map((project) => project.config)
+      .sort()
+  ).toEqual(TYPECHECK_PROJECTS.map((project) => project.config).sort())
+  expect(batches.every((batch) => batch.length === 1)).toBe(true)
+})
 
 function planFor({ totalBytes, parallelism }, projects = TYPECHECK_PROJECTS) {
   return planTypecheckBatches(projects, {

@@ -13,14 +13,23 @@ export async function preflightWorkItemStart(args: {
   repoId: string
   mobile?: boolean
   readStatus: () => Promise<unknown>
-  readSupport: (params: { repo: string; agent: string; launchOrigin: 'work-item-start' }) => Promise<unknown>
+  readSupport: (params: {
+    repo: string
+    agent: string
+    launchOrigin: 'work-item-start'
+  }) => Promise<unknown>
 }): Promise<WorkItemStartPreflight> {
-  if (!args.agent || args.agent === 'blank' || resolveWorkItemStartPromptDelivery(args.delivery) === 'draft') {
+  if (
+    !args.agent ||
+    args.agent === 'blank' ||
+    resolveWorkItemStartPromptDelivery(args.delivery) === 'draft'
+  ) {
     return { kind: 'manual' }
   }
   const refused = (): WorkItemStartPreflight => ({
     kind: 'refused',
-    message: 'This host cannot confirm Work Item Start support for this agent and client. Update the host or choose Draft.'
+    message:
+      'This host cannot confirm Work Item Start support for this agent and client. Update the host or choose Draft.'
   })
   const unknown = (): WorkItemStartPreflight => ({
     kind: 'unknown',
@@ -29,11 +38,18 @@ export async function preflightWorkItemStart(args: {
   if (args.mobile && args.agent !== 'claude' && args.agent !== 'codex') return refused()
   try {
     const status = await args.readStatus()
-    if (!status || typeof status !== 'object' || !('capabilities' in status) || !Array.isArray(status.capabilities)) {
+    if (
+      !status ||
+      typeof status !== 'object' ||
+      !('capabilities' in status) ||
+      !Array.isArray(status.capabilities)
+    ) {
       return unknown()
     }
-    if (!status.capabilities.includes(WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY) ||
-        !status.capabilities.includes(AGENT_SESSION_CREATE_MESSAGE_RUNTIME_CAPABILITY)) {
+    if (
+      !status.capabilities.includes(WORK_ITEM_START_STRUCTURED_SESSION_RUNTIME_CAPABILITY) ||
+      !status.capabilities.includes(AGENT_SESSION_CREATE_MESSAGE_RUNTIME_CAPABILITY)
+    ) {
       return refused()
     }
     const support = await args.readSupport({
@@ -46,7 +62,9 @@ export async function preflightWorkItemStart(args: {
     }
     return support.supported === true
       ? { kind: 'structured' }
-      : support.supported === false ? refused() : unknown()
+      : support.supported === false
+        ? refused()
+        : unknown()
   } catch {
     return unknown()
   }
