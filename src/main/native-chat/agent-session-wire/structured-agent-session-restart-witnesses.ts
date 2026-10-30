@@ -15,8 +15,8 @@ export type StructuredAgentSessionRestartWitnesses = {
   beforeStop: (sessionId: string) => void
   stopped: (sessionId: string) => void
   record: () => Promise<void>
-  /** Explicit actions supersede unwritten witnesses only for readable agents in their audience. */
-  clear: (audience?: (agent: string) => boolean) => void
+  /** Explicit actions supersede unwritten witnesses only for readable agents and sessions in their audience. */
+  clear: (audience?: (agent: string) => boolean, reach?: (sessionId: string) => boolean) => void
 }
 
 export function createStructuredAgentSessionRestartWitnesses(deps: {
@@ -37,8 +37,11 @@ export function createStructuredAgentSessionRestartWitnesses(deps: {
   let trigger: AgentSessionResumeTrigger | null = null
   const stopping = new Map<string, AgentSessionResumeMarker>()
   const confirmed = new Map<string, AgentSessionResumeMarker>()
-  const clear = (audience?: (agent: string) => boolean): void => {
-    if (!audience) {
+  const clear = (
+    audience?: (agent: string) => boolean,
+    reach?: (sessionId: string) => boolean
+  ): void => {
+    if (!audience && !reach) {
       trigger = null
       stopping.clear()
       confirmed.clear()
@@ -47,7 +50,7 @@ export function createStructuredAgentSessionRestartWitnesses(deps: {
     for (const witnessed of [stopping, confirmed]) {
       for (const sessionId of witnessed.keys()) {
         const record = deps.getRecord(sessionId)
-        if (record && audience(record.provider)) {
+        if (record && (audience?.(record.provider) ?? true) && (reach?.(sessionId) ?? true)) {
           witnessed.delete(sessionId)
         }
       }

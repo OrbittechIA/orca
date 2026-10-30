@@ -140,18 +140,19 @@ export function createStructuredAgentSessionRestartResume(
     sessionIds: readonly string[] | undefined,
     owner: string,
     audience: StructuredAgentSessionRestartAudience | undefined,
+    reach: ((sessionId: string) => boolean) | undefined,
     continueOne: (marker: AgentSessionResumeMarker, continuationId: string) => Promise<void>,
     progress: ReturnType<typeof createRestartResumeProgress>
   ) => {
     // Supersede captured witnesses; the mutation lane drains any publication already in flight.
-    witnesses.clear(audience)
+    witnesses.clear(audience, reach)
     const markers = await readActionMarkers(sessionIds)
     await revealMarkers(markers)
     const requested = new Set(sessionIds ?? markers.map((marker) => marker.sessionId))
     const derived = derive(markers, 'may-be-held')
     retireSuperseded(derived.superseded)
-    const eligible = restartRowsFor(derived.candidates, audience).filter((candidate) =>
-      requested.has(candidate.sessionId)
+    const eligible = restartRowsFor(derived.candidates, audience).filter(
+      (candidate) => requested.has(candidate.sessionId) && (reach?.(candidate.sessionId) ?? true)
     )
     progress.skipExcluded(sessionIds ?? [], eligible)
     if (eligible.length === 0) {
@@ -218,7 +219,8 @@ export function createStructuredAgentSessionRestartResume(
   const continueAfterRestart: StructuredAgentSessionRestartResume['continueAfterRestart'] = async (
     sessionIds,
     owner,
-    audience
+    audience,
+    reach
   ) => {
     const progress = createRestartResumeProgress(sessions, surfaces.publishStatus)
     try {
@@ -229,6 +231,7 @@ export function createStructuredAgentSessionRestartResume(
         sessionIds,
         owner,
         audience,
+        reach,
         async (marker, continuationId) => {
           const started = await startStructuredAgentSessionContinuation(
             continuationDeps(continuationHost, () => continuationHost.stillResumable(marker)),
@@ -300,14 +303,15 @@ export function createStructuredAgentSessionRestartResume(
     listFailures,
     // Block old witnesses after dismissal; later captures are fresh interruptions.
     // Reveal before dismiss-all so newer/unlisted chats remain preserved.
-    dismiss: (sessionIds, audience) =>
+    dismiss: (sessionIds, audience, reach) =>
       failures.dismiss(
         sessionIds,
-        async (clearAudience) => {
-          witnesses.clear(clearAudience)
+        async (clearAudience, clearReach) => {
+          witnesses.clear(clearAudience, clearReach)
           await revealEvery()
         },
-        audience
+        audience,
+        reach
       ),
     continueAfterRestart,
     onAgentStarted: withdrawal.onAgentStarted,

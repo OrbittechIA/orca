@@ -11,6 +11,9 @@ import {
 } from '../durable-file-write'
 import { withFileTransactionLock } from '../file-transaction-lock'
 import {
+  capsuleDocument,
+  fencesAfterDismissal,
+  isFencedMarker,
   MAX_FAILURE_FIELD_LENGTH,
   normalizeState,
   parseState,
@@ -18,7 +21,10 @@ import {
   splitDismissedAll,
   type AgentSessionResumeFailureInput,
   type AgentSessionResumeFailureRecord,
+  type ClearAllFence,
+  type DismissalFence,
   type KeepRecord,
+  type RecoveryCapsuleFences,
   type RecoveryCapsuleState,
   type RecoveryEntry
 } from './agent-session-recovery-capsule-entries'
@@ -61,9 +67,8 @@ export class AgentSessionRecoveryCapsule {
       const { entries, failed } = normalizeState(state, now)
       const bySession = new Map(entries.map((entry) => [entry.marker.sessionId, entry]))
       const failedBySession = new Map(failed.map((failure) => [failure.marker.sessionId, failure]))
-      const dismissedAt = state.dismissedAt
       for (const marker of markers) {
-        if (dismissedAt !== undefined && marker.recordedAt <= dismissedAt) {
+        if (isFencedMarker(state, marker)) {
           continue
         }
         const existing = bySession.get(marker.sessionId)
@@ -88,7 +93,7 @@ export class AgentSessionRecoveryCapsule {
         bySession.set(marker.sessionId, { state: 'pending', marker })
       }
       // Keep dismissal fences across newer interruptions; older delayed writers must not resurrect offers.
-      await this.publish({ entries: [...bySession.values()], failed }, now, dismissedAt)
+      await this.publish({ entries: [...bySession.values()], failed }, now, state)
     })
   }
 
@@ -119,7 +124,7 @@ export class AgentSessionRecoveryCapsule {
           next.push(reserve(failure.marker))
         }
       }
-      await this.publish({ entries: next, failed }, now, state.dismissedAt)
+      await this.publish({ entries: next, failed }, now, state)
       return selected
     })
   }
@@ -143,7 +148,7 @@ export class AgentSessionRecoveryCapsule {
           failed: failed.filter((failure) => !completed.has(failure.marker.sessionId))
         },
         now,
-        state.dismissedAt
+        state
       )
     })
   }
@@ -185,17 +190,18 @@ export class AgentSessionRecoveryCapsule {
           ]
         },
         now,
-        state.dismissedAt
+        state
       )
     })
   }
 
-  /** Dismiss selected/all records without fencing later teardown offers; clearAll provides that fence. */
+  /** Dismiss selected/all records; `fence` drops later teardown writes only for the sessions removed. */
   dismiss(
     sessionIds: readonly string[] | 'all',
     now: number,
     /** Evaluate preserved records under the lock against their stored markers. */
-    keep: (marker: AgentSessionResumeMarker) => boolean = () => false
+    keep: (marker: AgentSessionResumeMarker) => boolean = () => false,
+    fence: Exclude<DismissalFence, 'all'> = 'none'
   ): Promise<number> {
     return withFileTransactionLock(this.filePath, async () => {
       const named = sessionIds === 'all' ? null : new Set(sessionIds)
@@ -213,7 +219,7 @@ export class AgentSessionRecoveryCapsule {
             failed: failed.filter((failure) => !dismissed.has(failure.marker.sessionId))
           },
           now,
-          state.dismissedAt
+          fencesAfterDismissal(state, fence, dismissed, now)
         )
       }
       return dismissed.size
@@ -246,7 +252,7 @@ export class AgentSessionRecoveryCapsule {
           )
       )
       if (keptEntries.length !== entries.length || keptFailures.length !== failed.length) {
-        await this.publish({ entries: keptEntries, failed: keptFailures }, now, state.dismissedAt)
+        await this.publish({ entries: keptEntries, failed: keptFailures }, now, state)
       }
     })
   }
@@ -261,24 +267,29 @@ export class AgentSessionRecoveryCapsule {
           : entry
       )
       // Normalize rollback to retain settled failures instead of recreating pending offers.
-      await this.publish({ entries: next, failed }, now, state.dismissedAt)
+      await this.publish({ entries: next, failed }, now, state)
     })
   }
 
-  /** Preserve records unreadable to this host for a compatible Orca. */
-  clearAll(now: number, keep: KeepRecord = () => false): Promise<number> {
+  /** Preserve records unreadable to this host; a session-scoped fence never replaces bytes another caller may own. */
+  clearAll(now: number, keep: KeepRecord = () => false, fence: ClearAllFence = 'all') {
     return withFileTransactionLock(this.filePath, async () => {
+      let stored: RecoveryCapsuleState
       let state: Pick<RecoveryCapsuleState, 'entries' | 'failed'>
       try {
-        state = normalizeState(await this.readState(), now)
-      } catch {
+        stored = await this.readState()
+        state = normalizeState(stored, now)
+      } catch (error) {
+        if (fence === 'dismissed-sessions') {
+          throw error
+        }
         // Explicit dismiss may replace unreadable advisory data; fence it against late teardown resurrection.
-        await this.publish({ entries: [], failed: [] }, now, now)
+        await this.publish({ entries: [], failed: [] }, now, { dismissedAt: now })
         return 0
       }
-      const { kept, dismissedPending } = splitDismissedAll(state, keep)
+      const { kept, dismissedPending, dismissedSessionIds } = splitDismissedAll(state, keep)
       // Fence every dismissed record; in-flight completion/rollback then cannot resurrect it.
-      await this.publish(kept, now, now)
+      await this.publish(kept, now, fencesAfterDismissal(stored, fence, dismissedSessionIds, now))
       return dismissedPending
     })
   }
@@ -305,18 +316,10 @@ export class AgentSessionRecoveryCapsule {
   private async publish(
     records: StoredRecords,
     now: number,
-    dismissedAt: number | undefined
+    fences: RecoveryCapsuleFences
   ): Promise<void> {
-    const { entries, failed } = normalizeState(records, now)
-    const { serialized } = stringifyJsonWithinByteLimit(
-      {
-        version: 2,
-        entries,
-        ...(dismissedAt === undefined ? {} : { dismissedAt }),
-        ...(failed.length === 0 ? {} : { failed })
-      },
-      MAX_CAPSULE_BYTES
-    )
+    const document = capsuleDocument(normalizeState(records, now), fences)
+    const { serialized } = stringifyJsonWithinByteLimit(document, MAX_CAPSULE_BYTES)
     await removeStaleDurableWriteTempFiles(this.filePath, {
       minimumAgeMs: STALE_WRITE_TEMP_FILE_AGE_MS
     })

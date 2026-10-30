@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { StructuredAttentionOrigin } from '../../../../shared/agent-session-attention'
 import { setStructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-registry'
 import { RuntimeMobileNotificationController } from '../../runtime-mobile-notification-controller'
+import { agentSessionRecordFixture } from '../../../native-chat/agent-session-record-test-fixture'
+import type { AgentSessionRecord } from '../../../../shared/agent-session-record'
 import {
   call,
   clearStructuredHostStub,
@@ -69,6 +71,13 @@ function hostWithDeliveries() {
   return { controller, dismissed }
 }
 
+/** The durable record store alone, as the runtime opens it without building a provider host. */
+function recordStoreHolding(record: AgentSessionRecord | null) {
+  return vi.fn(async () => ({
+    getRecord: (sessionId: string) => (sessionId === record?.sessionId ? record : null)
+  }))
+}
+
 describe('agentSession.acknowledgeAttention', () => {
   it('retires the deliveries the read covers without installing a host', async () => {
     setStructuredAgentSessionHost(null)
@@ -80,13 +89,69 @@ describe('agentSession.acknowledgeAttention', () => {
       STRUCTURED_CLIENT,
       {
         retireStructuredAttention: controller.retireStructuredAttention.bind(controller),
-        ensureStructuredAgentSessionHost: install
+        ensureStructuredAgentSessionHost: install,
+        openAgentSessionRecordStore: recordStoreHolding(
+          agentSessionRecordFixture({ sessionId: SESSION, provider: 'codex' })
+        )
       }
     )
     expect(reply).toMatchObject({ ok: true, result: { acknowledged: true } })
     expect(install).not.toHaveBeenCalled()
     // A newer prompt, another session and another scope's journal all stay live.
     expect(dismissed).toEqual(['read'])
+  })
+
+  const unprovable: { label: string; record: AgentSessionRecord | null }[] = [
+    { label: 'a session with no record', record: null },
+    {
+      label: "another device's Work Item Start chat",
+      record: agentSessionRecordFixture({
+        sessionId: SESSION,
+        provider: 'codex',
+        launchOrigin: 'work-item-start',
+        launchAuthority: { kind: 'paired-device', deviceId: 'another-device' }
+      })
+    }
+  ]
+  it.each(unprovable)(
+    'retires nothing for $label without installing a host',
+    async ({ record }) => {
+      setStructuredAgentSessionHost(null)
+      const install = vi.fn()
+      const { controller, dismissed } = hostWithDeliveries()
+      const reply = await call(
+        'agentSession.acknowledgeAttention',
+        { sessionId: SESSION, observedCursor: { epoch: 'journal-a', sequence: 10 } },
+        STRUCTURED_CLIENT,
+        {
+          retireStructuredAttention: controller.retireStructuredAttention.bind(controller),
+          ensureStructuredAgentSessionHost: install,
+          openAgentSessionRecordStore: recordStoreHolding(record)
+        }
+      )
+      expect(reply).toMatchObject({ ok: false })
+      expect(install).not.toHaveBeenCalled()
+      expect(dismissed).toEqual([])
+    }
+  )
+
+  it('retires nothing when the record store cannot be opened', async () => {
+    setStructuredAgentSessionHost(null)
+    const retire = vi.fn()
+    const reply = await call(
+      'agentSession.acknowledgeAttention',
+      { sessionId: SESSION, observedCursor: { epoch: 'journal-a', sequence: 10 } },
+      STRUCTURED_CLIENT,
+      {
+        retireStructuredAttention: retire,
+        ensureStructuredAgentSessionHost: vi.fn(),
+        openAgentSessionRecordStore: vi.fn(async () => {
+          throw new Error('journal unavailable')
+        })
+      }
+    )
+    expect(reply).toMatchObject({ ok: false })
+    expect(retire).not.toHaveBeenCalled()
   })
 
   it('refuses a read without its journal boundary or with unknown fields, before any work', async () => {

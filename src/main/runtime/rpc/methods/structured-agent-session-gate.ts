@@ -44,6 +44,18 @@ export function requireStructuredSessionAdmission(
   }
 }
 
+/** Only the store's authoritative answer proves absence; a null getRecord or an older store proves nothing. */
+function selectStructuredSessionRecord(host: StructuredAgentSessionHost, sessionId: string) {
+  return host.deps?.store?.selectWritableRecord?.(sessionId)
+}
+
+export function structuredSessionProvablyAbsent(
+  host: StructuredAgentSessionHost,
+  sessionId: string
+): boolean {
+  return selectStructuredSessionRecord(host, sessionId)?.kind === 'missing'
+}
+
 /** Only an authoritative missing record admits a fresh create; reservation still fences races. */
 export function requireStructuredSessionCreateAdmission(
   ctx: RpcContext,
@@ -51,7 +63,7 @@ export function requireStructuredSessionCreateAdmission(
   sessionId: string
 ): void {
   requireStructuredCapability(ctx)
-  const selected = host.deps?.store?.selectWritableRecord?.(sessionId)
+  const selected = selectStructuredSessionRecord(host, sessionId)
   if (selected?.kind === 'missing') {
     return
   }

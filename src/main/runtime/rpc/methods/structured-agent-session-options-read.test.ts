@@ -11,7 +11,10 @@ import { createCodexModelCatalogProbe } from '../../../codex/codex-model-catalog
 import type { runCodexAppServerSession } from '../../../codex/codex-app-server-session'
 import type { AgentSessionRecord } from '../../../../shared/agent-session-record'
 import type { AgentSessionModelCatalogResult } from '../../../../shared/agent-session-wire'
-import { agentSessionRecordFixture } from '../../../../shared/agent-session-record.test-fixture'
+import {
+  agentSessionLeaseFixture,
+  agentSessionRecordFixture
+} from '../../../../shared/agent-session-record.test-fixture'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../shared/constants'
 import {
   agentModelCatalogFingerprintForRecord,
@@ -326,6 +329,64 @@ describe('agentSession.modelCatalog before anything built the host', () => {
     expect(installHost).toHaveBeenCalledTimes(1)
     expect(reply).toMatchObject({ ok: true, result: { origin: 'probe' } })
     expect(read).toHaveBeenCalledWith({ agent: 'codex', sessionId: SESSION })
+  })
+
+  // The renderer reserves a new chat's id before create; its picker reads what a new launch sees.
+  it('answers a reserved new chat that the store proves absent, without binding its id', async () => {
+    const reply = await call(
+      'agentSession.modelCatalog',
+      { agent: 'codex', sessionId: 'reserved-new-chat' },
+      STRUCTURED_CLIENT,
+      { ensureStructuredAgentSessionHost: installHost }
+    )
+    expect(installHost).toHaveBeenCalledTimes(1)
+    expect(reply).toMatchObject({ ok: true, result: { origin: 'probe' } })
+    expect(read).toHaveBeenCalledWith({ agent: 'codex' })
+  })
+
+  const foreignScoped: AgentSessionRecord = {
+    ...agentSessionRecordFixture(agentSessionLeaseFixture({ sessionId: SESSION })),
+    provider: 'codex',
+    launchOrigin: 'work-item-start',
+    launchAuthority: { kind: 'paired-device', deviceId: 'another-device' }
+  }
+  it.each([
+    {
+      label: 'an unreadable record',
+      store: {
+        ...ordinaryStructuredSessionStoreFixture([]),
+        selectWritableRecord: () => ({ kind: 'unreadable' as const })
+      }
+    },
+    {
+      label: "another device's Work Item Start chat",
+      store: {
+        ...ordinaryStructuredSessionStoreFixture([]),
+        getRecord: () => foreignScoped,
+        getConversation: () => agentSessionConversationView(foreignScoped),
+        selectWritableRecord: () => ({ kind: 'writable' as const, record: foreignScoped })
+      }
+    },
+    {
+      label: 'a store that cannot prove absence',
+      store: { getRecord: () => null, getConversation: () => null }
+    }
+  ])('refuses $label instead of reading it as a new chat', async ({ store }) => {
+    const install = vi.fn(async () => {
+      setStructuredAgentSessionHost(
+        Object.assign(hostStub(), {
+          deps: { modelCatalog: { read, demand: vi.fn(async () => {}) }, store, adapter: {} }
+        })
+      )
+    })
+    const reply = await call(
+      'agentSession.modelCatalog',
+      { agent: 'codex', sessionId: SESSION },
+      STRUCTURED_CLIENT,
+      { ensureStructuredAgentSessionHost: install }
+    )
+    expect(reply).toMatchObject({ ok: false })
+    expect(read).not.toHaveBeenCalled()
   })
 
   // Session-less terminal-chat reads must use CLI listing without opening a structured journal.

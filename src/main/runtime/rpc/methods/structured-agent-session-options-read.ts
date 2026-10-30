@@ -2,11 +2,15 @@ import { AGENT_SESSION_COHERENT_MODEL_CATALOG_CAPABILITY } from '../../../../sha
 // options reads at-rest records/catalogs or the live provider; modelCatalog reads stored/start-published facts without waiting on attach.
 // Older hosts return method_not_found (mobile may see forbidden); clients retain static seeds.
 
-import { defineMethod } from '../core'
+import { defineMethod, type RpcContext } from '../core'
+import type { StructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-host'
 import {
+  ensureStructuredHostInstalled,
   requireInstalledStructuredHost,
   requireStructuredAgentAudience,
-  requireStructuredHost
+  requireStructuredHost,
+  requireStructuredSessionHost,
+  structuredSessionProvablyAbsent
 } from './structured-agent-session-gate'
 import {
   HandoffStatusParams,
@@ -23,6 +27,22 @@ import {
 import type { AgentSessionModelCatalogResult } from '../../../../shared/agent-session-wire'
 import { structuredAgentSessionOptionModels } from '../../../native-chat/agent-session-wire/structured-agent-session-option-models'
 import { finishedListingIds } from '../../../../shared/structured-agent-session-options'
+
+/** A new chat's reserved id is not founded yet: it reads what a new launch sees, unbound so a racing create cannot rebind it. */
+async function modelCatalogHost(
+  ctx: RpcContext,
+  sessionId: string | undefined
+): Promise<{ host: StructuredAgentSessionHost; sessionId: string | undefined }> {
+  if (sessionId === undefined) {
+    return { host: requireStructuredHost(ctx), sessionId }
+  }
+  await ensureStructuredHostInstalled(ctx)
+  const host = requireStructuredHost(ctx)
+  if (structuredSessionProvablyAbsent(host, sessionId)) {
+    return { host, sessionId: undefined }
+  }
+  return { host: requireStructuredSessionHost(ctx, sessionId), sessionId }
+}
 
 export const STRUCTURED_AGENT_SESSION_OPTIONS_READ_METHODS = [
   defineMethod({
@@ -71,14 +91,11 @@ export const STRUCTURED_AGENT_SESSION_OPTIONS_READ_METHODS = [
     permission: 'workspace',
     params: ModelCatalogParams,
     // Session reads may build the host; session-less terminal reads must not open unused structured journals.
-    handler: async ({ worktree, ...params }, ctx) => {
-      requireStructuredAgentAudience(ctx, params.agent)
-      const host =
-        params.sessionId === undefined
-          ? requireStructuredHost(ctx)
-          : await requireInstalledStructuredHost(ctx, params.sessionId)
-      const record =
-        params.sessionId === undefined ? null : host.deps.store.getConversation(params.sessionId)
+    handler: async ({ worktree, sessionId: namedSessionId, ...rest }, ctx) => {
+      requireStructuredAgentAudience(ctx, rest.agent)
+      const { host, sessionId } = await modelCatalogHost(ctx, namedSessionId)
+      const params = sessionId === undefined ? rest : { ...rest, sessionId }
+      const record = sessionId === undefined ? null : host.deps.store.getConversation(sessionId)
       const coherent =
         ctx.clientKind === undefined ||
         ctx.clientCapabilities?.includes(AGENT_SESSION_COHERENT_MODEL_CATALOG_CAPABILITY) === true

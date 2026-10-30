@@ -500,6 +500,41 @@ describe('durable restart offers', () => {
     expect(await capsule.list(NOW + 2)).toEqual([newer])
   })
 
+  it('fences only the sessions a scoped dismissal removed, in a file an older build still reads', async () => {
+    const kept = marker({ sessionId: 'another-callers-chat' })
+    await capsule.record([marker(), kept], NOW)
+    await capsule.beginResume([SESSION], 'operation-a', NOW)
+    const keep = (stored: { sessionId: string }) => stored.sessionId === kept.sessionId
+
+    expect(await capsule.clearAll(NOW + 1, keep, 'dismissed-sessions')).toBe(0)
+    await capsule.rollbackResume('operation-a', NOW + 1)
+    expect(await capsule.dismiss('all', NOW + 1, keep, 'dismissed-sessions')).toBe(0)
+    // Late writers of the removed chat stay out; another chat's and an unseen chat's still land.
+    const unseen = marker({ sessionId: 'unseen-chat' })
+    const keptLater = { ...kept, recordedAt: NOW + 1, teardownId: 'kept-later' }
+    await capsule.record([marker(), unseen, keptLater], NOW + 1)
+    expect(await capsule.list(NOW + 1)).toEqual([keptLater, unseen])
+    const newer = marker({ recordedAt: NOW + 2, teardownId: 'teardown-new' })
+    await capsule.record([newer], NOW + 2)
+    expect(await capsule.list(NOW + 2)).toEqual([keptLater, unseen, newer])
+
+    const stored = JSON.parse(await readFile(filePath, 'utf8'))
+    expect(stored).not.toHaveProperty('dismissedAt')
+    expect(stored.sessionFences).toEqual([{ sessionId: SESSION, dismissedAt: NOW + 1 }])
+    const olderCapsule = z.object({
+      version: z.literal(2),
+      entries: z.array(z.unknown()),
+      dismissedAt: z.number().int().nonnegative().optional()
+    })
+    expect(olderCapsule.parse(stored).entries).toHaveLength(3)
+  })
+
+  it('keeps unreadable bytes another caller may own when a scoped dismissal cannot read them', async () => {
+    await writeFile(filePath, '{')
+    await expect(capsule.clearAll(NOW, () => false, 'dismissed-sessions')).rejects.toThrow()
+    expect(await readFile(filePath, 'utf8')).toBe('{')
+  })
+
   it('keeps a legacy v1 file readable until a mutating operation migrates it', async () => {
     const legacy = JSON.stringify({ version: 1, markers: [marker()] })
     await writeFile(filePath, legacy)

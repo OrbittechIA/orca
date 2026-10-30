@@ -1,7 +1,7 @@
 // Build durable-record access lazily and scope every restart offer action to agents this client renders.
 // Listing spends no offer; resume re-derives eligibility from host state, never trusts supplied ids.
 
-import { defineMethod } from '../core'
+import { defineMethod, type RpcContext } from '../core'
 import {
   ensureStructuredHostInstalled,
   requireStructuredHost,
@@ -16,6 +16,26 @@ import {
   RestartResumeParams
 } from './structured-agent-session-schemas'
 import { structuredAgentsReadBy } from './structured-agent-session-policy'
+import type { StructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-host'
+import type { StructuredAgentSessionRestartReach } from '../../../native-chat/agent-session-wire/structured-agent-session-restart-resume-set'
+
+/** Unnamed actions keep their all-offers meaning, limited under the capsule lock to sessions this caller may act on. */
+function restartReachFor(
+  ctx: RpcContext,
+  host: StructuredAgentSessionHost
+): StructuredAgentSessionRestartReach {
+  return (sessionId) => canReachStructuredSession(ctx, host, sessionId)
+}
+
+function requireNamedRestartSessions(
+  ctx: RpcContext,
+  host: StructuredAgentSessionHost,
+  sessionIds: readonly string[] | undefined
+): void {
+  for (const id of sessionIds ?? []) {
+    requireStructuredSessionAdmission(ctx, host, id)
+  }
+}
 
 export const STRUCTURED_AGENT_SESSION_RESTART_RESUME_METHODS = [
   defineMethod({
@@ -47,15 +67,12 @@ export const STRUCTURED_AGENT_SESSION_RESTART_RESUME_METHODS = [
       const host = requireStructuredHost(ctx)
       // Offers this client was never shown stay for a client that can show them.
       const audience = structuredAgentsReadBy(ctx, host.knownAgentIds())
-      const ids =
-        params.sessionIds ??
-        (await host.restartResume.list(audience))
-          .filter((row) => canReachStructuredSession(ctx, host, row.sessionId))
-          .map((row) => row.sessionId)
-      for (const id of ids) {
-        requireStructuredSessionAdmission(ctx, host, id)
-      }
-      const dismissed = await host.restartResume.dismiss(ids, audience)
+      requireNamedRestartSessions(ctx, host, params.sessionIds)
+      const dismissed = await host.restartResume.dismiss(
+        params.sessionIds,
+        audience,
+        restartReachFor(ctx, host)
+      )
       if (params.sessionIds === undefined) {
         // Dismissal already removed everything this client sees; another read adds only a post-success failure point.
         return { dismissed, sessions: [], failed: [] }
@@ -79,19 +96,12 @@ export const STRUCTURED_AGENT_SESSION_RESTART_RESUME_METHODS = [
     handler: async (params, ctx) => {
       await ensureStructuredHostInstalled(ctx)
       const host = requireStructuredHost(ctx)
-      const audience = structuredAgentsReadBy(ctx, host.knownAgentIds())
-      const ids =
-        params.sessionIds ??
-        (await host.restartResume.list(audience))
-          .filter((row) => canReachStructuredSession(ctx, host, row.sessionId))
-          .map((row) => row.sessionId)
-      for (const id of ids) {
-        requireStructuredSessionAdmission(ctx, host, id)
-      }
+      requireNamedRestartSessions(ctx, host, params.sessionIds)
       const result = await host.restartResume.continueAfterRestart(
-        ids,
+        params.sessionIds,
         structuredCallerFor(ctx).callerKey,
-        audience
+        structuredAgentsReadBy(ctx, host.knownAgentIds()),
+        restartReachFor(ctx, host)
       )
       return {
         ...result,

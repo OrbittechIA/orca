@@ -46,6 +46,8 @@ export type StructuredAgentSessionResumeFailure = StructuredAgentSessionResumeCa
 
 /** Limit old clients to agents they can show, across listing, resume and dismissal. */
 export type StructuredAgentSessionRestartAudience = (agent: string) => boolean
+/** Limit callers to sessions whose durable launch scope they may act on; unknown sessions stay out. */
+export type StructuredAgentSessionRestartReach = (sessionId: string) => boolean
 
 export function restartRowsFor<T extends { agent: string }>(
   rows: T[],

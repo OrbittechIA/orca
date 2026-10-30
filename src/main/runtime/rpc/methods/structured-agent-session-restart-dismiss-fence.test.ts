@@ -1,5 +1,5 @@
 import '../unused-default-rpc-methods.test-fixture'
-// Drive desktop's real dispatch context: all-readable agents use one dismissal fence; older clients must preserve offers they cannot render.
+// Drive desktop's real dispatch context: dismissal fences only chats it removed; older clients must preserve offers they cannot render.
 
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -56,10 +56,10 @@ function withPilot(): StructuredAgentRegistry {
 }
 
 async function storedFence(root: string) {
-  const { dismissedAt } = JSON.parse(
+  const { dismissedAt, sessionFences } = JSON.parse(
     await readFile(join(root, AGENT_SESSION_RECOVERY_CAPSULE_FILE), 'utf8')
   )
-  return dismissedAt ? { dismissedAt } : {}
+  return { ...(dismissedAt ? { dismissedAt } : {}), ...(sessionFences ? { sessionFences } : {}) }
 }
 
 async function dismissAllFromDesktop(client = DESKTOP) {
@@ -70,14 +70,22 @@ it('fences a dismissed offer against a late teardown write when the desktop sees
   const { host, root, marker } = await interruptedRestart()
   setStructuredAgentSessionHost(host)
   const capsule = new AgentSessionRecoveryCapsule(root)
+  // An offer whose chat has no record this caller can prove it may act on.
+  const unrecorded = { ...marker!, sessionId: 'unrecorded-session' }
+  await capsule.record([unrecorded], NOW)
 
   expect(await dismissAllFromDesktop()).toMatchObject({ ok: true, result: { dismissed: 1 } })
   // A teardown writer that captured this chat before the dismissal publishes late.
   await capsule.record([marker!], NOW)
 
-  expect(await capsule.list(NOW)).toEqual([])
-  // When all agents are readable, dismissal uses one fence for all pending offers.
-  expect(await storedFence(root)).toEqual({ dismissedAt: NOW + 1 })
+  expect(await capsule.list(NOW)).toEqual([unrecorded])
+  // The fence names the dismissed chat only: a chat nobody dismissed, perhaps another caller's, still lands.
+  expect(await storedFence(root)).toEqual({
+    sessionFences: [{ sessionId: marker!.sessionId, dismissedAt: NOW + 1 }]
+  })
+  const unseen = { ...marker!, sessionId: 'unseen-session' }
+  await capsule.record([unseen], NOW)
+  expect(await capsule.list(NOW)).toEqual([unrecorded, unseen])
   expect(await call('agentSession.restartResumable', {}, DESKTOP)).toMatchObject({
     ok: true,
     result: { sessions: [] }
@@ -98,6 +106,10 @@ it('leaves offers it was not shown when the host runs an agent an older desktop 
   })
 
   expect(await capsule.list(NOW)).toEqual([unreadable])
-  // A scoped dismissal writes no fence: nothing it did not clear may be dropped later.
-  expect(await storedFence(root)).toEqual({})
+  // A scoped dismissal fences only what it cleared: nothing it did not clear may be dropped later.
+  await capsule.record([marker!], NOW)
+  expect(await capsule.list(NOW)).toEqual([unreadable])
+  expect(await storedFence(root)).toEqual({
+    sessionFences: [{ sessionId: marker!.sessionId, dismissedAt: NOW + 1 }]
+  })
 })

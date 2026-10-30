@@ -4,6 +4,7 @@ import type { StructuredAgentSessionContinuationOutcome } from './structured-age
 import type { StructuredAgentSessionResumeOutcome } from './structured-agent-session-restart-resume-runner'
 import type {
   StructuredAgentSessionRestartAudience,
+  StructuredAgentSessionRestartReach,
   StructuredAgentSessionResumeCandidate,
   StructuredAgentSessionResumeFailure
 } from './structured-agent-session-restart-resume-set'
@@ -24,7 +25,8 @@ export type StructuredAgentSessionRestartResume = {
   continueAfterRestart: (
     sessionIds: readonly string[] | undefined,
     owner: string,
-    audience?: StructuredAgentSessionRestartAudience
+    audience?: StructuredAgentSessionRestartAudience,
+    reach?: StructuredAgentSessionRestartReach
   ) => Promise<{
     resumed: StructuredAgentSessionResumeOutcome[]
     continued: StructuredAgentSessionContinuationOutcome[]
@@ -35,7 +37,8 @@ export type StructuredAgentSessionRestartResume = {
   /** Dismiss visible records only; preserve newer-chat records this host never lists. */
   dismiss: (
     sessionIds?: readonly string[],
-    audience?: StructuredAgentSessionRestartAudience
+    audience?: StructuredAgentSessionRestartAudience,
+    reach?: StructuredAgentSessionRestartReach
   ) => Promise<number>
   onAgentStarted: (sessionId: string) => void
   /** Continue a cut reply with or without an offer. */

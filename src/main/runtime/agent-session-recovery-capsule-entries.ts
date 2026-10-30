@@ -14,6 +14,7 @@ import {
 
 const RESUME_ACTION_LEASE_TTL_MS = 10 * 60 * 1000
 export const MAX_FAILURE_FIELD_LENGTH = 512
+const MAX_SESSION_FENCES = 1024
 
 const legacyCapsuleSchema = z.object({ version: z.literal(1), markers: z.array(z.unknown()) })
 const entrySchema = z.object({
@@ -37,7 +38,12 @@ const capsuleSchema = z.object({
   version: z.literal(2),
   entries: z.array(z.unknown()),
   dismissedAt: z.number().int().nonnegative().optional(),
-  failed: z.unknown().optional()
+  failed: z.unknown().optional(),
+  sessionFences: z.unknown().optional()
+})
+const sessionFenceSchema = z.object({
+  sessionId: z.string().min(1).max(MAX_FAILURE_FIELD_LENGTH),
+  dismissedAt: z.number().int().nonnegative()
 })
 
 /** Failure guidance remains until user action, successful retry, dismissal or a newer teardown supersedes it. */
@@ -71,6 +77,73 @@ export type RecoveryCapsuleState = {
   entries: RecoveryEntry[]
   failed: AgentSessionResumeFailureRecord[]
   dismissedAt?: number
+  /** Scoped dismissals fence only the sessions they removed; older builds drop this optional key. */
+  sessionFences?: ReadonlyMap<string, number>
+}
+
+export type RecoveryCapsuleFences = Pick<RecoveryCapsuleState, 'dismissedAt' | 'sessionFences'>
+
+export function isFencedMarker(
+  fences: RecoveryCapsuleFences,
+  marker: Pick<AgentSessionResumeMarker, 'sessionId' | 'recordedAt'>
+): boolean {
+  const fencedAt = Math.max(
+    fences.dismissedAt ?? -1,
+    fences.sessionFences?.get(marker.sessionId) ?? -1
+  )
+  return marker.recordedAt <= fencedAt
+}
+
+/** `all` fences every later write up to now; `dismissed-sessions` only the sessions removed. */
+export type DismissalFence = 'none' | 'all' | 'dismissed-sessions'
+export type ClearAllFence = Exclude<DismissalFence, 'none'>
+
+export function fencesAfterDismissal(
+  fences: RecoveryCapsuleFences,
+  fence: DismissalFence,
+  dismissedSessionIds: Iterable<string>,
+  at: number
+): RecoveryCapsuleFences {
+  if (fence !== 'dismissed-sessions') {
+    return fence === 'all' ? { ...fences, dismissedAt: at } : fences
+  }
+  const sessionFences = new Map(fences.sessionFences)
+  for (const sessionId of dismissedSessionIds) {
+    sessionFences.set(sessionId, Math.max(at, sessionFences.get(sessionId) ?? at))
+  }
+  return { ...fences, sessionFences }
+}
+
+export function capsuleDocument(
+  { entries, failed }: Pick<RecoveryCapsuleState, 'entries' | 'failed'>,
+  { dismissedAt, sessionFences }: RecoveryCapsuleFences
+) {
+  // Drop fences the global fence covers and bound the rest to the newest dismissals.
+  const scoped = [...(sessionFences ?? [])]
+    .filter(([, fencedAt]) => fencedAt > (dismissedAt ?? -1))
+    .sort(([, left], [, right]) => right - left)
+    .slice(0, MAX_SESSION_FENCES)
+    .map(([sessionId, fencedAt]) => ({ sessionId, dismissedAt: fencedAt }))
+  return {
+    version: 2,
+    entries,
+    ...(dismissedAt === undefined ? {} : { dismissedAt }),
+    ...(failed.length === 0 ? {} : { failed }),
+    ...(scoped.length === 0 ? {} : { sessionFences: scoped })
+  }
+}
+
+// Advisory like failures: an unreadable fence list must not block offers or teardown writes.
+function parseSessionFences(value: unknown): Map<string, number> {
+  const fences = new Map<string, number>()
+  for (const fence of Array.isArray(value) ? value : []) {
+    const parsed = sessionFenceSchema.safeParse(fence)
+    if (parsed.success) {
+      const { sessionId, dismissedAt } = parsed.data
+      fences.set(sessionId, Math.max(dismissedAt, fences.get(sessionId) ?? dismissedAt))
+    }
+  }
+  return fences
 }
 
 function parseMarker(value: unknown): AgentSessionResumeMarker {
@@ -136,7 +209,8 @@ export function parseState(raw: string): RecoveryCapsuleState {
   return {
     entries: capsule.entries.map(parseEntry),
     failed: parseFailures(capsule.failed),
-    ...(capsule.dismissedAt === undefined ? {} : { dismissedAt: capsule.dismissedAt })
+    ...(capsule.dismissedAt === undefined ? {} : { dismissedAt: capsule.dismissedAt }),
+    sessionFences: parseSessionFences(capsule.sessionFences)
   }
 }
 
@@ -203,12 +277,19 @@ export type KeepRecord = (marker: AgentSessionResumeMarker) => boolean
 export function splitDismissedAll(
   state: Pick<RecoveryCapsuleState, 'entries' | 'failed'>,
   keep: KeepRecord
-): { kept: Pick<RecoveryCapsuleState, 'entries' | 'failed'>; dismissedPending: number } {
+): {
+  kept: Pick<RecoveryCapsuleState, 'entries' | 'failed'>
+  dismissedPending: number
+  dismissedSessionIds: string[]
+} {
   const entries = state.entries.filter((entry) => keep(entry.marker))
   return {
     kept: { entries, failed: state.failed.filter((failure) => keep(failure.marker)) },
     dismissedPending: state.entries.filter(
       (entry) => entry.state === 'pending' && !keep(entry.marker)
-    ).length
+    ).length,
+    dismissedSessionIds: [...state.entries, ...state.failed]
+      .filter(({ marker }) => !keep(marker))
+      .map(({ marker }) => marker.sessionId)
   }
 }

@@ -6,7 +6,8 @@ import { setStructuredAgentSessionHost } from '../../../native-chat/agent-sessio
 import { agentSessionRecordFixture } from '../../../native-chat/agent-session-record-test-fixture'
 import {
   restartRowsFor,
-  type StructuredAgentSessionRestartAudience
+  type StructuredAgentSessionRestartAudience,
+  type StructuredAgentSessionRestartReach
 } from '../../../native-chat/agent-session-wire/structured-agent-session-restart-resume-set'
 import { STRUCTURED_AGENT_SESSION_REGISTERED_AGENTS_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
 import { DESKTOP_RENDERER_RUNTIME_CLIENT_CAPABILITIES } from '../../../ipc/desktop-renderer-runtime-capabilities'
@@ -49,7 +50,11 @@ function installRestartHost() {
     list: vi.fn(list),
     listFailures: vi.fn(listFailures),
     dismiss: vi.fn(
-      async (sessionIds?: readonly string[], audience?: StructuredAgentSessionRestartAudience) => {
+      async (
+        sessionIds?: readonly string[],
+        audience?: StructuredAgentSessionRestartAudience,
+        _reach?: StructuredAgentSessionRestartReach
+      ) => {
         const gone = restartRowsFor(offers, audience).filter(
           (offer) => sessionIds?.includes(offer.sessionId) ?? true
         )
@@ -61,7 +66,8 @@ function installRestartHost() {
       async (
         _sessionIds: readonly string[] | undefined,
         _owner: string,
-        audience?: StructuredAgentSessionRestartAudience
+        audience?: StructuredAgentSessionRestartAudience,
+        _reach?: StructuredAgentSessionRestartReach
       ) => ({
         resumed: [],
         continued: [],
@@ -124,6 +130,9 @@ describe("a paired client too old to show the host's other agents", () => {
     expect(audience?.('claude')).toBe(true)
     expect(audience?.('codex')).toBe(true)
     expect(audience?.('grok')).toBe(false)
+    const reach = host.restartResume.continueAfterRestart.mock.lastCall?.[3]
+    expect(reach?.(CLAUDE_OFFER.sessionId)).toBe(true)
+    expect(reach?.('unrecorded-session')).toBe(false)
   })
 
   it('is not answered the hidden offers or failures after a named continuation', async () => {
@@ -149,9 +158,18 @@ describe.each([
       result: { sessions: [CLAUDE_OFFER, GROK_OFFER], failed: [{ agent: 'grok' }] }
     })
     await call('agentSession.restartContinue', {}, client)
+    expect(host.restartResume.continueAfterRestart.mock.lastCall?.[0]).toBeUndefined()
     expect(host.restartResume.continueAfterRestart.mock.lastCall?.[2]).toBeUndefined()
     await call('agentSession.restartResumableDismiss', {}, client)
+    expect(host.restartResume.dismiss.mock.lastCall?.[0]).toBeUndefined()
     expect(host.restartResume.dismiss.mock.lastCall?.[1]).toBeUndefined()
+    // Unnamed actions keep their all-offers meaning but never reach a chat without a record.
+    const reach = host.restartResume.dismiss.mock.lastCall?.[2]
+    expect([CLAUDE_OFFER, GROK_OFFER].map(({ sessionId }) => reach?.(sessionId))).toEqual([
+      true,
+      true
+    ])
+    expect(reach?.('unrecorded-session')).toBe(false)
     expect(host.offers()).toEqual([])
   })
 })

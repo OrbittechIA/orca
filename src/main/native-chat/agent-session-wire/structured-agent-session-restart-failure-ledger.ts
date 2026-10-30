@@ -15,6 +15,7 @@ import { AGENT_MODEL_MAX_LENGTH } from '../../../shared/agent-status-types'
 import type { StructuredAgentSessionContinuationOutcome } from './structured-agent-session-restart-continuation'
 import type {
   StructuredAgentSessionRestartAudience,
+  StructuredAgentSessionRestartReach,
   StructuredAgentSessionResumeCandidate,
   StructuredAgentSessionResumeFailure
 } from './structured-agent-session-restart-resume-set'
@@ -47,11 +48,15 @@ export type StructuredAgentSessionRestartFailureLedger = {
       failureReason: (sessionId: string) => string
     }
   ) => Promise<void>
-  /** Dismiss only visible agents/records; unnamed dismissal preserves newer chats and adds no fence. */
+  /** Dismiss only visible agents/reachable records; unnamed dismissal preserves newer chats and fences what it removed. */
   dismiss: (
     sessionIds: readonly string[] | undefined,
-    beforeClearAll: (audience?: StructuredAgentSessionRestartAudience) => void | Promise<void>,
-    audience?: StructuredAgentSessionRestartAudience
+    beforeClearAll: (
+      audience?: StructuredAgentSessionRestartAudience,
+      reach?: StructuredAgentSessionRestartReach
+    ) => void | Promise<void>,
+    audience?: StructuredAgentSessionRestartAudience,
+    reach?: StructuredAgentSessionRestartReach
   ) => Promise<number>
 }
 
@@ -201,8 +206,11 @@ export function createStructuredAgentSessionRestartFailureLedger(deps: {
     read,
     list,
     settle,
-    dismiss: (sessionIds, beforeClearAll, audience) =>
+    dismiss: (sessionIds, beforeClearAll, audience, reach) =>
       deps.enqueue(async () => {
+        // Under capsule lock, keep sessions whose launch scope the caller cannot prove it may act on.
+        const unreachable = (marker: AgentSessionResumeMarker) =>
+          reach !== undefined && !reach(marker.sessionId)
         if (audience) {
           // Under capsule lock, keep unreadable/unshown agents and newer chats outside this audience.
           const hidden = (marker: AgentSessionResumeMarker) => {
@@ -210,22 +218,28 @@ export function createStructuredAgentSessionRestartFailureLedger(deps: {
             return (
               record === null ||
               !audience(record.provider) ||
+              unreachable(marker) ||
               (sessionIds === undefined && deps.savedByNewerOrca(marker.sessionId))
             )
           }
-          if (sessionIds === undefined) {
-            await beforeClearAll(audience)
+          if (sessionIds !== undefined) {
+            return (await deps.capsule?.dismiss(sessionIds, deps.now(), hidden)) ?? 0
           }
-          // Process-local late writes serialize after dismissal, so this path needs no fence.
-          return (await deps.capsule?.dismiss(sessionIds ?? 'all', deps.now(), hidden)) ?? 0
+          await beforeClearAll(audience, reach)
+          // A teardown writer from another process may publish late; fence only what this dismissal removed.
+          return (await deps.capsule?.dismiss('all', deps.now(), hidden, 'dismissed-sessions')) ?? 0
         }
         if (sessionIds !== undefined) {
-          return (await deps.capsule?.dismiss(sessionIds, deps.now())) ?? 0
+          return (await deps.capsule?.dismiss(sessionIds, deps.now(), unreachable)) ?? 0
         }
-        await beforeClearAll()
+        await beforeClearAll(undefined, reach)
         // Dismiss only shown records; newer chats belong to compatible builds.
-        const keep = (marker: AgentSessionResumeMarker) => deps.savedByNewerOrca(marker.sessionId)
-        return (await deps.capsule?.clearAll(deps.now(), keep)) ?? 0
+        const keep = (marker: AgentSessionResumeMarker) =>
+          deps.savedByNewerOrca(marker.sessionId) || unreachable(marker)
+        return (
+          (await deps.capsule?.clearAll(deps.now(), keep, reach ? 'dismissed-sessions' : 'all')) ??
+          0
+        )
       })
   }
 }
