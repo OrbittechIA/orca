@@ -8,6 +8,8 @@ import { projectSessionTabFileHosts } from './session-tab-file-host-projection'
 import { createSessionTabsRetirementProofDelta } from './session-tabs-retirement-proof-delta'
 import { prepareStructuredTabsIfSupported } from './structured-session-tab-restore'
 import { createSessionTabsTabDeltaEncoder } from '../../../../shared/session-tabs-tab-delta'
+import { getStructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-registry'
+import { canAccessWorkItemStartStructuredSession } from './structured-agent-session-launch-authority'
 
 type SessionTabsInventory = {
   snapshots: RuntimeMobileSessionTabsResult[]
@@ -30,14 +32,38 @@ function clientUnderstandsAuthoritativeInventory(context: RpcContext): boolean {
 export function projectSessionTabsForClient(
   snapshot: RuntimeMobileSessionTabsResult,
   clientKind: 'mobile' | 'runtime' | undefined,
-  clientCapabilities: Parameters<typeof projectSessionTabAgentStatus>[2]
+  clientCapabilities: Parameters<typeof projectSessionTabAgentStatus>[2],
+  sessionVisible?: Parameters<typeof projectSessionTabAgentStatus>[3]
 ): RuntimeMobileSessionTabsResult {
   return projectSessionTabBrowserPlacements(
     projectSessionTabFileHosts(
-      projectSessionTabAgentStatus(snapshot, clientKind, clientCapabilities),
+      projectSessionTabAgentStatus(snapshot, clientKind, clientCapabilities, sessionVisible),
       clientKind
     ),
     clientCapabilities
+  )
+}
+
+export function projectSessionTabsForContext(
+  snapshot: RuntimeMobileSessionTabsResult,
+  context: Pick<RpcContext, 'caller' | 'clientKind' | 'clientCapabilities'>
+): RuntimeMobileSessionTabsResult {
+  const host = getStructuredAgentSessionHost()
+  return projectSessionTabsForClient(
+    snapshot,
+    context.clientKind,
+    context.clientCapabilities,
+    (sessionId) => {
+      const record =
+        host?.deps?.store?.getRecord?.(sessionId) ??
+        host?.deps?.store?.getConversation?.(sessionId)
+      return (
+        !!record &&
+        (record.launchOrigin !== 'work-item-start' ||
+          (host?.isSessionTabVisible(sessionId) === true &&
+            canAccessWorkItemStartStructuredSession(context, sessionId, host)))
+      )
+    }
   )
 }
 
@@ -47,7 +73,7 @@ function projectInventory(
 ): SessionTabsInventory {
   return {
     snapshots: inventory.snapshots.map((snapshot) =>
-      projectSessionTabsForClient(snapshot, context.clientKind, context.clientCapabilities)
+      projectSessionTabsForContext(snapshot, context)
     ),
     ...(inventory.authoritative && clientUnderstandsAuthoritativeInventory(context)
       ? { authoritative: true as const }
@@ -116,11 +142,7 @@ export async function subscribeSessionTabsInventory(
   const tabDelta = createSessionTabsTabDeltaEncoder(context.clientCapabilities)
   const projectChange = (snapshot: SessionTabsChange): SessionTabsChange =>
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: projection rewrites only tabs and groups; the change fields it was handed pass through.
-    projectSessionTabsForClient(
-      snapshot,
-      context.clientKind,
-      context.clientCapabilities
-    ) as SessionTabsChange
+    projectSessionTabsForContext(snapshot, context) as SessionTabsChange
   const withoutNavigationIntent = (snapshot: SessionTabsChange): SessionTabsChange => {
     if (snapshot.navigationIntent === undefined) {
       return snapshot

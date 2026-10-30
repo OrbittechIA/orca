@@ -92,6 +92,39 @@ function installRestoreHost(
 }
 
 describe('structured session cold restoration', () => {
+  it('keeps a closed scoped tab out of restoration even when an inventory row survives', async () => {
+    const runtime = new OrcaRuntimeService(partialRuntimeStore())
+    vi.spyOn(runtime, 'prepareStructuredAgentSessionStartupRestoration').mockResolvedValue(undefined)
+    const rows = ['open-start', 'closed-start'].map((sessionId) => ({
+      sessionId,
+      workspaceId: 'workspace-1',
+      agent: 'codex' as const
+    }))
+    const host = installRestoreHost({
+      getPersistedVisibleSessionTabIndex: () => ({ present: true, sessionIds: ['open-start'] }),
+      seedSessionTabs: async () => undefined,
+      listSessionTabs: () => rows
+    })
+    vi.spyOn(host.deps.store, 'getRecord').mockImplementation((sessionId) =>
+      rows.some((row) => row.sessionId === sessionId)
+        ? agentSessionRecordFixture({
+            sessionId,
+            provider: 'codex',
+            launchOrigin: 'work-item-start',
+            launchAuthority: { kind: 'local-desktop' }
+          })
+        : null
+    )
+    vi.spyOn(host, 'listSessionTabs').mockReturnValue(rows)
+
+    await runtime.restoreStructuredAgentSessionTabs()
+
+    const restored = await runtime.listMobileSessionTabs('id:workspace-1')
+    expect(restored.tabs.map((tab) => tab.id)).toEqual(['agent-session:open-start'])
+    expect(host.getPersistedVisibleSessionTabIndex().sessionIds).toEqual(['open-start'])
+    expect(host.isSessionTabVisible('closed-start')).toBe(false)
+  })
+
   it('publishes a versioned title change and derives listAll titles from the record', async () => {
     const runtime = new OrcaRuntimeService(partialRuntimeStore())
     runtime.projectStructuredAgentSessionTab({

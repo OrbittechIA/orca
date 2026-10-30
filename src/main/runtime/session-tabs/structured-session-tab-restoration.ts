@@ -65,7 +65,9 @@ export abstract class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce exten
       while (sessionId.startsWith('agent-session:')) {
         sessionId = sessionId.slice('agent-session:'.length)
       }
-      return [{ ...session, agent: session.agent, sessionId }]
+      return host?.isSessionTabVisible(sessionId)
+        ? [{ ...session, agent: session.agent, sessionId }]
+        : []
     })
     const changes = restoredChatTabChanges(
       this.store?.getWorkspaceSession?.(LOCAL_EXECUTION_HOST_ID)?.unifiedTabs ?? {},

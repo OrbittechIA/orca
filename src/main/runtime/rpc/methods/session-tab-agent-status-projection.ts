@@ -49,8 +49,12 @@ function resolveMobileStructuredChatFallbackTitle(
 export function projectSessionTabAgentStatus<TPayload extends SessionTabsPayload>(
   payload: TPayload,
   clientKind: 'mobile' | 'runtime' | undefined,
-  clientCapabilities: readonly RuntimeCapability[] | undefined
+  clientCapabilities: readonly RuntimeCapability[] | undefined,
+  sessionVisible?: (sessionId: string) => boolean
 ): TPayload {
+  if (sessionVisible) {
+    payload = projectAgentSessionTabsOut(payload, (tab) => !sessionVisible(tab.sessionId))
+  }
   const structuredVisible = supportsStructuredAgentSessions({ clientKind, clientCapabilities })
   let projected: TPayload
   if (clientKind === 'mobile') {
@@ -191,11 +195,12 @@ function projectAgentSessionTabsOut<TPayload extends SessionTabsPayload>(
     tabs.find((tab) => tab.isActive) ??
     tabs[0] ??
     null
+  const activeOrderId = active?.type === 'terminal' ? active.parentTabId : active?.id
   const validGroupIds = new Set(groups?.map((group) => group.id) ?? [])
   return {
     ...payload,
     activeGroupId:
-      groups?.find((group) => group.tabOrder.includes(active?.id ?? ''))?.id ??
+      groups?.find((group) => group.tabOrder.includes(activeOrderId ?? ''))?.id ??
       groups?.[0]?.id ??
       null,
     activeTabId: active?.id ?? null,
