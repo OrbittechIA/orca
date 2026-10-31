@@ -1,8 +1,10 @@
+import { admitWorktreeCustody } from './worktree-custody-runtime'
 import type { RemoveWorktreeResult } from '../../shared/worktree/create-types'
 import { LOCAL_EXECUTION_HOST_ID } from '../../shared/execution-host'
 import type { RuntimeStore } from './runtime-store-contract'
 import {
   releaseStartupRemovalFence,
+  waitForPendingWorktreeRemoval,
   type BackgroundWorktreeRemovalJob
 } from '../worktree-background-removal'
 import { resolveWorktreeRemovalMetadata } from '../worktree-removal-repo-owner'
@@ -65,35 +67,50 @@ export function interruptedLocalWorktreeRemovalJob(
     )?.pushTarget
   return {
     run: async (stopSignal) => {
-      const removedPushTarget = resolveRemovedPushTarget()
-      const result = await finishInterruptedLocalWorktreeRemoval({
-        record,
-        store: host.store,
-        stopSignal,
-        removedPushTarget,
-        acquireWatcherRemoval: (path) => {
-          // Take the gate in the same tick as the loading fence so no spawn can enter between them.
-          releaseStartupRemovalFence(record.worktreeId)
-          return host.acquireWatcherRemoval(path)
-        },
-        closeWatchers: host.closeWatchers,
-        stopPtys: host.stopPtys,
-        preserveBranchHead: (result, fallbackHead) =>
-          host.preservedBranchCleanup.preserveHead(result, fallbackHead),
-        // remember() clears the cleanup target when no branch was preserved.
-        finishRemoval: (result, _rememberBranch, fallbackHead) => {
-          host.preservedBranchCleanup.remember(
-            record.worktreeId,
-            undefined,
-            result,
-            fallbackHead,
-            removedPushTarget
-          )
-          host.purge(record)
+      const releaseCustody = admitWorktreeCustody(
+        record.worktreeId,
+        record.worktreePath,
+        LOCAL_EXECUTION_HOST_ID,
+        false
+      )
+      try {
+        const removedPushTarget = resolveRemovedPushTarget()
+        const result = await finishInterruptedLocalWorktreeRemoval({
+          record,
+          store: host.store,
+          stopSignal,
+          removedPushTarget,
+          acquireWatcherRemoval: (path) => {
+            // Take the gate in the same tick as the loading fence so no spawn can enter between them.
+            releaseStartupRemovalFence(record.worktreeId)
+            return host.acquireWatcherRemoval(path)
+          },
+          closeWatchers: host.closeWatchers,
+          stopPtys: host.stopPtys,
+          preserveBranchHead: (result, fallbackHead) =>
+            host.preservedBranchCleanup.preserveHead(result, fallbackHead),
+          // remember() clears the cleanup target when no branch was preserved.
+          finishRemoval: (result, _rememberBranch, fallbackHead) => {
+            host.preservedBranchCleanup.remember(
+              record.worktreeId,
+              undefined,
+              result,
+              fallbackHead,
+              removedPushTarget
+            )
+            host.purge(record)
+          }
+        })
+        host.onRemoved(record)
+        return result
+      } finally {
+        const pending = waitForPendingWorktreeRemoval(record.worktreeId, LOCAL_EXECUTION_HOST_ID)
+        if (pending) {
+          void pending.then(releaseCustody, releaseCustody)
+        } else {
+          releaseCustody()
         }
-      })
-      host.onRemoved(record)
-      return result
+      }
     },
     publish: () => host.publish(record.repoId),
     cleanupPushTargetRemote: async () => {

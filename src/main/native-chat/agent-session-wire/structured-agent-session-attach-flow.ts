@@ -1,4 +1,5 @@
 import { refuse } from '../../../shared/agent-session-wire-refusals'
+import { withStructuredAgentSessionCustody } from './structured-agent-session-custody'
 import {
   settlePostAcquisitionAttachFailure,
   settleUnsupportedReservation
@@ -108,6 +109,14 @@ export type AttachFlowInput = {
 }
 
 export async function performAttach(
+  input: AttachFlowInput
+): Promise<AgentSessionMutationResult<AgentSessionAttachResult>> {
+  return withStructuredAgentSessionCustody(input.params.location, 'attach', () =>
+    performCustodyAdmittedAttach(input)
+  )
+}
+
+async function performCustodyAdmittedAttach(
   input: AttachFlowInput
 ): Promise<AgentSessionMutationResult<AgentSessionAttachResult>> {
   const { params, store } = input

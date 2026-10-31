@@ -91,6 +91,13 @@ const NODE_RUNTIME_INCLUDE = [
   'src/main/native-chat/agent-session-wire/structured-agent-session-send.test.ts',
   'src/main/orcad/serve-profile-ssh-targets.test.ts',
   'src/main/runtime/orca-runtime.test.ts',
+  // These fixtures use Node's real TypeScript stripping and file-journal primitives.
+  'src/main/runtime/worktree-custody.test.mjs',
+  'src/main/runtime/worktree-custody-authority.test.mjs',
+  'src/main/runtime/worktree-custody-retirement.test.mjs',
+  'src/main/runtime/worktree-custody-claims.test.mjs',
+  'src/main/runtime/worktree-custody-runtime.test.mjs',
+  'src/main/runtime/worktree-custody-ipc-removal.test.mjs',
   'src/main/runtime/worktree-agent-first-surface.test.ts',
   'src/main/runtime/runtime-client-agent-launch-settings-durability.test.ts',
   'tests/e2e/host-agent-launch-settings-hook-bookkeeping.unit.test.ts',

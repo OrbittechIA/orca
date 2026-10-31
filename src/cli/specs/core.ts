@@ -133,6 +133,19 @@ export const CORE_COMMAND_SPECS: CommandSpec[] = [
   },
   WORKTREE_SET_COMMAND_SPEC,
   {
+    path: ['worktree', 'custody'],
+    summary: 'Observe and fence exact native worktree custody; retire without stopping consumers',
+    usage:
+      'orca worktree custody --operation list|observe|capture|check|cancel|retire|reconcile [--resource <json>] [--fence <json>] [--key <key>] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'operation', 'resource', 'fence', 'key'],
+    notes: [
+      'Use native resource and fence objects verbatim; identities and release generations are immutable.',
+      'Capture and retire require worktree.custody.no-stop.v1 with verified native coverage. Missing or mixed-version coverage refuses; never fall back to worktree rm.',
+      'After a timeout, reconcile the same resource and key read-only; never mint another key or re-dispatch.',
+      'List covers only native-enrolled resources. Empty inventory or terminals proves no release or external-consumer absence.'
+    ]
+  },
+  {
     path: ['worktree', 'rm'],
     aliases: [
       ['worktree', 'remove'],

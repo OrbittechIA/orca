@@ -1,3 +1,4 @@
+import { withStructuredAgentSessionCustody } from './structured-agent-session-custody'
 import type { AgentChildWorkEvidence } from '../../../shared/agent-status-child-work-evidence'
 import type {
   AgentSessionMutationEnvelope,
@@ -75,30 +76,33 @@ export function mutateStructuredAgentSession<TValue>(
 }
 
 /** Caller already holds session serialization. */
-export function runStructuredAgentSessionMutation<TValue>(
+export async function runStructuredAgentSessionMutation<TValue>(
   context: StructuredAgentSessionMutationContext,
   caller: StructuredAgentSessionCaller,
   envelope: AgentSessionMutationEnvelope,
   plan: MutationPlan<TValue>,
   prepareSession?: AgentSessionMutationRequest<TValue>['prepareSession']
 ): Promise<AgentSessionMutationResult<TValue>> {
-  return admitAndRunAgentSessionMutation({
-    store: context.deps.store,
-    adapter: context.deps.adapter,
-    agents: context.deps.agents,
-    logger: context.deps.logger,
-    callerKey: caller.callerKey,
-    envelope,
-    plan,
-    journal: () => context.sessions.get(envelope.sessionId)?.journal,
-    currentWork: () =>
-      hostStructuredAgentSessionCurrentWork(
-        { store: context.deps.store, sessions: context.sessions },
-        envelope.sessionId
-      ),
-    prepareSession,
-    publish: (journal) => context.publish(envelope.sessionId, journal),
-    wakeDelivery: (sessionId) => context.wakeDelivery(sessionId),
-    now: () => context.now()
-  })
+  const location = context.deps.store.getRecord(envelope.sessionId)?.location
+  return withStructuredAgentSessionCustody(location, 'operation', () =>
+    admitAndRunAgentSessionMutation({
+      store: context.deps.store,
+      adapter: context.deps.adapter,
+      agents: context.deps.agents,
+      logger: context.deps.logger,
+      callerKey: caller.callerKey,
+      envelope,
+      plan,
+      journal: () => context.sessions.get(envelope.sessionId)?.journal,
+      currentWork: () =>
+        hostStructuredAgentSessionCurrentWork(
+          { store: context.deps.store, sessions: context.sessions },
+          envelope.sessionId
+        ),
+      prepareSession,
+      publish: (journal) => context.publish(envelope.sessionId, journal),
+      wakeDelivery: (sessionId) => context.wakeDelivery(sessionId),
+      now: () => context.now()
+    })
+  )
 }

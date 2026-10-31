@@ -1,3 +1,4 @@
+import { terminalLaunchPublicFacts } from './terminal-launch-result'
 import * as dependencies from '../../orca-runtime-create-terminal-dependencies'
 import type { RuntimeNotifier } from '../../runtime-notifier-contract'
 import type { TerminalWorkspaceLaunchScope } from '../../runtime-legacy-worker-terminal-recovery-types'
@@ -81,5 +82,48 @@ export function revealCreatedTerminal(args: {
     surface: 'background',
     warning:
       presentation !== 'background' ? dependencies.createTerminalRevealWarning(handle) : undefined
+  }
+}
+
+export async function finishCreatedTerminal(
+  args: Omit<
+    Parameters<typeof revealCreatedTerminal>[0],
+    'effectiveLaunchConfig' | 'launchToken'
+  > & {
+    result: Parameters<typeof terminalLaunchPublicFacts>[0]
+    pty: Parameters<typeof terminalLaunchPublicFacts>[2]
+    paneKey: string
+    effectiveTitle: dependencies.TerminalCreateOptions['title'] | null
+    effectiveViewMode: dependencies.TerminalCreateOptions['viewMode']
+    executionMetadata: () => object
+  }
+) {
+  const reveal = revealCreatedTerminal({
+    ...args,
+    launchOpts: {
+      ...args.launchOpts,
+      title: args.pty?.title ?? args.effectiveTitle ?? undefined,
+      launchAgent: args.pty?.launchAgent ?? undefined,
+      viewMode: args.effectiveViewMode
+    },
+    effectiveLaunchConfig: args.pty?.launchConfig ?? undefined,
+    launchToken: args.pty?.launchToken ?? undefined
+  })
+  const { surface, warning } = reveal instanceof Promise ? await reveal : reveal
+  return {
+    ...terminalLaunchPublicFacts(args.result, args.adoptedStablePane, args.pty),
+    handle: args.handle,
+    savedStartupCwd: args.cwd,
+    tabId: args.tabId,
+    paneKey: args.paneKey,
+    ptyId: args.result.id,
+    worktreeId: args.workspace.id,
+    title: args.pty?.title ?? args.effectiveTitle ?? null,
+    ...args.executionMetadata(),
+    surface,
+    ...(args.result.startupCwdFallback
+      ? { startupCwdFallback: args.result.startupCwdFallback }
+      : {}),
+    ...(warning ? { warning } : {})
   }
 }

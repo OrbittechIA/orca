@@ -1,4 +1,5 @@
 import { WORKSPACE_ATTACHMENT_RUNTIME_CAPABILITIES } from './workspace-attachment-capabilities'
+export { WORKTREE_CUSTODY_CAPABILITY } from './worktree/custody'
 
 export const WORKTREE_RENAME_ERROR_DISMISS_RUNTIME_CAPABILITY =
   'worktree.rename-error-dismiss.v1' as const

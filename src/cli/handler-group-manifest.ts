@@ -94,6 +94,7 @@ export const HANDLER_GROUPS: readonly HandlerGroup[] = [
       'worktree current',
       'worktree create',
       'worktree set',
+      'worktree custody',
       'worktree rm'
     ],
     load: async () => (await import('./handlers/worktree.js')).WORKTREE_HANDLERS

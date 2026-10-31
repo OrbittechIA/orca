@@ -48,6 +48,7 @@ import { startAgentStateRulesLiveUpdates } from '../runtime/agent-state-rules/ag
 import { recordDurableCrashBreadcrumb } from '../crash-reporting/durable-crash-breadcrumb'
 import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../shared/layout-owner-switch'
 import { getRuntimeEnvironmentRegistryRoot } from '../ipc/runtime-environments/runtime-environment-registry-root'
+import { installNativeWorktreeCustodyProvider } from '../runtime/worktree-custody-native-provider-host'
 
 export function getDesktopWindowStatus(): RuntimeDesktopWindowStatus {
   const activation = state.desktopActivationGate
@@ -159,6 +160,12 @@ export function initializeMainProcessRuntime(): OrcaRuntimeService {
     recordDurableCrashBreadcrumb('agent_state_rules_active', rules)
   )
   state.runtime = runtime
+  try {
+    // Owning custody producer for desktop and headless serve; never installable over RPC.
+    installNativeWorktreeCustodyProvider(runtime)
+  } catch (error) {
+    console.warn('[worktree-custody] provider unavailable', error)
+  }
   runtime.attachAgentStatusStore(agentHookServer)
   agentHookServer.subscribeEnrichedStatus((enriched) =>
     recordObservedAgentStatusPaneIdentity(observedPaneIdentities, enriched, runtime)

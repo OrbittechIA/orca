@@ -1,4 +1,5 @@
 import type { OrchestrationDb } from './db'
+import { admitOrchestrationWorktreeCustody } from '../worktree-custody-runtime'
 import type { TaskRow } from './types'
 import { buildDispatchPreamble } from './preamble'
 import { sendAgentTurn } from './send-agent-turn'
@@ -99,69 +100,84 @@ export async function dispatchTaskToWorker(params: {
   }
 
   const dispatchAuthority = runtime.getOrchestrationDispatchAuthority?.(targetHandle)
-  const assigneePaneKey =
-    dispatchAuthority?.paneKey ?? runtime.getTerminalPaneKey?.(targetHandle) ?? undefined
-  const processIncarnation =
-    dispatchAuthority?.paneKey && dispatchAuthority.processIncarnation
-      ? dispatchAuthority.processIncarnation
-      : undefined
-  const dispatch = db.createDispatchContext({
-    taskId: task.id,
-    assigneeHandle: targetHandle,
-    assigneePaneKey,
-    launchTokenHash: dispatchAuthority?.launchTokenHash ?? undefined,
-    processIncarnation,
-    // This authenticated host-local loop is a system root, independent of CLI callers.
-    creator: { kind: 'system' },
-    maxDepth: params.nestedWorkerMaxDepth
-  })
-
-  // Dev workers need orca-dev to reach the dev socket.
-  const preamble = buildDispatchPreamble({
-    taskId: task.id,
-    dispatchId: dispatch.id,
-    canDispatchSubWorkers: dispatch.depth < params.nestedWorkerMaxDepth,
-    heartbeatIntervalMinutes: params.heartbeatIntervalMinutes,
-    taskSpec: strippedSpec,
-    coordinatorHandle: params.coordinatorHandle,
-    workerHandle: targetHandle,
-    devMode: process.env.ORCA_USER_DATA_PATH?.includes('orca-dev'),
-    ...(runtime.getTerminalOrchestrationCliCommand
-      ? { cliCommand: runtime.getTerminalOrchestrationCliCommand(targetHandle) }
-      : {}),
-    ...(baseDrift ? { baseDrift } : {})
-  })
-
-  const gates = db.listGates({ taskId: task.id, status: 'resolved' })
-  let gateContext = ''
-  if (gates.length > 0) {
-    const latest = gates.at(-1)!
-    gateContext = `\n\n--- DECISION GATE RESOLVED ---\nQuestion: ${latest.question}\nResolution: ${latest.resolution}\n\n---\n`
-  }
-
-  try {
-    await sendAgentTurn({
-      kind: 'terminal',
-      runtime,
-      handle: targetHandle,
-      turn: { purpose: 'dispatch-preamble', body: preamble + gateContext, operationId: dispatch.id }
-    })
-  } catch (err) {
-    // Enter may already have landed; an unobserved turn must not requeue the preamble or revoke worker_done authority (#16095).
-    if (isAgentPromptStalledError(err)) {
-      onLog(
-        `Dispatched task ${task.id} to ${targetHandle}; turn start was not observed. ` +
-          `The preamble is already in the pane, so the dispatch stays active instead of being resent.`
+  const releaseCustody = dispatchAuthority?.worktreeId
+    ? admitOrchestrationWorktreeCustody(
+        dispatchAuthority.worktreeId,
+        undefined,
+        dispatchAuthority.hostScope?.kind
       )
-      return 'dispatched-unobserved'
-    }
-    const updated = db.failDispatch(dispatch.id, err instanceof Error ? err.message : String(err))
-    if (updated?.status === 'circuit_broken') {
-      params.onCircuitBroken(task.id)
-    }
-    throw err
-  }
+    : () => {}
+  try {
+    const assigneePaneKey =
+      dispatchAuthority?.paneKey ?? runtime.getTerminalPaneKey?.(targetHandle) ?? undefined
+    const processIncarnation =
+      dispatchAuthority?.paneKey && dispatchAuthority.processIncarnation
+        ? dispatchAuthority.processIncarnation
+        : undefined
+    const dispatch = db.createDispatchContext({
+      taskId: task.id,
+      assigneeHandle: targetHandle,
+      assigneePaneKey,
+      launchTokenHash: dispatchAuthority?.launchTokenHash ?? undefined,
+      processIncarnation,
+      // This authenticated host-local loop is a system root, independent of CLI callers.
+      creator: { kind: 'system' },
+      maxDepth: params.nestedWorkerMaxDepth
+    })
 
-  onLog(`Dispatched task ${task.id} to ${targetHandle}`)
-  return 'dispatched'
+    // Dev workers need orca-dev to reach the dev socket.
+    const preamble = buildDispatchPreamble({
+      taskId: task.id,
+      dispatchId: dispatch.id,
+      canDispatchSubWorkers: dispatch.depth < params.nestedWorkerMaxDepth,
+      heartbeatIntervalMinutes: params.heartbeatIntervalMinutes,
+      taskSpec: strippedSpec,
+      coordinatorHandle: params.coordinatorHandle,
+      workerHandle: targetHandle,
+      devMode: process.env.ORCA_USER_DATA_PATH?.includes('orca-dev'),
+      ...(runtime.getTerminalOrchestrationCliCommand
+        ? { cliCommand: runtime.getTerminalOrchestrationCliCommand(targetHandle) }
+        : {}),
+      ...(baseDrift ? { baseDrift } : {})
+    })
+
+    const gates = db.listGates({ taskId: task.id, status: 'resolved' })
+    let gateContext = ''
+    if (gates.length > 0) {
+      const latest = gates.at(-1)!
+      gateContext = `\n\n--- DECISION GATE RESOLVED ---\nQuestion: ${latest.question}\nResolution: ${latest.resolution}\n\n---\n`
+    }
+
+    try {
+      await sendAgentTurn({
+        kind: 'terminal',
+        runtime,
+        handle: targetHandle,
+        turn: {
+          purpose: 'dispatch-preamble',
+          body: preamble + gateContext,
+          operationId: dispatch.id
+        }
+      })
+    } catch (err) {
+      // Enter may already have landed; an unobserved turn must not requeue the preamble or revoke worker_done authority (#16095).
+      if (isAgentPromptStalledError(err)) {
+        onLog(
+          `Dispatched task ${task.id} to ${targetHandle}; turn start was not observed. ` +
+            `The preamble is already in the pane, so the dispatch stays active instead of being resent.`
+        )
+        return 'dispatched-unobserved'
+      }
+      const updated = db.failDispatch(dispatch.id, err instanceof Error ? err.message : String(err))
+      if (updated?.status === 'circuit_broken') {
+        params.onCircuitBroken(task.id)
+      }
+      throw err
+    }
+
+    onLog(`Dispatched task ${task.id} to ${targetHandle}`)
+    return 'dispatched'
+  } finally {
+    releaseCustody()
+  }
 }

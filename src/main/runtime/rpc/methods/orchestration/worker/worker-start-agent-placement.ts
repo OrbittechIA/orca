@@ -3,6 +3,7 @@
  * Structured create refusals fail start through the worker error contract instead of silently downgrading. */
 
 import type { AgentLaunchPreferences } from '../../../../../../shared/agent-session-host-authority'
+import type { Worktree } from '../../../../../../shared/worktree/types'
 import type { TuiAgent } from '../../../../../../shared/tui-agent'
 import { executeAgentLaunch } from '../../../../../agent-launch/agent-launch-executor'
 import type { AgentLaunchSurfaceFactory } from '../../../../../agent-launch/agent-launch-surface-factories'
@@ -21,9 +22,14 @@ import {
   type WorkerSetupReceipt
 } from './worker-topology'
 import { createWorkerWorktree, type WorkerWorktreeCreationTarget } from './worker-worktree-creation'
+import {
+  admitOrchestrationWorktreeCustody,
+  claimWorkerWorktreeCustody
+} from '../../../../worktree-custody-runtime'
 
 /** Name only the two required fields so untyped worktree accessors cannot introduce any into unions. */
-type PlacedWorktree = { id: string; repoId: string }
+type PlacedWorktree = Pick<Worktree, 'id' | 'repoId'> &
+  Partial<Pick<Worktree, 'path' | 'instanceId' | 'hostId' | 'projectId' | 'isMainWorktree'>>
 type WorkerStructuredSession = Awaited<ReturnType<typeof createStructuredWorkerSessionForWorktree>>
 
 export type WorkerAgentPlacement = {
@@ -70,22 +76,32 @@ export async function placeWorkerAgent(
   args: WorkerAgentPlacementArgs
 ): Promise<WorkerAgentPlacement> {
   const existing = args.creationTarget ? undefined : requirePlacement(args.resolvedWorktree)
-  if (existing && args.params.terminal) {
-    args.effects.push({
-      kind: 'terminal',
-      role: 'agent',
-      action: 'reused',
-      id: args.params.terminal
-    })
-    return {
-      mode: args.mode,
-      worktree: existing,
-      terminalHandle: args.params.terminal,
-      structuredSession: null,
-      setupReceipt: EXISTING_WORKTREE_SETUP
+  const releaseCustody = existing
+    ? admitOrchestrationWorktreeCustody(existing.id, existing.path, existing.hostId)
+    : () => {}
+  try {
+    if (existing) {
+      claimWorkerWorktreeCustody(existing, args.dispatchId, args.taskId)
     }
+    if (existing && args.params.terminal) {
+      args.effects.push({
+        kind: 'terminal',
+        role: 'agent',
+        action: 'reused',
+        id: args.params.terminal
+      })
+      return {
+        mode: args.mode,
+        worktree: existing,
+        terminalHandle: args.params.terminal,
+        structuredSession: null,
+        setupReceipt: EXISTING_WORKTREE_SETUP
+      }
+    }
+    return await launchWorkerAgent(args, existing)
+  } finally {
+    releaseCustody()
   }
-  return launchWorkerAgent(args, existing)
 }
 
 async function launchWorkerAgent(
@@ -140,6 +156,7 @@ async function launchWorkerAgent(
             ...(args.launchPreferences ? { launchPreferences: args.launchPreferences } : {}),
             effects: args.effects
           })
+          claimWorkerWorktreeCustody(created.worktree, args.dispatchId, args.taskId, true)
           return {
             worktreeId: created.worktree.id,
             startupTerminalHandle: created.terminalHandle

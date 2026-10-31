@@ -1,4 +1,5 @@
 import { parentCwdNextSteps, withWorktreeSelectorRecovery } from '../worktree-selector-recovery'
+import { worktreeCustody } from './worktree-custody'
 import type {
   RuntimeWorktreeListResult,
   RuntimeWorktreePsResult,
@@ -89,6 +90,7 @@ function getOptionalSetupDecision(
 }
 
 export const WORKTREE_HANDLERS: Record<string, CommandHandler> = {
+  'worktree custody': worktreeCustody,
   'worktree ps': async ({ flags, client, json }) => {
     const result = await client.call<WithAnnotatedHostScope<RuntimeWorktreePsResult>>(
       'worktree.ps',
