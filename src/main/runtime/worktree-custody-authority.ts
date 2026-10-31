@@ -124,7 +124,7 @@ export class WorktreeCustodyAuthority extends WorktreeCustodyFences {
       let result: WorktreeCustodyOutcome
       let proof: string | null = null
       try {
-        await Reflect.apply(retire, coverage, [fence.resource, () => this.check(fence), key])
+        await retire.call(coverage, fence.resource, () => this.check(fence), key)
         result = this.outcome(fence.resource, key, 'retired', null)
       } catch (error) {
         proof = nativeWorktreePreEffectRefusal(retire, error, fence.resource)

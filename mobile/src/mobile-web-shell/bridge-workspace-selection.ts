@@ -165,7 +165,11 @@ export class BridgeWorkspaceSelection implements BridgeSelectionPort {
     ) {
       return null
     }
+    const documentId = this.documentId
     return Promise.resolve().then(() => {
+      if (this.documentId !== documentId) {
+        throw new Error('custody_selection_document_changed')
+      }
       const host = this.host(envelope)
       let result: unknown
       switch (method) {

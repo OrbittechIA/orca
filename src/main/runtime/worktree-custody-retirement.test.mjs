@@ -586,7 +586,7 @@ test('a crashed capture is recovered only by a successor profile lock and proven
   ]) {
     const f = await providerFixture(checkout, {
       ...shared,
-      authorityId: `a-${name}`,
+      authorityId: `a-${String(name)}`,
       profileLock: lock
     })
     await assert.rejects(

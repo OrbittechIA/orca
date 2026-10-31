@@ -1,9 +1,4 @@
 import {
-  failureLeftByGit,
-  interruptedRemovalPorts,
-  interruptedLocalWorktreeRemovalJob
-} from './worktree-custody-runtime-fixture.mjs'
-import {
   proveWorktreePreservation,
   cleanGit,
   processPorts,
@@ -15,6 +10,9 @@ import { join } from 'node:path'
 import { test } from 'vitest'
 import { fixtureRoot, WorktreeCustodyAuthority, BASE, setup } from './worktree-custody-fixture.mjs'
 import {
+  failureLeftByGit,
+  interruptedRemovalPorts,
+  interruptedLocalWorktreeRemovalJob,
   runtimePorts,
   OrchestrationError,
   runtimeCustody,
@@ -392,7 +390,7 @@ test('a lock holder counts as exited only on ESRCH or a different incarnation', 
     assert.equal(
       heldLock.orcadLockHolderHasExited(holder),
       exited,
-      `${signal}:${JSON.stringify(incarnation)}`
+      `${String(signal)}:${JSON.stringify(incarnation)}`
     )
   }
   assert.equal(heldLock.heldOrcadInstanceLock(), null)

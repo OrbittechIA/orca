@@ -2,7 +2,9 @@ import { afterEach, expect, it, vi } from 'vitest'
 import type { WorktreeCustodyFence } from '../../../../src/shared/worktree/custody'
 import {
   SelectionAckSchema,
-  SelectionWatchSchema
+  SelectionWatchSchema,
+  WORKTREE_SELECTION_CAPABILITY,
+  WORKTREE_SELECTION_BRIDGE_CAPABILITY
 } from '../../../../src/shared/worktree/custody-selection'
 import { mobileWorkspaceSelection } from '../../transport/workspace-selection-custody'
 import { scopeRpcClientToExecutionHost } from '../../transport/execution-host-scoped-rpc-client'
@@ -191,6 +193,47 @@ it('keeps a legacy or self-closed page unknown without stopping existing page st
   expect(ordinary.unsubscribes).toBe(0)
   pair.host.receive(clientFrame({ type: 'close' }))
   expect(fixture.selection.selectionSnapshot().complete).toBe(false)
+})
+
+it('cannot apply a queued old report after close and a new document ready', async () => {
+  const fixture = native()
+  const pair = page(fixture.client)
+  await pair.flush()
+  mobileWorkspaceSelection(pair.client)
+  await pair.flush()
+  const report = {
+    protocol: WORKTREE_SELECTION_CAPABILITY,
+    kind: 'view' as const,
+    complete: true,
+    workspaceIds: ['old-folder']
+  }
+  // Close retires the reply, so inspect the owning inventory after the queued body.
+  void pair.client.sendRequest('workspace.selection.report.v1', report).catch(() => {})
+  pair.drainNow()
+  pair.host.receive(clientFrame({ type: 'close' }))
+  pair.host.receive(
+    clientFrame({
+      type: 'ready',
+      workspaceSelection: WORKTREE_SELECTION_BRIDGE_CAPABILITY,
+      workspaceSelectionDocument: '55555555-5555-4555-8555-555555555555'
+    })
+  )
+  await pair.flush()
+  expect(fixture.selection.selectionSnapshot()).toEqual({ complete: false, workspaceIds: [] })
+  const current = pair.client.sendRequest('workspace.selection.report.v1', {
+    ...report,
+    workspaceIds: ['current-folder']
+  })
+  await pair.flush()
+  await expect(current).resolves.toMatchObject({ ok: true, result: { reported: true } })
+  expect(fixture.selection.selectionSnapshot()).toEqual({
+    complete: false,
+    workspaceIds: ['current-folder']
+  })
+  fixture.fence()
+  await pair.flush()
+  expect(acknowledgements(fixture)[0]?.[1]).toMatchObject({ disposition: 'unknown', fence })
+  expect(fixture.transport.streams).toHaveLength(1)
 })
 
 it('keeps an unreported execution host unknown and routes its represented page view to its own channel', async () => {
