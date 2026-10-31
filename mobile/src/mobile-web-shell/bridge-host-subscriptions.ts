@@ -16,6 +16,7 @@ import {
 import type { BridgeBinaryEvent } from './bridge/bridge-screencast-binary'
 import type { BrowserScreencastFrame } from '../transport/browser-screencast-protocol'
 import type { RpcClient } from '../transport/rpc-client'
+import type { BridgeSelectionPort } from './bridge-workspace-selection'
 import type { RpcEnvelopeFields } from '../transport/rpc-envelope-fields'
 
 export type BridgeEndReason = Extract<BridgeHostMessage, { type: 'end' }>['reason']
@@ -61,6 +62,7 @@ export class BridgeHostSubscriptions {
       onBinaryFrameDropped: (dropped: BridgeDroppedBinaryFrame) => void
       onTerminalBacklog?: (report: BridgeTerminalBacklogReport) => void
       terminalTimers?: TerminalBacklogTimers
+      selection?: BridgeSelectionPort
     }
   ) {}
 
@@ -105,14 +107,21 @@ export class BridgeHostSubscriptions {
       : undefined
     let unsubscribe: () => void
     try {
-      unsubscribe = this.options.client.subscribe(
-        method,
-        params,
-        (payload) => this.deliver(id, payload),
-        onBinaryFrame === undefined && envelope === undefined
-          ? undefined
-          : { onBinaryFrame, envelope }
-      )
+      unsubscribe =
+        this.options.selection?.subscribe(
+          method,
+          params,
+          (payload) => this.deliver(id, payload),
+          envelope
+        ) ??
+        this.options.client.subscribe(
+          method,
+          params,
+          (payload) => this.deliver(id, payload),
+          onBinaryFrame === undefined && envelope === undefined
+            ? undefined
+            : { onBinaryFrame, envelope }
+        )
     } catch (error) {
       this.open.delete(id)
       record.backlog?.dispose()

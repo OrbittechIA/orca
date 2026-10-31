@@ -4,6 +4,17 @@ import type { RpcClient } from './rpc-client'
 import type { RpcEnvelopeFields } from './rpc-envelope-fields'
 
 const scopedViews = new WeakMap<RpcClient, Map<ExecutionHostId, RpcClient>>()
+const selectionScopes = new WeakMap<
+  RpcClient,
+  { client: RpcClient; executionHost: ExecutionHostId }
+>()
+
+export function workspaceSelectionScope(client: RpcClient): {
+  client: RpcClient
+  executionHost?: ExecutionHostId
+} {
+  return selectionScopes.get(client) ?? { client }
+}
 
 // Server calls need both desktop relay support and a transport carrying executionHost; older shells cannot forward the envelope.
 export function relaysToServers(client: RpcClient, hostCapabilities: readonly string[]): boolean {
@@ -50,6 +61,9 @@ export function routeRpcClientCalls(
     getLastInboundAt: client.getLastInboundAt && (() => client.getLastInboundAt?.() ?? null),
     getGeneration: client.getGeneration && (() => client.getGeneration?.() ?? 0),
     carriesRpcEnvelope: client.carriesRpcEnvelope && (() => client.carriesRpcEnvelope?.() ?? true),
+    getWorkspaceSelectionBootstrap:
+      client.getWorkspaceSelectionBootstrap &&
+      (() => client.getWorkspaceSelectionBootstrap?.() ?? null),
     onStateChange: (listener) => client.onStateChange(listener),
     notifyForeground: (reason) => client.notifyForeground(reason),
     probeLivenessNow: client.probeLivenessNow && (() => client.probeLivenessNow?.()),
@@ -72,6 +86,7 @@ export function scopeRpcClientToExecutionHost(
     return existing
   }
   const view = routeRpcClientCalls(client, () => executionHost)
+  selectionScopes.set(view, { client, executionHost })
   views.set(executionHost, view)
   return view
 }

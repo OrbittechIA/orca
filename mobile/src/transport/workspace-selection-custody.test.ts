@@ -71,11 +71,12 @@ it('reports actual folder/background leases on the same client and refuses witho
     type: 'fence',
     round: { ...channel, fence, nonce: '44444444-4444-4444-8444-444444444444' }
   })
-  await Promise.resolve()
-  expect(fixture.base.sendRequest).toHaveBeenCalledWith(
-    'workspace.selection.ack.v1',
-    expect.objectContaining({ disposition: 'held', connectionId: 'native-one', fence }),
-    { failWhenDisconnected: true }
+  await vi.waitFor(() =>
+    expect(fixture.base.sendRequest).toHaveBeenCalledWith(
+      'workspace.selection.ack.v1',
+      expect.objectContaining({ disposition: 'held', connectionId: 'native-one', fence }),
+      { failWhenDisconnected: true }
+    )
   )
   expect(selection.hasMounted(fence.resource.worktreeId)).toBe(true)
   expect(selection.canSelect('unrelated')).toBe(true)

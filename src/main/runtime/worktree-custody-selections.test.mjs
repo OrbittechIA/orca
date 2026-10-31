@@ -123,3 +123,23 @@ test('unrepresented direct callers hold cleanup without refusing their existing 
   assert.equal(selections.complete, false)
   assert.equal(selections.selects('resource'), true)
 })
+
+test('an unrepresented second view holds the physical connection until its actual disconnect', () => {
+  const selections = new WorktreeCustodySelections(() => () => {})
+  const close = selections.open('mobile-shell')
+  const unwatch = selections.watch('mobile-shell', '11111111-1111-4111-8111-111111111111', () => {})
+  selections.report('mobile-shell', [])
+  assert.equal(selections.complete, true)
+  assert.throws(
+    () => selections.watch('mobile-shell', '22222222-2222-4222-8222-222222222222', () => {}),
+    /connection_changed/
+  )
+  assert.equal(selections.complete, false)
+  selections.report('mobile-shell', [])
+  unwatch()
+  selections.watch('mobile-shell', '33333333-3333-4333-8333-333333333333', () => {})
+  assert.equal(selections.complete, false)
+  assert.equal(selections.selects('any-workspace'), true)
+  close()
+  assert.equal(selections.complete, true)
+})

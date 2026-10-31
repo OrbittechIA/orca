@@ -1,7 +1,36 @@
 import { z } from 'zod'
 import { WorktreeCustodyFenceSchema } from './custody-schema'
+import { parseRoutableExecutionHostId } from '../execution-host'
 
 export const WORKTREE_SELECTION_CAPABILITY = 'workspace.selection.v1' as const
+export const WORKTREE_SELECTION_BRIDGE_CAPABILITY = 'workspace.selection.bridge.v1' as const
+
+export const SelectionBootstrapSchema = z
+  .object({
+    protocol: z.literal(WORKTREE_SELECTION_BRIDGE_CAPABILITY),
+    scopes: z
+      .array(
+        z
+          .object({
+            executionHost: z
+              .string()
+              .min(1)
+              .max(1024)
+              .refine((value) => parseRoutableExecutionHostId(value)?.kind === 'runtime')
+              .nullable(),
+            fences: z.array(WorktreeCustodyFenceSchema).max(64)
+          })
+          .strict()
+      )
+      .max(64)
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.scopes.reduce((sum, scope) => sum + scope.fences.length, 0) <= 64 &&
+      new Set(value.scopes.map((scope) => scope.executionHost)).size === value.scopes.length
+  )
+export type SelectionBootstrap = z.infer<typeof SelectionBootstrapSchema>
 
 export const WorktreeSelectionReportSchema = z
   .object({

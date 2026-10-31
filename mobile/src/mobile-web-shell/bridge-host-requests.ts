@@ -1,4 +1,5 @@
 import type { RpcClient } from '../transport/rpc-client'
+import type { BridgeSelectionPort } from './bridge-workspace-selection'
 import { markRpcDeliveryUnknown } from '../transport/rpc-delivery-ambiguity'
 import type { RpcResponse } from '../transport/types'
 import { BRIDGE_MAX_PENDING_REQUESTS } from './bridge/bridge-caps'
@@ -20,6 +21,7 @@ export type BridgeHostRequestDeps = {
   capExceeded: (message: string) => Error
   serveNative: (id: string, method: string, params: unknown) => Promise<RpcResponse>
   readClientIdentity: () => string | null
+  selection?: BridgeSelectionPort
 }
 
 // pending tracks what the page still awaits; inFlight retains uncancellable desktop calls through close/cancel so a replacement document cannot regain their occupied slots.
@@ -53,6 +55,10 @@ export class BridgeHostRequests {
   // Replay the exact argument arity for the golden recorder. Fence native requests here; native subscriptions are fenced separately in handleSubscribe.
   private forward(message: RequestMessage): Promise<RpcResponse> {
     const { client } = this.deps
+    const selection = this.deps.selection?.request(message.method, message.params, message.envelope)
+    if (selection) {
+      return selection
+    }
     if (isBridgeNativeMethod(message.method)) {
       return this.deps.serveNative(message.id, message.method, message.params)
     }

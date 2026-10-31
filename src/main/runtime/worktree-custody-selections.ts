@@ -10,6 +10,7 @@ type SelectionConnection = {
   headless: boolean
   channel: { nonce: string; close(): void } | null
   reportedComplete: boolean
+  unrepresentedView: boolean
 }
 export type WorktreeSelectionAuthority = {
   readonly complete: boolean
@@ -75,7 +76,8 @@ export class WorktreeCustodySelections {
       selected: null,
       headless: false,
       channel: null,
-      reportedComplete: false
+      reportedComplete: false,
+      unrepresentedView: false
     }
     this.connections.set(connectionId, connection)
     this.unknown++
@@ -157,6 +159,11 @@ export class WorktreeCustodySelections {
     emit: (frame: SelectionFrame) => void
   ): () => void {
     const connection = this.connections.get(connectionId)
+    if (connection?.channel) {
+      this.change(connection, () => {
+        connection.unrepresentedView = true
+      })
+    }
     if (!connection || connection.channel) {
       throw new Error('custody_selection_connection_changed')
     }
@@ -217,6 +224,7 @@ export class WorktreeCustodySelections {
   private isUnknown(connection: SelectionConnection): boolean {
     return (
       !connection.reportedComplete ||
+      connection.unrepresentedView ||
       connection.selected === null ||
       (!connection.headless && connection.channel === null)
     )

@@ -3,6 +3,7 @@ import { DirectRpcClient } from './direct-rpc-client'
 import type { RpcEnvelopeFields } from './rpc-envelope-fields'
 import type { ConnectionLogSink, ConnectionState, ForegroundNudgeReason } from './types'
 import type { UnvalidatedRpcRequestPort } from './unvalidated-rpc-request-port'
+import type { SelectionBootstrap } from '../../../src/shared/worktree/custody-selection'
 
 export type { SendRequestOptions } from './unvalidated-rpc-request-port'
 
@@ -16,6 +17,7 @@ type StreamingListener = (result: unknown) => void
 
 // Holding a client also exposes the raw port, so the boundary inventory must cover client holders.
 export type RpcClient = UnvalidatedRpcRequestPort & {
+  getWorkspaceSelectionBootstrap?: () => SelectionBootstrap | null
   subscribe: (
     method: string,
     params: unknown,

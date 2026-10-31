@@ -1,4 +1,5 @@
 import { BRIDGE_MAX_PENDING_REQUESTS, BRIDGE_MAX_SUBSCRIPTIONS } from './bridge-caps'
+import type { SelectionBootstrap } from '../../../../src/shared/worktree/custody-selection'
 import { MOBILE_WEB_SHELL_GRANTS } from '../page-route-policy'
 import {
   BRIDGE_FAULT_GRANT,
@@ -25,6 +26,7 @@ export const BRIDGE_NATIVE_GRANTS: readonly string[] = [
 ]
 
 export function createBridgeInitFrame(args: {
+  workspaceSelection?: SelectionBootstrap
   sessionId: string
   buildId: string
   connection: BridgeConnectionSnapshot
@@ -46,6 +48,7 @@ export function createBridgeInitFrame(args: {
   return {
     v: BRIDGE_PROTOCOL_VERSION,
     type: 'init',
+    ...(args.workspaceSelection ? { workspaceSelection: args.workspaceSelection } : {}),
     sessionId: args.sessionId,
     buildId: args.buildId,
     connection: args.connection,

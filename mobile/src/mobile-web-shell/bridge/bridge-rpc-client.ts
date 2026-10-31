@@ -1,4 +1,5 @@
 import type { RpcClient, SendRequestOptions } from '../../transport/rpc-client'
+import { createUuidV4 } from '../../../../src/shared/uuid-v4'
 import type { ConnectionState, RpcResponse, RpcSuccess } from '../../transport/types'
 import {
   BRIDGE_MAX_PENDING_REQUESTS,
@@ -98,6 +99,7 @@ export type BridgeRpcClient = RpcClient & {
 export function createBridgeRpcClient(options: BridgeRpcClientOptions): BridgeRpcClient {
   const requests = new BridgeClientRequests()
   const cache = new BridgeConnectionCache()
+  const documentId = createUuidV4()
   let closed = false
   let idCounter = 0
 
@@ -141,7 +143,7 @@ export function createBridgeRpcClient(options: BridgeRpcClientOptions): BridgeRp
   })
 
   const handshake = createBridgeInitHandshake(() => {
-    sendFrame(createPageReadyFrame())
+    sendFrame(createPageReadyFrame(documentId))
   })
 
   // Before-init calls expose mount-order bugs; after-close calls stay inert because teardown callers generally have no catch.
@@ -338,6 +340,7 @@ export function createBridgeRpcClient(options: BridgeRpcClientOptions): BridgeRp
     onColorSchemeUpdate: shellSession.onColorSchemeUpdate,
     onUiLocaleUpdate: shellSession.onUiLocaleUpdate,
     getShellSession: shellSession.current,
+    getWorkspaceSelectionBootstrap: () => shellSession.current()?.workspaceSelection ?? null,
     clearRouteParam: (param, value) =>
       posted({
         v: BRIDGE_PROTOCOL_VERSION,

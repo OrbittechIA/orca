@@ -250,6 +250,16 @@ callbacks cannot release a new connection's gates. Execution-host views carry th
 existing host envelope over one delegated phone/server socket. A legacy or malformed
 reply leaves cleanup unknown without closing the user's working RPC client.
 
+The native mobile document owns one aggregate physical channel for its route and
+every embedded page. Page selection methods terminate at that document owner,
+which waits for each page's exact round ACK before acknowledging native absence.
+Ready declares the page capability and stable document identity; init carries
+active full fences by execution host before new page content can mount. Unknown,
+legacy, overflowed or duplicate views hold retirement. A page's close message
+invalidates its report; only native document disposal removes its inventory.
+Native host replacement preserves unknown history for the prior transport and
+existing page streams continue while a cleanup fence targets another workspace.
+
 Only custody CLI requests send an acknowledged explicit empty headless report before
 the original request on the same local socket. No generic method-name exemption is
 used. Other CLI/Start requests retain the existing one-request path. Any unrepresented

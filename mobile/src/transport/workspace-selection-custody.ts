@@ -12,6 +12,9 @@ import {
   workspaceSelectionAck,
   workspaceSelectionReconcile
 } from './workspace-selection-operations'
+import { WorkspaceSelectionViews } from './workspace-selection-views'
+import { registerMobileSelectionHost, type MobileSelectionHost } from './workspace-selection-hosts'
+import { workspaceSelectionScope } from './execution-host-scoped-rpc-client'
 
 type Watch = {
   protocol: typeof WORKTREE_SELECTION_CAPABILITY
@@ -21,25 +24,50 @@ type Watch = {
   workspaceIds: string[]
   pendingFences: WorktreeCustodyFence[]
 }
-type Entry = {
-  client: WorktreeSelectionClient
+type Entry = MobileSelectionHost & {
   watch: Watch
   stop?: () => void
   signature: string
   legacy: boolean
   generation: number
+  channelNonce?: string
 }
 const clients = new WeakMap<RpcClient, Entry>()
 
 export function mobileWorkspaceSelection(client: RpcClient): WorktreeSelectionClient {
   let entry = clients.get(client)
   if (!entry) {
-    const local = new WorktreeSelectionClient(createUuidV4(), () => ({
-      complete: true,
-      workspaceIds: []
-    }))
+    const views = new WorkspaceSelectionViews({
+      changed: () => local.refresh(),
+      fences: () => local.pendingFences(),
+      reconcile: (fences) => current.reconcile(fences)
+    })
+    const local = new WorktreeSelectionClient(createUuidV4(), () => views.snapshot())
+    const scope = workspaceSelectionScope(client)
+    const bootstrap = client.getWorkspaceSelectionBootstrap?.()
+    if (bootstrap) {
+      const fences =
+        bootstrap.scopes.find((value) => value.executionHost === (scope.executionHost ?? null))
+          ?.fences ?? []
+      if (!local.seed(fences)) {
+        throw new Error('custody_selection_bootstrap_overflow')
+      }
+    }
     entry = {
       client: local,
+      views,
+      executionHost: scope.executionHost,
+      reconcile: (fences) => {
+        const nonce = current.channelNonce
+        if (nonce && local.isReady()) {
+          void runRpcOperation(
+            client,
+            workspaceSelectionReconcile,
+            { channelNonce: nonce, fences },
+            { failWhenDisconnected: true }
+          ).catch(() => local.disconnect())
+        }
+      },
       signature: '',
       legacy: false,
       generation: 0,
@@ -55,6 +83,7 @@ export function mobileWorkspaceSelection(client: RpcClient): WorktreeSelectionCl
     clients.set(client, entry)
     const current = entry
     local.subscribe(() => publish(client, current))
+    registerMobileSelectionHost(client, entry)
     client.onStateChange((state) => {
       if (state !== 'connected') {
         current.signature = ''
@@ -135,30 +164,65 @@ function start(client: RpcClient, entry: Entry): void {
         entry.legacy = true
       }
       end()
+      if (
+        typeof value === 'object' &&
+        value !== null &&
+        'type' in value &&
+        value.type === 'error' &&
+        'message' in value &&
+        value.message === 'the shell ended this stream (closed)' &&
+        client.getWorkspaceSelectionBootstrap &&
+        !entry.legacy &&
+        client.getState() === 'connected'
+      ) {
+        queueMicrotask(() => {
+          if (!entry.stop && !entry.legacy) {
+            start(client, entry)
+          }
+        })
+      }
       return
     }
     if (parsed.data.type === 'ready') {
       entry.signature = ''
+      entry.channelNonce = parsed.data.channelNonce
     }
+    const native =
+      (parsed.data.type === 'hold' || parsed.data.type === 'settled') &&
+      entry.client.ownsChannel(parsed.data.channelNonce)
     const ack = entry.client.receive(parsed.data)
+    if (native) {
+      entry.views.native(parsed.data)
+    }
     if (parsed.data.type === 'ready') {
-      void runRpcOperation(
-        client,
-        workspaceSelectionReconcile,
-        {
-          channelNonce: parsed.data.channelNonce,
-          fences: entry.client.pendingFences()
-        },
-        { failWhenDisconnected: true }
-      ).catch(() => entry.client.disconnect())
+      entry.reconcile(entry.client.pendingFences())
     }
     if (parsed.data.type === 'end') {
       end()
     }
     if (ack) {
-      void runRpcOperation(client, workspaceSelectionAck, ack, {
-        failWhenDisconnected: true
-      }).catch(() => {})
+      const viewsVersion = entry.views.version
+      void entry.views
+        .round(ack)
+        .then((disposition) => {
+          if (entry.generation === generation) {
+            const final =
+              entry.views.version !== viewsVersion
+                ? 'unknown'
+                : ack.disposition === 'absent'
+                  ? disposition
+                  : ack.disposition
+            return runRpcOperation(
+              client,
+              workspaceSelectionAck,
+              { ...ack, disposition: final },
+              {
+                failWhenDisconnected: true
+              }
+            )
+          }
+        })
+        .catch(() => {})
     }
   })
   if (entry.generation === generation) {

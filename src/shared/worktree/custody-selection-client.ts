@@ -2,7 +2,7 @@ import { custodyResourceKey, type WorktreeCustodyFence } from './custody'
 import type { SelectionAck, SelectionFrame } from './custody-selection'
 
 export type SelectionSnapshot = { complete: boolean; workspaceIds: readonly string[] }
-const fenceKey = (fence: WorktreeCustodyFence): string =>
+export const selectionFenceKey = (fence: WorktreeCustodyFence): string =>
   JSON.stringify([
     custodyResourceKey(fence.resource),
     fence.token,
@@ -27,6 +27,22 @@ export class WorktreeSelectionClient {
   disconnect(): void {
     this.channel = null
     this.changed()
+  }
+
+  refresh(): void {
+    this.changed()
+  }
+
+  seed(fences: readonly WorktreeCustodyFence[]): boolean {
+    const keys = new Set([...this.blocked.keys(), ...fences.map(selectionFenceKey)])
+    if (keys.size > 64) {
+      return false
+    }
+    for (const fence of fences) {
+      this.blocked.set(selectionFenceKey(fence), fence)
+    }
+    this.changed()
+    return true
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -58,6 +74,10 @@ export class WorktreeSelectionClient {
     return this.channel !== null
   }
 
+  ownsChannel(nonce: string): boolean {
+    return this.channel?.channelNonce === nonce
+  }
+
   receive(frame: SelectionFrame): SelectionAck | null {
     if (frame.type === 'end') {
       this.disconnect()
@@ -76,14 +96,14 @@ export class WorktreeSelectionClient {
     }
     if (frame.type === 'hold') {
       if (frame.channelNonce === channel.channelNonce && this.blocked.size < 64) {
-        this.blocked.set(fenceKey(frame.fence), frame.fence)
+        this.blocked.set(selectionFenceKey(frame.fence), frame.fence)
         this.changed()
       }
       return null
     }
     if (frame.type === 'settled') {
       if (frame.channelNonce === channel.channelNonce && frame.proof) {
-        this.blocked.delete(fenceKey(frame.fence))
+        this.blocked.delete(selectionFenceKey(frame.fence))
         this.changed()
       }
       return null
@@ -96,7 +116,7 @@ export class WorktreeSelectionClient {
     ) {
       return null
     }
-    const key = fenceKey(round.fence)
+    const key = selectionFenceKey(round.fence)
     if (this.blocked.size >= 64 && !this.blocked.has(key)) {
       return { ...round, disposition: 'unknown' }
     }

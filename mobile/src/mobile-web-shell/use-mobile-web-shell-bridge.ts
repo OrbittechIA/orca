@@ -19,6 +19,7 @@ import type { BridgeErrorCapture } from './bridge/bridge-error-capture'
 import type { MobileWebShellSessionState } from './mobile-web-shell-session-contract'
 import type { PageHostSnapshot } from './use-page-host-snapshot'
 import type { PageStorageForInit } from './page-storage-keys'
+import { BridgeWorkspaceSelection } from './bridge-workspace-selection'
 
 class BridgeViewGoneError extends Error {
   constructor() {
@@ -92,6 +93,7 @@ export function useMobileWebShellBridge(args: MobileWebShellBridgeArgs): MobileW
   const buildId = ready?.buildId ?? null
   const viewRef = useRef<MountedView | null>(null)
   const hostRef = useRef<MountedHost | null>(null)
+  const selectionRef = useRef<{ sessionId: string; owner: BridgeWorkspaceSelection } | null>(null)
   // Preserve Back across same-document client rebuilds, stamped by session so the next document cannot inherit it.
   const establishedBackRef = useRef<EstablishedBack | null>(null)
   // Hold fresh props in a ref so renders cannot rebuild the host and settle pending work; paneKey updates publish init without remounting (ruling 33.1).
@@ -107,6 +109,17 @@ export function useMobileWebShellBridge(args: MobileWebShellBridgeArgs): MobileW
     clientRef.current = client
   })
   const snapshot = args.snapshot
+  useLayoutEffect(() => {
+    if (sessionId === null) {
+      return
+    }
+    const owner = new BridgeWorkspaceSelection()
+    selectionRef.current = { sessionId, owner }
+    return () => {
+      selectionRef.current = null
+      owner.dispose()
+    }
+  }, [sessionId])
 
   // Replace the host on commit so same-session native frames cannot reach a retired client in the passive-effect gap.
   useLayoutEffect(() => {
@@ -117,6 +130,8 @@ export function useMobileWebShellBridge(args: MobileWebShellBridgeArgs): MobileW
     // Read callbacks from the current committed ref; captured render closures would outlive their screen state.
     const host = createBridgeHost({
       client,
+      workspaceSelection:
+        selectionRef.current?.sessionId === sessionId ? selectionRef.current.owner : undefined,
       buildId,
       sessionId,
       route: latest.route,
