@@ -7,13 +7,15 @@ import {
   type DirectLaunchOwnerRow
 } from './launch-work-item-direct-preflight'
 import type { LaunchWorkItemDirectArgs } from './launch-work-item-direct-types'
+import type { WorkItemStartPromptDelivery } from '../../../shared/work-item-start-prompt-delivery'
 
 export async function prepareDirectWorkItemStart(
   store: Parameters<typeof resolveDirectProspectiveAgent>[0],
   owner: DirectLaunchOwnerRow,
   projectContext: Parameters<typeof resolveDirectProspectiveAgent>[2],
   args: LaunchWorkItemDirectArgs,
-  promptDelivery: 'draft' | 'submit-after-ready'
+  /** Null for explicit-delivery launches, which are not governed Work Item Starts. */
+  governedDelivery: WorkItemStartPromptDelivery | null
 ) {
   const { prospectiveAgent, unavailable } = await resolveDirectProspectiveAgent(
     store,
@@ -26,12 +28,14 @@ export async function prepareDirectWorkItemStart(
     return null
   }
   try {
-    const strictStart = await requireWorkItemStartPreflight({
-      delivery: promptDelivery,
-      agent: prospectiveAgent,
-      repoId: args.repoId,
-      target: owner.target
-    })
+    const strictStart =
+      governedDelivery !== null &&
+      (await requireWorkItemStartPreflight({
+        delivery: governedDelivery,
+        agent: prospectiveAgent,
+        repoId: args.repoId,
+        target: owner.target
+      }))
     if (
       strictStart &&
       args.launchChoice?.executionHostId &&

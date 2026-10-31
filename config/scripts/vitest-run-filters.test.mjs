@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { parseRunFilters, readRunFilters, RUN_ARGS_ENV } from './vitest-run-filters.mjs'
+import {
+  parseRunFilters,
+  readRunFilters,
+  RUN_ARGS_ENV,
+  selectsByImportGraph
+} from './vitest-run-filters.mjs'
 import { matchesRunFilter } from './vitest-sqlite-runtime-scan.mjs'
 
 describe('parseRunFilters', () => {
@@ -38,6 +43,34 @@ describe('parseRunFilters', () => {
     const env = { [RUN_ARGS_ENV]: JSON.stringify(args) }
     expect(readRunFilters(env, ['bun', 'vitest.mjs', ...args])).toEqual(['src/a'])
     expect(readRunFilters(env, ['bun', 'vitest.mjs', 'run', 'src/b'])).toBeUndefined()
+  })
+})
+
+describe('selectsByImportGraph', () => {
+  const launched = (args) => [
+    { [RUN_ARGS_ENV]: JSON.stringify(args) },
+    ['node', 'vitest.mjs', ...args]
+  ]
+
+  it.each([
+    [['related', '--run', 'src/a.ts']],
+    [['run', '--changed=abc123']],
+    [['run', '--changed', 'abc123']]
+  ])('leaves dedicated-lane suites to their lanes for %j', (args) => {
+    expect(selectsByImportGraph(...launched(args))).toBe(true)
+  })
+
+  it.each([
+    [['run', 'src/main/runtime/structured-session-cli-login-shell.live-shell.test.ts']],
+    [['run']]
+  ])('keeps explicit and full runs collecting every suite for %j', (args) => {
+    expect(selectsByImportGraph(...launched(args))).toBe(false)
+  })
+
+  it('ignores a related run this process was not launched with', () => {
+    const env = { [RUN_ARGS_ENV]: JSON.stringify(['related', 'src/a.ts']) }
+    expect(selectsByImportGraph(env, ['node', 'vitest.mjs', 'run', 'src/b'])).toBe(false)
+    expect(selectsByImportGraph({}, ['node', 'vitest.mjs', 'related', 'src/a.ts'])).toBe(false)
   })
 })
 

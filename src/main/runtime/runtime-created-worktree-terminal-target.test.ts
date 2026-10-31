@@ -445,7 +445,7 @@ describe('workspace activation and metadata reentry', () => {
     await expect(
       runtime.activateManagedWorktree('selected', { clientKind: 'mobile' })
     ).resolves.toMatchObject({ sleepingAgentWake: 'requested' })
-    expect(reads()).toBe(5)
+    expect(reads()).toBe(2)
   })
 
   it('looks up the sleeping callback late and keeps its notifier receiver', async () => {
@@ -465,7 +465,7 @@ describe('workspace activation and metadata reentry', () => {
       }
     })
     await runtime.activateManagedWorktree('selected', { clientKind: 'mobile' })
-    expect(reads()).toBe(5)
+    expect(reads()).toBe(2)
     // The window's callback runs once main's queued resume has.
     await vi.waitFor(() =>
       expect(calls).toEqual([{ receiver: notifier, args: [runtime.selectedWorktree.id] }])

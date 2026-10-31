@@ -319,6 +319,50 @@ describe('orchestration RPC methods', () => {
       }
     )
 
+    it.each([
+      ['absent', undefined],
+      ['unknown', JSON.parse('{"kind":"federated","hostId":"local"}')]
+    ])('refuses a worktree authority whose host scope is %s', async (_label, hostScope) => {
+      setup()
+      vi.spyOn(runtime, 'getOrchestrationDispatchAuthority').mockReturnValue(
+        localDispatchAuthority({
+          terminalHandle: 'term_a',
+          paneKey: 'tab_w:leaf_w',
+          processIncarnation: 'runtime_test:term_a:1',
+          hostScope
+        })
+      )
+      const task = db.createTask({ spec: 'work' })
+
+      await expect(
+        call('orchestration.dispatch', { task: task.id, to: 'term_a' })
+      ).rejects.toMatchObject({
+        code: 'worktree_custody_refused',
+        data: { effectsApplied: false, worktreeId: 'repo::worktree', reason: 'host_scope_unknown' }
+      })
+      expect(db.getDispatchContext(task.id)).toBeUndefined()
+    })
+
+    it('dispatches to an SSH worktree authority without local custody', async () => {
+      setup()
+      vi.spyOn(runtime, 'getOrchestrationDispatchAuthority').mockReturnValue(
+        localDispatchAuthority({
+          terminalHandle: 'term_a',
+          paneKey: 'tab_w:leaf_w',
+          processIncarnation: 'runtime_test:term_a:1',
+          hostScope: { kind: 'ssh', targetId: 'box-1' }
+        })
+      )
+      const task = db.createTask({ spec: 'work' })
+
+      const result = (await call('orchestration.dispatch', {
+        task: task.id,
+        to: 'term_a'
+      })) as { dispatch: { status: string } }
+
+      expect(result.dispatch.status).toBe('dispatched')
+    })
+
     it('does not infer manual process authority from an unauthenticated handle', async () => {
       setup()
       const task = db.createTask({ spec: 'work' })

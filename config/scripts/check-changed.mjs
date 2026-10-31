@@ -321,6 +321,11 @@ export async function main(root, argv) {
   console.log(
     `check:changed: ${files.length} changed file(s) since ${ref} (${mergeBase.slice(0, 10)}); running ${tasks.length} check(s).`
   )
+  if (plan.unitTests.related.length > 0) {
+    console.log(
+      'check:changed: related tests exclude UNIT_EXCLUDE suites (real shells, Electron, cross-version wire); their dedicated CI lanes run them.'
+    )
+  }
 
   // Typecheck and tests lead the queue: they take longest, so the short checks fill in around them.
   const concurrency = resolveCheckConcurrency(

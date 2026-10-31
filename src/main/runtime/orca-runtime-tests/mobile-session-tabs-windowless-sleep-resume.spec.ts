@@ -277,6 +277,7 @@ describe('opening a workspace-slept running agent on a host with no window', () 
     })
     const resumeSleepingAgents = vi.fn()
     Object.defineProperty(runtime, 'notifier', { value: { resumeSleepingAgents } })
+    const wakeEnded = vi.spyOn(runtime, 'wakeWindowHibernatedAgents')
 
     await runtime.activateManagedWorktree(`id:${TEST_WORKTREE_ID}`, {
       notifyClients: false,
@@ -284,9 +285,11 @@ describe('opening a workspace-slept running agent on a host with no window', () 
     })
     await vi.waitFor(() => expect(spawn).toHaveBeenCalled())
     expect(spawnedCommand(spawn)).toContain('provider-session-1')
-    expect(resumeSleepingAgents).not.toHaveBeenCalled()
+    expect(wakeEnded).not.toHaveBeenCalled()
     landSpawn({ id: 'persisted-pty' })
-    await vi.waitFor(() => expect(resumeSleepingAgents).toHaveBeenCalledWith(TEST_WORKTREE_ID))
+    await vi.waitFor(() => expect(wakeEnded).toHaveBeenCalledWith(TEST_WORKTREE_ID))
+    // No window holds hibernated agents, so the window wake is never sent.
+    expect(resumeSleepingAgents).not.toHaveBeenCalled()
   })
 
   describe("the window's open of a slept pane (worktrees:resumeSleptPane)", () => {

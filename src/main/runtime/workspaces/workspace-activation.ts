@@ -76,7 +76,9 @@ export abstract class OrcaRuntimeWithActivateManagedWorktree extends OrcaRuntime
   }> {
     this.assertGraphReady()
     const worktree = await this.resolveGitWorktreeSelector(worktreeSelector)
-    const releaseCustody = admitWorktreeCustody(worktree.id, worktree.path, worktree.hostId)
+    // Custody admits one identity; every effect below must act on that same id.
+    const worktreeId = worktree.id
+    const releaseCustody = admitWorktreeCustody(worktreeId, worktree.path, worktree.hostId)
     try {
       const repo = this.store?.getRepo(worktree.repoId)
       if (!repo) {
@@ -98,29 +100,27 @@ export abstract class OrcaRuntimeWithActivateManagedWorktree extends OrcaRuntime
       }
 
       let sleepingAgentWake: Awaited<ReturnType<typeof activateMobileWorkspace>> = 'not-applicable'
-      if (targetsHost || targetsClients) {
-        // Inactive renderer-owned panes may need desktop activation to gain PTYs.
-        if (targetsHost) {
-          this.notifyHostActivateWorktree(repo.id, worktree.id)
-        }
-        if (targetsClients) {
-          this.notifyClientsActivateWorktree(repo.id, worktree.id, undefined, navigation)
-        }
+      // Inactive renderer-owned panes may need desktop activation to gain PTYs.
+      if (targetsHost) {
+        this.notifyHostActivateWorktree(repo.id, worktreeId)
+      }
+      if (targetsClients) {
+        this.notifyClientsActivateWorktree(repo.id, worktreeId, undefined, navigation)
       }
       if (!targetsHost) {
         sleepingAgentWake = await activateMobileWorkspace({
-          worktreeId: worktree.id,
+          worktreeId,
           mobile: opts.clientKind === 'mobile',
           hydrate: (id, options) =>
             this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(id, options),
           refresh: () => this.refreshMobileSessionPtyRecords(),
-          notify: () => this.notifyMobileSessionTabsChanged(worktree.id),
-          wake: () => this.queueSleepingAgentWake(worktree.id),
+          notify: () => this.notifyMobileSessionTabsChanged(worktreeId),
+          wake: () => this.queueSleepingAgentWake(worktreeId),
           readSession: () => this.store?.getWorkspaceSession?.(getRepoExecutionHostId(repo)),
           hasWindow: () => Boolean(this.getAvailableAuthoritativeWindow())
         })
       }
-      return { repoId: repo.id, worktreeId: worktree.id, activated: true, sleepingAgentWake }
+      return { repoId: repo.id, worktreeId, activated: true, sleepingAgentWake }
     } finally {
       releaseCustody()
     }

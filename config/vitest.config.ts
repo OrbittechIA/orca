@@ -9,7 +9,7 @@ import { UNIT_FAILURE_REPORT_DIR_ENV } from './scripts/ci-unit-failure-reporter.
 import RuntimeSequencer from './scripts/vitest-runtime-sequencer.mjs'
 import { getNodeRuntimeInclude } from './scripts/vitest-node-runtime-files.mjs'
 import { nodeRuntimePool } from './scripts/vitest-node-runtime-pool'
-import { readRunFilters } from './scripts/vitest-run-filters.mjs'
+import { readRunFilters, selectsByImportGraph } from './scripts/vitest-run-filters.mjs'
 import { createWorkspaceSourceResolver } from './scripts/workspace-source-exports.mjs'
 import { moduleCacheResolutionKey } from './scripts/vitest-module-cache-resolution-key'
 
@@ -17,6 +17,8 @@ const nodeRuntimeInclude = process.versions.bun
   ? getNodeRuntimeInclude({ filters: readRunFilters() })
   : []
 const balancedShards = process.env.ORCA_BALANCE_UNIT_SHARDS === '1'
+// Dedicated lanes name their files; import-graph picks (related, --changed) leave them there.
+const laneSuitesExcluded = balancedShards || selectsByImportGraph()
 const moduleCachePath = process.env.ORCA_UNIT_MODULE_CACHE_PATH
 const failureReportDirectory = process.env[UNIT_FAILURE_REPORT_DIR_ENV]
 const measurementFile = 'src/main/foreign-sqlite-readers/foreign-sqlite-reader-event-loop.test.ts'
@@ -91,7 +93,7 @@ const testOptions = {
   execArgv: ['--no-experimental-webstorage', '--expose-gc'],
   setupFiles: UNIT_SETUP_FILES.map((file) => resolve(file)),
   include: UNIT_INCLUDE,
-  exclude: balancedShards ? UNIT_EXCLUDE : defaultExclude,
+  exclude: laneSuitesExcluded ? UNIT_EXCLUDE : defaultExclude,
   hookTimeout: 60_000,
   testTimeout: 30_000
 }

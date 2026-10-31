@@ -49,11 +49,23 @@ export function parseRunFilters(args) {
   return filters.length ? filters : undefined
 }
 
+function launchedRunArgs(env, argv) {
+  const launched = env[RUN_ARGS_ENV]
+  return launched && launched === JSON.stringify(argv.slice(2)) ? argv.slice(2) : undefined
+}
+
 // Ignore inherited filters unless argv identifies this runner's own Vitest invocation.
 export function readRunFilters(env = process.env, argv = process.argv) {
-  const launched = env[RUN_ARGS_ENV]
-  if (!launched || launched !== JSON.stringify(argv.slice(2))) {
-    return undefined
-  }
-  return parseRunFilters(argv.slice(2))
+  const args = launchedRunArgs(env, argv)
+  return args ? parseRunFilters(args) : undefined
+}
+
+/** `related` and `--changed` pick tests by import graph, never by naming a dedicated-lane suite. */
+export function selectsByImportGraph(env = process.env, argv = process.argv) {
+  const args = launchedRunArgs(env, argv)
+  return (
+    args !== undefined &&
+    (args[0] === 'related' ||
+      args.some((arg) => ['--related', '--changed'].includes(arg.split('=')[0])))
+  )
 }

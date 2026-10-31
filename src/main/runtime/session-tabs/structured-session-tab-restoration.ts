@@ -80,10 +80,9 @@ export abstract class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce exten
         this.passiveStructuredSessionTabChangeEligible(change)
       )
     }
+    // Visibility was read once above; nothing since has yielded or hidden a tab.
     for (const session of restored) {
-      if (host?.isSessionTabVisible(session.sessionId)) {
-        this.projectStructuredAgentSessionTab({ ...session, activate: false, notify: false })
-      }
+      this.projectStructuredAgentSessionTab({ ...session, activate: false, notify: false })
     }
     const wasUnverifiable = this.structuredAgentSessionInventoryUnverifiable
     // No host means no one can say which chats exist; with none on disk, empty is the answer.

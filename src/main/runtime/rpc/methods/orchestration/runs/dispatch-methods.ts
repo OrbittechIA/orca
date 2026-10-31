@@ -1,5 +1,8 @@
 import { defineMethod } from '../../../core'
-import { admitOrchestrationWorktreeCustody } from '../../../../worktree-custody-runtime'
+import {
+  admitDispatchAuthorityWorktreeCustody,
+  admitOrchestrationWorktreeCustody
+} from '../../../../worktree-custody-runtime'
 import { OrchestrationError } from '../../../../orchestration/orchestration-error'
 import { buildDispatchPreamble } from '../../../../orchestration/preamble'
 import { sendAgentTurn } from '../../../../orchestration/send-agent-turn'
@@ -102,18 +105,15 @@ export const ORCHESTRATION_DISPATCH_METHODS = [
 
       const dispatchAuthority = chatAssignee ? null : runtime.getOrchestrationDispatchAuthority(to)
       const admittedWorktreeId = chatLocation?.workspaceId ?? dispatchAuthority?.worktreeId
-      // A missing host scope reads as local, so custody still checks a fenced worktree.
-      const releaseCustody = admittedWorktreeId
-        ? admitOrchestrationWorktreeCustody(
-            admittedWorktreeId,
-            undefined,
-            chatLocation
-              ? chatLocation.wslDistro
-                ? 'wsl'
-                : chatLocation.executionHostId
-              : dispatchAuthority?.hostScope?.kind
-          )
-        : () => {}
+      const releaseCustody = !admittedWorktreeId
+        ? () => {}
+        : chatLocation
+          ? admitOrchestrationWorktreeCustody(
+              admittedWorktreeId,
+              undefined,
+              chatLocation.wslDistro ? 'wsl' : chatLocation.executionHostId
+            )
+          : admitDispatchAuthorityWorktreeCustody(admittedWorktreeId, dispatchAuthority?.hostScope)
       try {
         const assigneePaneKey = chatAssignee
           ? undefined

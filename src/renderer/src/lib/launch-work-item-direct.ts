@@ -66,9 +66,12 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
   }
   const { repo, executionHostId: repoOwnerHostId, target: repoOwnerTarget } = owner
 
-  const promptDelivery =
-    args.promptDelivery ??
-    resolveWorkItemStartPromptDelivery(store.settings?.workItemStartPromptDelivery)
+  // Only the persisted opt-in governs a Work Item Start; explicit callers keep their own delivery.
+  const governed =
+    args.promptDelivery === undefined
+      ? resolveWorkItemStartPromptDelivery(store.settings?.workItemStartPromptDelivery)
+      : null
+  const promptDelivery = args.promptDelivery ?? governed ?? 'draft'
   const repoConnectionId = repo.connectionId?.trim() || null
   const githubIdentity =
     item.number !== null && (item.type === 'issue' || item.type === 'pr')
@@ -143,7 +146,7 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
     return false
   }
   const projectContext = projectPreflight.context
-  const start = await prepareDirectWorkItemStart(store, owner, projectContext, args, promptDelivery)
+  const start = await prepareDirectWorkItemStart(store, owner, projectContext, args, governed)
   if (!start) {
     return false
   }

@@ -27,6 +27,34 @@ describe('launchWorkItemDirect', () => {
     expect(mocks.activateAndRevealWorktree).not.toHaveBeenCalled()
   })
 
+  it('keeps an explicit submit-after-ready launch outside the persisted Start opt-in', async () => {
+    mocks.store.settings = {
+      defaultTuiAgent: 'claude',
+      workItemStartPromptDelivery: 'submit-after-ready'
+    }
+    mocks.ensureDetectedAgents.mockResolvedValue(['claude'])
+
+    await expect(
+      launchWorkItemDirect({
+        repoId: 'repo-1',
+        launchSource: 'task_page',
+        agentOverride: 'claude',
+        promptDelivery: 'submit-after-ready',
+        openModalFallback: vi.fn(),
+        item: {
+          type: 'issue',
+          number: null,
+          title: 'Ship Linear parity',
+          url: 'https://linear.app/acme/issue/ENG-42/ship-linear-parity',
+          linearIdentifier: 'ENG-42',
+          pasteContent: 'Use this explicit user prompt.'
+        }
+      })
+    ).resolves.toBe(true)
+    expect(hostMocks.callRuntimeRpc).not.toHaveBeenCalledWith(expect.anything(), 'status.get')
+    expect(mocks.createWorktree).toHaveBeenCalledOnce()
+  })
+
   it('rejects invalid per-launch CLI arguments before creating a workspace', async () => {
     await expect(
       launchWorkItemDirect({

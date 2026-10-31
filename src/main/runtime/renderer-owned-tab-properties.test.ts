@@ -21,6 +21,7 @@ import {
 import type { AgentSessionRecordStore } from './agent-session-record-store'
 import { OrcaRuntimeService, electronMocks } from './orca-runtime-test-mocks.spec'
 import {
+  HEADLESS_LEAF_ID,
   TEST_WORKTREE_ID,
   makeRuntimeStoreWithWorkspaceSession,
   makeWorkspaceSessionWithHeadlessTerminal
@@ -29,7 +30,55 @@ import type { RuntimeNotifier } from './runtime-notifier-contract'
 import { RpcDispatcher } from './rpc/dispatcher'
 import { SESSION_TAB_MUTATION_METHODS } from './rpc/methods/session-tab-mutation-methods'
 
-function fixture(session = makeWorkspaceSessionWithHeadlessTerminal()) {
+const RENDERER_TAB_ID = `tab::${HEADLESS_LEAF_ID}`
+
+/** The renderer's own publication of host-tab, which admission reads for every caller. */
+function publishRendererTab(runtime: OrcaRuntimeService): void {
+  runtime.syncWindowGraph(1, {
+    tabs: [
+      {
+        tabId: 'host-tab',
+        worktreeId: TEST_WORKTREE_ID,
+        title: 'Persisted Terminal',
+        activeLeafId: HEADLESS_LEAF_ID,
+        layout: null
+      }
+    ],
+    leaves: [
+      {
+        tabId: 'host-tab',
+        worktreeId: TEST_WORKTREE_ID,
+        leafId: HEADLESS_LEAF_ID,
+        paneRuntimeId: 1,
+        ptyId: 'persisted-pty',
+        paneTitle: 'Persisted Terminal'
+      }
+    ],
+    mobileSessionTabs: [
+      {
+        worktree: TEST_WORKTREE_ID,
+        publicationEpoch: 'renderer',
+        snapshotVersion: 1,
+        activeGroupId: null,
+        activeTabId: RENDERER_TAB_ID,
+        activeTabType: 'terminal',
+        tabs: [
+          {
+            type: 'terminal',
+            id: RENDERER_TAB_ID,
+            parentTabId: 'host-tab',
+            leafId: HEADLESS_LEAF_ID,
+            ptyId: 'persisted-pty',
+            title: 'Persisted Terminal',
+            isActive: true
+          }
+        ]
+      }
+    ]
+  })
+}
+
+function fixture(session = makeWorkspaceSessionWithHeadlessTerminal(), published = true) {
   const { runtimeStore, getSession } = makeRuntimeStoreWithWorkspaceSession(session)
   const runtime = new OrcaRuntimeService(runtimeStore)
   const notifier = {
@@ -45,7 +94,11 @@ function fixture(session = makeWorkspaceSessionWithHeadlessTerminal()) {
     terminalDriverChanged: vi.fn()
   } satisfies RuntimeNotifier
   runtime.attachWindow(1)
-  runtime.syncWindowGraph(1, { tabs: [], leaves: [] })
+  if (published) {
+    publishRendererTab(runtime)
+  } else {
+    runtime.syncWindowGraph(1, { tabs: [], leaves: [] })
+  }
   electronMocks.BrowserWindow.fromId.mockReturnValue({ isDestroyed: () => false })
   runtime.setNotifier(notifier)
   const dispatcher = new RpcDispatcher({ runtime, methods: SESSION_TAB_MUTATION_METHODS })
@@ -86,6 +139,35 @@ describe.each([undefined, 'Changed title'])(
     })
   }
 )
+
+it('admits a title edit on the published renderer tab through the RPC boundary', async () => {
+  const { dispatcher, notifier } = fixture()
+  const response = await dispatcher.dispatch({
+    id: 'edit-title',
+    authToken: 'token',
+    method: 'session.tabs.setTabProps',
+    params: { worktree: `id:${TEST_WORKTREE_ID}`, tabId: 'host-tab', customTitle: ' Renamed ' }
+  })
+
+  expect(response).toMatchObject({ ok: true, result: { updated: true } })
+  expect(notifier.renameTerminal).toHaveBeenCalledWith('host-tab', 'Renamed')
+})
+
+it('refuses a caller without clientKind when the renderer has not published the tab', async () => {
+  const { runtime, dispatcher, getSession, session, notifier } = fixture(undefined, false)
+  const setProps = vi.spyOn(runtime, 'setMobileSessionTabProps')
+  const response = await dispatcher.dispatch({
+    id: 'edit-unlisted',
+    authToken: 'token',
+    method: 'session.tabs.setTabProps',
+    params: { worktree: `id:${TEST_WORKTREE_ID}`, tabId: 'host-tab', customTitle: 'Renamed' }
+  })
+
+  expect(response).toMatchObject({ ok: false })
+  expect(setProps).not.toHaveBeenCalled()
+  expect(notifier.renameTerminal).not.toHaveBeenCalled()
+  expect(getSession()).toBe(session)
+})
 
 it.each([' Renamed ', null])(
   'still forwards a title-only edit to the renderer: %s',
@@ -135,7 +217,8 @@ it('refuses a combined native chat edit before saving its name, while accepting 
           }
         ]
       }
-    })
+    }),
+    false
   )
   try {
     await seedTestAgentSessionRecordStore(directory, {

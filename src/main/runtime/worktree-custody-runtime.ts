@@ -16,6 +16,7 @@ import { OrchestrationError } from './orchestration/orchestration-error'
 import type { OrchestrationDb } from './orchestration/db'
 import { WORKER_RELEASABLE_STATES } from './orchestration/worker-terminal-ownership'
 import type { WorktreeCustodyResource } from '../../shared/worktree/custody'
+import type { WorkerTerminalHostScope } from '../../shared/worker-terminal-host-scope'
 
 export { WorktreeCustodyAdmissionError } from './worktree-custody-authority'
 
@@ -143,6 +144,26 @@ export function admitOrchestrationWorktreeCustody(
         reason: error.message
       }
     )
+  }
+}
+
+/** Admits a dispatch authority's worktree; an absent or unknown host scope never reads as local. */
+export function admitDispatchAuthorityWorktreeCustody(
+  worktreeId: string,
+  hostScope: WorkerTerminalHostScope | undefined
+): () => void {
+  const kind = hostScope?.kind
+  switch (kind) {
+    case 'local':
+    case 'wsl':
+    case 'ssh':
+      return admitOrchestrationWorktreeCustody(worktreeId, undefined, kind)
+    default:
+      throw new OrchestrationError(
+        'worktree_custody_refused',
+        'Workspace custody prevents this operation.',
+        { effectsApplied: false, worktreeId, reason: 'host_scope_unknown' }
+      )
   }
 }
 

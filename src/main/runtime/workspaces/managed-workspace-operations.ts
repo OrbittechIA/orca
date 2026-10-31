@@ -275,7 +275,10 @@ export abstract class OrcaRuntimeWithListManagedWorktrees extends OrcaRuntimeWit
   }
 
   wakeWindowHibernatedAgents(worktreeId: string): void {
-    this.notifier?.resumeSleepingAgents?.(worktreeId)
+    // Headless serve reported this wake unsupported; no window holds hibernation to wake.
+    if (this.getAvailableAuthoritativeWindow()) {
+      this.notifier?.resumeSleepingAgents?.(worktreeId)
+    }
   }
 
   notifyWorkspaceSleep(notice: WorkspaceSleepNotice): void {
