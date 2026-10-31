@@ -1,39 +1,895 @@
-name: Release ref validation
-
+name: Audit166 pinned Orca qualification
+run-name: Audit166 b7d96b2 source qualification
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
-    paths:
-      - '.github/workflows/adhoc-mac-build.yml'
-      - '.github/workflows/dev-channel-win-build.yml'
-      - '.github/workflows/release-ref-validation.yml'
-      - 'config/scripts/workflow-ref-reachability.test.mjs'
-      - 'config/scripts/workflow-ref-mirror-case-safety.test.mjs'
   workflow_dispatch:
-
 permissions:
   contents: read
-
 concurrency:
-  group: release-ref-validation-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
+  group: audit166-pinned-b7d96b2-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
-  validate:
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft != true
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-15, windows-2022]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+  qualify:
+    if: >-
+      github.repository == 'OrbittechIA/orca' &&
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/audit166/scope-b7d96b2c9b'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      ORCA_BACKGROUND_LAUNCH: '1'
+      ORCA_CHECK_CONCURRENCY: '1'
+      NODE_OPTIONS: --max-old-space-size=6144
+      GOMEMLIMIT: 10GiB
+      GOMAXPROCS: '4'
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout the exact reviewed product source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
+          ref: b7d96b2c9b9937a92cb25800ce061fedab1d9e49
+          fetch-depth: 128
           persist-credentials: false
-      - uses: ./.github/actions/install-node-dependencies
-      - name: Verify case-twin refs and release trust boundary
-        run: >-
-          pnpm exec vitest run --config config/vitest.config.ts
-          config/scripts/workflow-ref-reachability.test.mjs
-          config/scripts/workflow-ref-mirror-case-safety.test.mjs
+      - name: Verify immutable source and base
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = b7d96b2c9b9937a92cb25800ce061fedab1d9e49
+          test "$(git merge-base 1c6ac8c3c4d2c3dec2cb5966d225ca2a0e0471d3 HEAD)" = 1c6ac8c3c4d2c3dec2cb5966d225ca2a0e0471d3
+          test -z "$(git status --porcelain)"
+          test ! -e .cache/check-changed.json
+          test -f config/scripts/ci-unit-failure-reporter.mjs
+          grep -q UNIT_FAILURE_REPORT_DIR_ENV config/vitest.config.ts
+          test ! -e "$RUNNER_TEMP/orca245-evidence"
+          mkdir "$RUNNER_TEMP/orca245-evidence"
+          node --input-type=module <<'NODE'
+          import {writeFileSync, readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          import {execFileSync} from 'node:child_process';
+          import os from 'node:os';
+          const git=(...args)=>execFileSync('git',args,{encoding:'utf8'}).trim();
+          const hashes=Object.fromEntries(['package.json','pnpm-lock.yaml','config/vitest.config.ts','config/scripts/ci-unit-failure-reporter.mjs','config/scripts/check-changed.mjs','config/scripts/check-changed-selection.mjs','config/scripts/check-changed-code-quality.mjs','config/scripts/run-vitest.mjs','tests/e2e/cross-version-wire/release-checkout.ts'].map(f=>[f,createHash('sha256').update(readFileSync(f)).digest('hex')]));
+          const value={schema:'orca245-hosted-source-provenance-v1',source:git('rev-parse','HEAD'),tree:git('rev-parse','HEAD^{tree}'),base:'1c6ac8c3c4d2c3dec2cb5966d225ca2a0e0471d3',workflowSha:process.env.GITHUB_WORKFLOW_SHA,workflowRef:process.env.GITHUB_WORKFLOW_REF,dispatchSha:process.env.GITHUB_SHA,event:process.env.GITHUB_EVENT_NAME,ref:process.env.GITHUB_REF,repository:process.env.GITHUB_REPOSITORY,runId:process.env.GITHUB_RUN_ID,attempt:process.env.GITHUB_RUN_ATTEMPT,image:process.env.ImageVersion,os:os.release(),arch:os.arch(),cpu:os.availableParallelism(),memoryBytes:os.totalmem(),hashes};
+          writeFileSync(`${process.env.RUNNER_TEMP}/orca245-evidence/source.json`,JSON.stringify(value,null,2)+'\n');
+          NODE
+      - name: Fetch the validated official release snapshots into this disposable checkout only
+        shell: bash
+        env:
+          EXPECTED_REFS: '{"tags":{"v1.4.184":{"tagObject":"284a244a12dfe266f62c103cc6b1b1d13203e0b4","commit":"2307f2ebbe1c1e737c0b12d920bb0a208332db2c"},"v1.4.190":{"tagObject":"43268cadff07d513a73181741090ece06a364fd6","commit":"6e4f817101daa18d82824b69243d9079baa9c416"},"v1.4.199":{"tagObject":"cb958df54b401a30172f8051d1a682cad33a7551","commit":"28957d6004dd191b6f0baff493a9fd3d37405d9d"},"v1.4.205":{"tagObject":"c3ac507ba02a652cce627d5acad9605f4792d7fc","commit":"11aba8bdc5e492d3ba01fc7fe333495ace74128f"},"v1.4.211":{"tagObject":"309f465bd44b511b82d3ce3fb8d1e3a5aedc00eb","commit":"5534462b50c660888487a2108700d4cf284270db"},"v1.4.212":{"tagObject":"2d61ec19a384106b46a66254e054103c480fc826","commit":"d937d22f498505c017634be9bf0540c9fa42e665"},"v1.4.214":{"tagObject":"4780b6aeb243d7c3e5c5dc2f61e950c87470339b","commit":"7468e9cccb35a8494f76dc95a37627121113ee80"},"v1.4.218":{"tagObject":"24d7d0362e4a2c9e613756f1529bb6bb455649df","commit":"75ea50273328d9bd5465170d10a098711d61b5a4"},"v1.4.219":{"tagObject":"482a2438d5d5b76d538b903c8bb8fa81ed48c540","commit":"e705cac04a1db7e7e2184746e912142d34ca838b"},"v1.4.220":{"tagObject":"7e66229dfdc57c53581ce97fd9a69dc73d5beb90","commit":"a7927b28ce45cbb044add478d957abe36c99ccd8"},"v1.4.221":{"tagObject":"bf0963821fcb8c6ef2674540f16c802688f5d70a","commit":"9dd8812384db85d0b4ede2d1e37f9d73bdb4ea8c"},"v1.4.222":{"tagObject":"fae770adf60aac8f0af02720565c1691fdd95dec","commit":"4bb6f2072b07c1f0664b809551f77754700570e4"},"v1.4.224":{"tagObject":"270a21b6767d6f63170711ec3222d17c3dd7c0f5","commit":"2bb20586ebc39d605e16d95f57420e20a16e7485"},"v1.4.228":{"tagObject":"45d0a479f5cd08a8e3f3c04c149c60e2d3bef582","commit":"d4d37f5d8f14b198f32883897110fbbee15e8ac2"},"v1.4.229":{"tagObject":"a3fdce0977b75dc3777439df6d3b928ad4d911cf","commit":"a0cd1644f320f1327f7495650a816111b495f3cd"},"v1.4.244":{"tagObject":"9096d705d84b8b8fd5d2d605ca2a27428cd74442","commit":"b8ec5c8d170bcb9988e65de547a3a4e98b2885a9"},"v1.4.245":{"tagObject":"7a5202ad17310bc22e1f03398a96a189a3b33f03","commit":"1c6ac8c3c4d2c3dec2cb5966d225ca2a0e0471d3"}},"literals":["3727100cc9dbcea6201f8a3e506676a3c4b53b18","5a56636f6679071d6ec68b851ef7932cd3222560","aac38d698ff75ac4c8658addab48ef5a83617619","b49abdb1f4da6b3d62dfa9ccf3c74dc9e74d291c","b6b4d68cd844c921c7c5191cef72d5adafc0dafa","e817b0e23747ffd6f16f2ddefea861950d82a3c0","f97ca2a49d9c711dab54a656a7f8a47ae6c6749c"]}'
+        run: |
+          set -euo pipefail
+          # Release tags land only in this runner's checkout; nothing is pushed or published anywhere.
+          git fetch --no-tags --depth=1 https://github.com/stablyai/orca.git refs/tags/v1.4.184:refs/tags/v1.4.184 refs/tags/v1.4.190:refs/tags/v1.4.190 refs/tags/v1.4.199:refs/tags/v1.4.199 refs/tags/v1.4.205:refs/tags/v1.4.205 refs/tags/v1.4.211:refs/tags/v1.4.211 refs/tags/v1.4.212:refs/tags/v1.4.212 refs/tags/v1.4.214:refs/tags/v1.4.214 refs/tags/v1.4.218:refs/tags/v1.4.218 refs/tags/v1.4.219:refs/tags/v1.4.219 refs/tags/v1.4.220:refs/tags/v1.4.220 refs/tags/v1.4.221:refs/tags/v1.4.221 refs/tags/v1.4.222:refs/tags/v1.4.222 refs/tags/v1.4.224:refs/tags/v1.4.224 refs/tags/v1.4.228:refs/tags/v1.4.228 refs/tags/v1.4.229:refs/tags/v1.4.229 refs/tags/v1.4.244:refs/tags/v1.4.244 refs/tags/v1.4.245:refs/tags/v1.4.245
+          git fetch --no-tags --depth=1 https://github.com/stablyai/orca.git 3727100cc9dbcea6201f8a3e506676a3c4b53b18 5a56636f6679071d6ec68b851ef7932cd3222560 aac38d698ff75ac4c8658addab48ef5a83617619 b49abdb1f4da6b3d62dfa9ccf3c74dc9e74d291c b6b4d68cd844c921c7c5191cef72d5adafc0dafa e817b0e23747ffd6f16f2ddefea861950d82a3c0 f97ca2a49d9c711dab54a656a7f8a47ae6c6749c
+          test "$(git rev-parse HEAD)" = b7d96b2c9b9937a92cb25800ce061fedab1d9e49
+          test -z "$(git status --porcelain)"
+          node --input-type=module <<'NODE'
+          import {writeFileSync} from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          const git=(...args)=>execFileSync('git',args,{encoding:'utf8'}).trim();
+          const expected=JSON.parse(process.env.EXPECTED_REFS);
+          const tags=Object.entries(expected.tags).map(([tag,{tagObject,commit}])=>({tag,tagObject,commit,observedTagObject:git('rev-parse',`refs/tags/${tag}`),observedCommit:git('rev-parse',`refs/tags/${tag}^{commit}`)}));
+          const literals=expected.literals.map(commit=>({commit,type:git('cat-file','-t',commit)}));
+          const verified=tags.every(t=>t.observedTagObject===t.tagObject&&t.observedCommit===t.commit)&&literals.every(l=>l.type==='commit')&&expected.tags['v1.4.245']?.commit==='1c6ac8c3c4d2c3dec2cb5966d225ca2a0e0471d3'&&expected.tags['v1.4.222']?.commit==='4bb6f2072b07c1f0664b809551f77754700570e4';
+          writeFileSync(`${process.env.RUNNER_TEMP}/orca245-evidence/refs.json`,JSON.stringify({schema:'orca245-hosted-release-refs-v1',source:'https://github.com/stablyai/orca.git',verified,baselineRef:'v1.4.245',tags,literals,objects:git('count-objects','-v')},null,2)+'\n');
+          if(!verified) throw Error('Official release refs do not match their reviewed identities');
+          NODE
+      - name: Install the source-declared toolchain without saving caches
+        uses: ./.github/actions/install-node-dependencies
+        with:
+          node-version: '24.18.1'
+          native-runtime: node
+          cache-pnpm-store: 'false'
+          cache-pnpm-verification: 'false'
+          persist-native-cache: 'false'
+          cache-electron-package: 'false'
+      - name: Install the exact source-pinned Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version-file: config/.bun-version
+          no-cache: true
+      - name: Prepare isolated display and Electron test runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v xvfb-run >/dev/null || { sudo apt-get update; sudo apt-get install -y xvfb; }
+          node config/scripts/install-electron-package-binary.mjs
+          node --version > "$RUNNER_TEMP/orca245-evidence/toolchain.txt"
+          pnpm --version >> "$RUNNER_TEMP/orca245-evidence/toolchain.txt"
+          bun --version >> "$RUNNER_TEMP/orca245-evidence/toolchain.txt"
+          df -B1 . >> "$RUNNER_TEMP/orca245-evidence/toolchain.txt"
+      - name: Record the selection the final source itself plans
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import {existsSync,readdirSync,writeFileSync} from 'node:fs';
+          import {collectChangedFiles,computePassHash} from './config/scripts/check-changed-pass-cache.mjs';
+          import {planChangedChecks} from './config/scripts/check-changed-selection.mjs';
+          import path from 'node:path';
+          const root=process.cwd(),base='1c6ac8c3c4d2c3dec2cb5966d225ca2a0e0471d3';
+          const files=collectChangedFiles(root,base);
+          const plan=planChangedChecks(files,{scriptsDir:path.join(root,'config/scripts'),listDirectory:d=>{try{return readdirSync(path.join(root,d))}catch{return []}}});
+          const exists=f=>existsSync(path.join(root,f));
+          // No fixed counts: the collector holds the run to exactly this plan.
+          writeFileSync(`${process.env.RUNNER_TEMP}/orca245-evidence/selection.json`,JSON.stringify({base,files,existing:files.filter(exists),plan,unit:{related:plan.unitTests.related.filter(exists),colocated:plan.unitTests.colocated.filter(exists)},sourceInputHash:computePassHash(root,base)},null,2)+'\n');
+          NODE
+      - name: Run every source-defined changed check once
+        shell: bash
+        env:
+          ORCA_UNIT_FAILURE_REPORT_DIR: ${{ runner.temp }}/orca245-evidence/unit-failures
+          ORCA_CROSS_VERSION_BASELINE_REF: v1.4.245
+        run: |
+          set -uo pipefail
+          evidence="$RUNNER_TEMP/orca245-evidence"
+          test ! -e "$ORCA_UNIT_FAILURE_REPORT_DIR"
+          capture="$RUNNER_TEMP/orca245-capture.py"
+          test ! -e "$capture"
+          cat > "$capture" <<'CAPTURE'
+          #!/usr/bin/env python3
+          # Bounded streaming capture of one check:changed run (stdlib only).
+          # Usage: <producer> 2>&1 | python3 capture.py <log> <verdicts> <capture.json>
+          # The log file never exceeds its first 1 MiB while running and at most 4 MiB at the end: the
+          # first 1 MiB, an omission marker, then the last bytes. The console gets the same head live and
+          # the final tail once. Every task verdict line, the plan line and the summary line are indexed from
+          # the FULL stream into <verdicts>, so truncation cannot hide a verdict. Memory is bounded by the
+          # tail ring, one partial line and the verdict index. The output is drained to EOF even after an
+          # evidence write fails, so the producer is never killed by SIGPIPE.
+          # Exit: 0 complete; 2 evidence write failed; 3 interrupted by a signal.
+          import json
+          import os
+          import re
+          import signal
+          import sys
+
+          MiB = 1024 * 1024
+          HEAD = 1 * MiB
+          TOTAL = 4 * MiB
+          MARKER_RESERVE = 4096
+          TAIL = TOTAL - HEAD - MARKER_RESERVE
+          VERDICT_CAP = 256 * 1024
+          LINE_CAP = 8192
+          CHUNK = 64 * 1024
+          # The same three line shapes collector.mjs judges.
+          VERDICT = re.compile(
+              rb'^(?:(?:\xe2\x9c\x93|\xe2\x9c\x97) .+ \(\d+(?:\.\d+)?s\)'
+              rb'|check:changed: \d+ changed file\(s\) since .*; running \d+ check\(s\)\.'
+              rb'|\xe2\x9c\x93 \d+ check\(s\) passed in .*)$'
+          )
+
+
+          class Interrupted(Exception):
+              pass
+
+
+          def on_signal(number, _frame):
+              raise Interrupted(signal.Signals(number).name)
+
+
+          def incomplete_suffix(data):
+              """Bytes at the end of data that start a UTF-8 sequence without finishing it."""
+              for back in range(1, min(3, len(data)) + 1):
+                  byte = data[-back]
+                  if byte & 0xC0 == 0x80:
+                      continue
+                  need = 2 if byte & 0xE0 == 0xC0 else 3 if byte & 0xF0 == 0xE0 else 4 if byte & 0xF8 == 0xF0 else 1
+                  return back if back < need else 0
+              return 0
+
+
+          def leading_continuations(data):
+              count = 0
+              while count < min(3, len(data)) and data[count] & 0xC0 == 0x80:
+                  count += 1
+              return count
+
+
+          def main():
+              log_path, verdicts_path, receipt_path = sys.argv[1:4]
+              for name in ('SIGTERM', 'SIGINT', 'SIGHUP'):
+                  signal.signal(getattr(signal, name), on_signal)
+              state = {
+                  'schema': 'orca245-gate-capture-v1', 'state': 'started', 'complete': False,
+                  'limits': {'head': HEAD, 'tail': TAIL, 'total': TOTAL, 'verdicts': VERDICT_CAP, 'line': LINE_CAP},
+                  'bytesIn': 0, 'headBytes': 0, 'tailBytes': 0, 'omittedBytes': 0, 'truncated': False,
+                  'verdictLines': 0, 'verdictsComplete': True, 'longLines': 0, 'interrupted': None,
+                  'evidenceError': None, 'consoleError': None,
+              }
+              errors = []
+
+              def record(error):
+                  if not errors:
+                      errors.append(f'{type(error).__name__}: {error}')
+
+              def write_receipt():
+                  try:
+                      with open(receipt_path + '.tmp', 'w') as handle:
+                          json.dump({**state, 'evidenceError': errors[0] if errors else None}, handle, indent=1)
+                      os.replace(receipt_path + '.tmp', receipt_path)
+                  except OSError as error:
+                      record(error)
+
+              console = sys.stdout.buffer
+
+              def to_console(data):
+                  if state['consoleError'] is None and data:
+                      try:
+                          console.write(data)
+                          console.flush()
+                      except (OSError, ValueError) as error:
+                          state['consoleError'] = f'{type(error).__name__}: {error}'
+
+              write_receipt()  # a killed capture leaves a started, incomplete receipt behind
+              log = None
+              try:
+                  log = open(log_path, 'wb')
+              except OSError as error:
+                  record(error)
+              head_end = b''
+              held = b''  # head bytes not yet sent to the console because they end mid-character
+              tail = bytearray()
+              line = bytearray()
+              verdicts = []
+              verdict_bytes = 0
+
+              def scan(complete_line):
+                  nonlocal verdict_bytes
+                  text = complete_line.rstrip(b'\r')
+                  if VERDICT.match(text):
+                      if verdict_bytes + len(text) + 1 > VERDICT_CAP:
+                          state['verdictsComplete'] = False
+                          return
+                      verdicts.append(text)
+                      verdict_bytes += len(text) + 1
+                      state['verdictLines'] = len(verdicts)
+
+              try:
+                  while True:
+                      chunk = os.read(0, CHUNK)
+                      if not chunk:
+                          break
+                      state['bytesIn'] += len(chunk)
+                      rest = chunk
+                      if state['headBytes'] < HEAD:
+                          part = chunk[: HEAD - state['headBytes']]
+                          rest = chunk[len(part):]
+                          state['headBytes'] += len(part)
+                          head_end = (head_end + part)[-4:]
+                          if log is not None and not errors:
+                              try:
+                                  log.write(part)
+                                  log.flush()
+                              except OSError as error:
+                                  record(error)
+                          # A character may start in an earlier chunk: carry any unfinished suffix across every write.
+                          pending = held + part
+                          cut = incomplete_suffix(pending)
+                          to_console(pending[: len(pending) - cut])
+                          held = pending[len(pending) - cut:]
+                      if rest:
+                          tail += rest
+                          if len(tail) > TAIL:
+                              del tail[: len(tail) - TAIL]
+                      start = 0
+                      while True:
+                          newline = chunk.find(b'\n', start)
+                          if newline < 0:
+                              piece = chunk[start:]
+                              if len(line) + len(piece) > LINE_CAP:
+                                  if len(line) <= LINE_CAP:
+                                      state['longLines'] += 1
+                                  line = bytearray(b'\0' * (LINE_CAP + 1))  # poisoned: never a verdict
+                              else:
+                                  line += piece
+                              break
+                          piece = chunk[start:newline]
+                          if len(line) + len(piece) <= LINE_CAP:
+                              scan(bytes(line + piece))
+                          elif len(line) <= LINE_CAP:
+                              state['longLines'] += 1
+                          line = bytearray()
+                          start = newline + 1
+              except Interrupted as interrupted:
+                  state['interrupted'] = str(interrupted)
+              # Finalizing is short and must not be cut in half by a second signal.
+              for name in ('SIGTERM', 'SIGINT', 'SIGHUP'):
+                  signal.signal(getattr(signal, name), signal.SIG_IGN)
+              if line and len(line) <= LINE_CAP and state['interrupted'] is None:
+                  scan(bytes(line))
+              omitted = state['bytesIn'] - state['headBytes'] - len(tail)
+              if omitted > 0:
+                  head_cut = incomplete_suffix(head_end)
+                  tail_cut = leading_continuations(tail)
+                  body = bytes(tail[tail_cut:])
+                  state['omittedBytes'] = omitted + head_cut + tail_cut
+                  state['headBytes'] = HEAD - head_cut  # bytesIn == headBytes + tailBytes + omittedBytes
+                  state['truncated'] = True
+                  marker = f'\n[orca245 capture: {state["omittedBytes"]} bytes omitted between the first {HEAD - head_cut} and the last {len(body)} bytes]\n'.encode()
+                  if log is not None and not errors:
+                      try:
+                          log.truncate(HEAD - head_cut)
+                          log.seek(HEAD - head_cut)
+                          log.write(marker + body)
+                      except OSError as error:
+                          record(error)
+                  to_console(marker + body)
+              else:
+                  body = bytes(tail)
+                  if log is not None and not errors:
+                      try:
+                          log.write(body)
+                      except OSError as error:
+                          record(error)
+                  to_console(held + body)
+              state['tailBytes'] = len(body)
+              if state['interrupted']:
+                  note = f'\n[orca245 capture: interrupted by {state["interrupted"]}; the run is incomplete]\n'.encode()
+                  if log is not None and not errors:
+                      try:
+                          log.write(note)
+                      except OSError as error:
+                          record(error)
+                  to_console(note)
+              if log is not None:
+                  try:
+                      log.close()
+                  except OSError as error:
+                      record(error)
+              try:
+                  with open(verdicts_path, 'wb') as handle:
+                      handle.write(b''.join(text + b'\n' for text in verdicts))
+              except OSError as error:
+                  record(error)
+              if state['interrupted'] is None and not errors:
+                  # Drained to EOF with every evidence write landing.
+                  state['complete'] = state['verdictsComplete']
+              state['state'] = 'finished'
+              write_receipt()
+              if state['interrupted']:
+                  return 3
+              return 2 if errors else 0
+
+
+          def drain_after_failure():
+              # Keep the producer alive and judged by its own exit even if this process crashed.
+              try:
+                  while os.read(0, CHUNK):
+                      pass
+              except OSError:
+                  pass
+
+
+          if __name__ == '__main__':
+              try:
+                  code = main()
+              except Exception:
+                  drain_after_failure()
+                  code = 2
+              sys.exit(code)
+          CAPTURE
+          started_at="$(date -u +%FT%TZ)"
+          set +e
+          # Streamed through a bounded capture: the log never holds more than 4 MiB, and verdicts come from the full stream.
+          xvfb-run -a pnpm check:changed --force --base=1c6ac8c3c4d2c3dec2cb5966d225ca2a0e0471d3 --maxWorkers=2 --timeout=90 2>&1 | python3 "$capture" "$evidence/check-changed.log" "$evidence/check-changed.verdicts.log" "$evidence/capture.json"
+          pipe=("${PIPESTATUS[@]}")
+          gate_exit=${pipe[0]}
+          capture_exit=${pipe[1]}
+          if [ -f "$GITHUB_STEP_SUMMARY" ]; then head -c 262144 "$GITHUB_STEP_SUMMARY" > "$evidence/vitest-step-summary.md"; fi
+          GATE_EXIT="$gate_exit" CAPTURE_EXIT="$capture_exit" GATE_STARTED="$started_at" node --input-type=module <<'NODE'
+          import {writeFileSync} from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          const source=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+          const dirty=execFileSync('git',['status','--porcelain'],{encoding:'utf8'}).trim();
+          const code=Number(process.env.GATE_EXIT);
+          writeFileSync(`${process.env.RUNNER_TEMP}/orca245-evidence/result.json`,JSON.stringify({schema:'orca245-hosted-gate-result-v1',source,sourceMatches:source==='b7d96b2c9b9937a92cb25800ce061fedab1d9e49',dirty,startedAt:process.env.GATE_STARTED,finishedAt:new Date().toISOString(),gateExit:code,captureExit:Number(process.env.CAPTURE_EXIT),command:'xvfb-run -a pnpm check:changed --force --base=1c6ac8c3c4d2c3dec2cb5966d225ca2a0e0471d3 --maxWorkers=2 --timeout=90',env:{ORCA_UNIT_FAILURE_REPORT_DIR:'evidence/unit-failures',ORCA_CROSS_VERSION_BASELINE_REF:process.env.ORCA_CROSS_VERSION_BASELINE_REF},nativeLifecycleQualification:false},null,2)+'\n');
+          if(source!=='b7d96b2c9b9937a92cb25800ce061fedab1d9e49'||dirty!=='') process.exitCode=1;
+          NODE
+          result_exit=$?
+          node --input-type=module - "$evidence" "$gate_exit" b7d96b2c9b9937a92cb25800ce061fedab1d9e49 <<'NODE'
+          // Offline/in-job collector: judges one hosted check:changed run from its bounded evidence directory only.
+          // Usage: node collector.mjs <evidenceDir> <gateExit> <finalSourceSha>  (writes collector.json; exits 1 unless qualified)
+          // It checks that the evidence agrees with itself and with the expected source; it cannot authenticate who wrote it.
+          // GitHub provenance (run, attempt, head SHA, artifact digest) must still be verified natively by Root.
+          import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+          import path from 'node:path'
+
+          const MiB = 1024 * 1024
+          const BASE = '1c6ac8c3c4d2c3dec2cb5966d225ca2a0e0471d3'
+          const BASELINE_TAG = 'v1.4.245'
+          const REPOSITORY = 'OrbittechIA/orca'
+          const COMMAND = `xvfb-run -a pnpm check:changed --force --base=${BASE} --maxWorkers=2 --timeout=90`
+          // Every artifact file and its ceiling; anything else, or anything larger, fails the evidence.
+          const FILE_BUDGETS = {
+            'source.json': 64 * 1024,
+            'toolchain.txt': 8 * 1024,
+            'refs.json': 64 * 1024,
+            'selection.json': 2 * MiB,
+            'check-changed.log': 4 * MiB,
+            'check-changed.verdicts.log': 256 * 1024,
+            'capture.json': 16 * 1024,
+            'vitest-step-summary.md': 256 * 1024,
+            'result.json': 64 * 1024,
+            'collector.json': 512 * 1024
+          }
+          const REQUIRED = [
+            'source.json',
+            'toolchain.txt',
+            'refs.json',
+            'selection.json',
+            'check-changed.log',
+            'check-changed.verdicts.log',
+            'capture.json',
+            'result.json'
+          ]
+          const UNIT_DIR = 'unit-failures'
+          const UNIT_BUDGET = 8 * MiB
+          const TOTAL_BUDGET = 16 * MiB
+          const SHA = /^[0-9a-f]{40}$/
+
+          /** Replica of check-changed.mjs buildTasks naming; the log's own "running N" line must agree with it. */
+          export function expectedTaskNames(selection) {
+            const { plan, existing } = selection
+            const names = []
+            if (plan.typecheckProjects.length > 0) {
+              names.push(
+                `typecheck (${plan.typecheckProjects.map((config) => path.basename(config, '.json')).join(', ')})`
+              )
+            }
+            if (selection.unit.related.length + selection.unit.colocated.length > 0) {
+              names.push('unit tests')
+            }
+            if (plan.staticAnalysis) {
+              names.push('changed-code quality')
+              if (existing.length > 0) {
+                names.push('format')
+              }
+              if (existing.some((file) => /\.[cm]?[jt]sx?$/.test(file))) {
+                names.push('oxlint')
+              }
+            }
+            return [...names, ...plan.checks.map((check) => check.name)]
+          }
+
+          function readJson(evidence, name, issues) {
+            try {
+              return JSON.parse(readFileSync(path.join(evidence, name), 'utf8'))
+            } catch {
+              issues.push(`${name} is missing or unreadable`)
+              return null
+            }
+          }
+
+          /** Every required file present, and every record naming the same repository, run, source, tree and base. */
+          function judgeProvenance(evidence, source, files, issues) {
+            for (const name of REQUIRED) {
+              if (!existsSync(path.join(evidence, name))) {
+                issues.push(`required evidence ${name} is absent`)
+              }
+            }
+            if (!SHA.test(source ?? '')) {
+              issues.push('no expected final source SHA was supplied')
+            }
+            const { provenance, result, selection, refs } = files
+            const expect = (label, actual, wanted) => {
+              if (actual !== wanted) {
+                issues.push(`${label} is ${JSON.stringify(actual)}, expected ${JSON.stringify(wanted)}`)
+              }
+            }
+            if (provenance) {
+              expect('source.json source', provenance.source, source)
+              expect('source.json base', provenance.base, BASE)
+              expect('source.json repository', provenance.repository, REPOSITORY)
+              expect('source.json event', provenance.event, 'workflow_dispatch')
+              expect('source.json attempt', provenance.attempt, '1')
+              if (!/^\d+$/.test(provenance.runId ?? '') || !SHA.test(provenance.tree ?? '')) {
+                issues.push('source.json lacks a run id or source tree')
+              }
+            }
+            if (result) {
+              expect('result.json source', result.source, source)
+              expect('result.json sourceMatches', result.sourceMatches, true)
+              expect('result.json dirty', result.dirty, '')
+              expect('result.json command', result.command, COMMAND)
+              expect('result.json baseline', result.env?.ORCA_CROSS_VERSION_BASELINE_REF, BASELINE_TAG)
+            }
+            if (selection) {
+              expect('selection.json base', selection.base, BASE)
+              const shaped =
+                Array.isArray(selection.files) &&
+                Array.isArray(selection.existing) &&
+                Array.isArray(selection.unit?.related) &&
+                Array.isArray(selection.unit?.colocated) &&
+                Array.isArray(selection.plan?.checks) &&
+                Array.isArray(selection.plan?.typecheckProjects)
+              if (!shaped) {
+                issues.push('selection.json does not have the recorded plan shape')
+              }
+            }
+            if (refs) {
+              const tags = Array.isArray(refs.tags) ? refs.tags : []
+              const matched = tags.every(
+                (tag) => tag.observedTagObject === tag.tagObject && tag.observedCommit === tag.commit
+              )
+              const baseline = tags.find((tag) => tag.tag === BASELINE_TAG)
+              if (refs.verified !== true || !matched || tags.length === 0 || baseline?.commit !== BASE) {
+                issues.push('release refs were not verified against their reviewed identities')
+              }
+              expect('refs.json baseline', refs.baselineRef, BASELINE_TAG)
+            }
+          }
+
+          function judgeChecks(selection, log, issues) {
+            const expected = expectedTaskNames(selection)
+            const running = /check:changed: \d+ changed file\(s\) since .*; running (\d+) check\(s\)\./.exec(
+              log
+            )
+            const passed = [...log.matchAll(/^✓ (.+) \(\d+(?:\.\d+)?s\)$/gm)].map((match) => match[1])
+            const failed = [...log.matchAll(/^✗ (.+) \(\d+(?:\.\d+)?s\)$/gm)].map((match) => match[1])
+            // Count every verdict line: a duplicated name must not hide another check that never finished.
+            const seen = new Map()
+            for (const name of [...passed, ...failed]) {
+              seen.set(name, (seen.get(name) ?? 0) + 1)
+            }
+            const result = {
+              expected,
+              runningFromLog: running ? Number(running[1]) : null,
+              passed,
+              failed,
+              missing: expected.filter((name) => !seen.has(name)),
+              repeated: [...seen].filter(([, count]) => count > 1).map(([name]) => name),
+              unexpected: [...seen.keys()].filter((name) => !expected.includes(name)),
+              allPassedLine: new RegExp(`^✓ ${expected.length} check\\(s\\) passed in `, 'm').test(log)
+            }
+            if (new Set(expected).size !== expected.length) {
+              issues.push('the plan names a check twice')
+            }
+            if (result.runningFromLog !== expected.length) {
+              issues.push(
+                `selection drift: log runs ${result.runningFromLog}, plan expects ${expected.length}`
+              )
+            }
+            if (result.missing.length > 0 || result.repeated.length > 0 || result.unexpected.length > 0) {
+              issues.push('check verdicts do not name each planned check exactly once')
+            }
+            return result
+          }
+
+          function invocationKind(report) {
+            let args = []
+            try {
+              args = JSON.parse(report.invocation?.args ?? '[]')
+            } catch {
+              return 'unknown'
+            }
+            if (
+              args[0] === 'related' ||
+              (args[0] === 'run' && args.some((arg) => arg.startsWith('--changed=')))
+            ) {
+              return 'related'
+            }
+            return args[0] === 'run' ? 'colocated' : 'unknown'
+          }
+
+          const finished = (report) =>
+            report.executionComplete === true &&
+            report.inventoryComplete === true &&
+            report.truncated === false
+
+          /** A complete report's lists must agree with its own counts and with the run's own verdict. */
+          const COUNT_STATES = ['passed', 'failed', 'skipped', 'pending', 'queued']
+          const countsWellFormed = (counts) =>
+            typeof counts === 'object' &&
+            counts !== null &&
+            COUNT_STATES.every((state) => Number.isSafeInteger(counts[state]) && counts[state] >= 0)
+
+          /** --passWithNoTests lets an empty or all-skipped run pass; a planned run must execute something. */
+          function executedSomething(report) {
+            return report.counts.tests.passed >= 1 && report.counts.modules.passed >= 1
+          }
+
+          function reportConsistent(report) {
+            if (!countsWellFormed(report.counts?.tests) || !countsWellFormed(report.counts?.modules)) {
+              return false
+            }
+            const lists =
+              Array.isArray(report.failures) &&
+              Array.isArray(report.moduleErrors) &&
+              Array.isArray(report.suiteErrors) &&
+              Array.isArray(report.unhandledErrors)
+            if (!lists || report.metric !== 'unit-failures-v1') {
+              return false
+            }
+            const errors =
+              report.failures.length +
+              report.moduleErrors.length +
+              report.suiteErrors.length +
+              report.unhandledErrors.length
+            return (
+              report.failures.length === report.counts?.tests?.failed &&
+              report.unhandledErrors.length === report.counts?.unhandledErrors &&
+              (report.status === 'passed') === (errors === 0)
+            )
+          }
+
+          function judgeUnit(evidence, selection, checks, issues) {
+            const directory = path.join(evidence, UNIT_DIR)
+            const names = existsSync(directory) ? readdirSync(directory) : []
+            const started = names.filter((name) => name.endsWith('.started.json'))
+            const partial = names.filter((name) => name.endsWith('.partial'))
+            const reports = []
+            for (const name of names.filter((n) => n.endsWith('.json') && !n.endsWith('.started.json'))) {
+              try {
+                const report = JSON.parse(readFileSync(path.join(directory, name), 'utf8'))
+                if (report.invocation?.id !== name.slice(0, -'.json'.length)) {
+                  issues.push(`unit report ${name} names another invocation`)
+                }
+                reports.push({ name, kind: invocationKind(report), report })
+              } catch {
+                issues.push(`unreadable unit report ${name}`)
+              }
+            }
+            const expectedKinds = [
+              ...(selection.unit.related.length > 0 ? ['related'] : []),
+              ...(selection.unit.colocated.length > 0 ? ['colocated'] : [])
+            ]
+            const unitPassed = checks.passed.includes('unit tests')
+            const unitRan = unitPassed || checks.failed.includes('unit tests')
+            const invocations = []
+            let earlierFailed = false
+            for (const kind of expectedKinds) {
+              const own = reports.filter((entry) => entry.kind === kind)
+              let status
+              if (own.length > 1) {
+                status = 'duplicate'
+              } else if (own.length === 1) {
+                const { report } = own[0]
+                if (!finished(report)) {
+                  status = 'incomplete'
+                } else if (!reportConsistent(report)) {
+                  status = 'inconsistent'
+                } else if (report.status === 'passed' && !executedSomething(report)) {
+                  // Skipped tests and modules never count as executed.
+                  status = 'empty'
+                } else {
+                  status = report.status === 'passed' ? 'clean' : 'failed'
+                }
+              } else if (earlierFailed) {
+                // check-changed stops a task at its first failing step, so the colocated run may legitimately not start.
+                status = 'not-run-after-earlier-failure'
+              } else {
+                status = 'missing'
+              }
+              earlierFailed ||= status !== 'clean'
+              invocations.push({ kind, status, report: own[0]?.name ?? null })
+            }
+            // Failed and incomplete reports stay in the artifact untouched; only their judgement is recorded here.
+            const unexpected = reports
+              .filter((entry) => !expectedKinds.includes(entry.kind))
+              .map((entry) => entry.name)
+            const totals = {
+              failures: 0,
+              moduleErrors: 0,
+              suiteErrors: 0,
+              unhandledErrors: 0,
+              failedTests: 0
+            }
+            for (const { report } of reports) {
+              totals.failures += report.failures?.length ?? 0
+              totals.moduleErrors += report.moduleErrors?.length ?? 0
+              totals.suiteErrors += report.suiteErrors?.length ?? 0
+              totals.unhandledErrors += report.unhandledErrors?.length ?? 0
+              totals.failedTests += report.counts?.tests?.failed ?? 0
+            }
+            if (started.length || partial.length) {
+              issues.push('a unit invocation left a start or partial record: its report is missing')
+            }
+            if (unexpected.length) {
+              issues.push(`unit reports from invocations the plan does not run: ${unexpected.join(', ')}`)
+            }
+            for (const invocation of invocations) {
+              if (['missing', 'duplicate', 'incomplete', 'inconsistent', 'empty'].includes(invocation.status)) {
+                issues.push(`unit ${invocation.kind} invocation is ${invocation.status}`)
+              }
+            }
+            if (unitRan && expectedKinds.length > 0 && reports.length === 0) {
+              issues.push('unit tests ran but no unit report was written')
+            }
+            if (!unitRan && reports.length > 0) {
+              issues.push('unit reports exist for a run whose unit task never finished')
+            }
+            if (unitPassed && invocations.some((invocation) => invocation.status !== 'clean')) {
+              issues.push('unit tests passed but a unit report is not clean')
+            }
+            return { expectedKinds, invocations, started, partial, unexpected, totals, unitRan }
+          }
+
+          /** Vitest's github-actions reporter appends one summary per invocation; its counts must match the reports. */
+          function judgeSummary(evidence, unit, issues) {
+            const file = path.join(evidence, 'vitest-step-summary.md')
+            if (!existsSync(file)) {
+              if (unit.unitRan && unit.expectedKinds.length > 0) {
+                issues.push('the Vitest step summary is absent although unit tests ran')
+              }
+              return { present: false }
+            }
+            const counts = [...readFileSync(file, 'utf8').matchAll(/\*\*Test Results\*\*: (.*)$/gm)].map(
+              (match) => Number(/❌ \*\*(\d+) failure/.exec(match[1])?.[1] ?? 0)
+            )
+            const failed = counts.reduce((sum, value) => sum + value, 0)
+            const reported = unit.invocations.filter((invocation) => invocation.report !== null).length
+            if (counts.length !== reported || failed !== unit.totals.failedTests) {
+              issues.push(
+                `step summary has ${counts.length} runs and ${failed} failed tests; reports have ${reported} and ${unit.totals.failedTests}`
+              )
+            }
+            return { present: true, invocations: counts.length, failedTests: failed }
+          }
+
+          function judgeBudgets(evidence, issues) {
+            const sizes = {}
+            let total = 0
+            for (const name of readdirSync(evidence)) {
+              const full = path.join(evidence, name)
+              const stat = statSync(full)
+              if (name === UNIT_DIR && stat.isDirectory()) {
+                let unitBytes = 0
+                for (const entry of readdirSync(full)) {
+                  unitBytes += statSync(path.join(full, entry)).size
+                }
+                sizes[UNIT_DIR] = unitBytes
+                total += unitBytes
+                if (unitBytes > UNIT_BUDGET) {
+                  issues.push(`unit reports use ${unitBytes} bytes, over ${UNIT_BUDGET}`)
+                }
+                continue
+              }
+              if (!stat.isFile() || !(name in FILE_BUDGETS)) {
+                issues.push(`unexpected evidence entry ${name}`)
+                continue
+              }
+              sizes[name] = stat.size
+              total += stat.size
+              if (stat.size > FILE_BUDGETS[name]) {
+                issues.push(`${name} uses ${stat.size} bytes, over ${FILE_BUDGETS[name]}`)
+              }
+            }
+            // collector.json is (re)written after this check, inside its own ceiling.
+            if (total - (sizes['collector.json'] ?? 0) + FILE_BUDGETS['collector.json'] > TOTAL_BUDGET) {
+              issues.push(`evidence may exceed ${TOTAL_BUDGET} bytes`)
+            }
+            return { sizes, total, ceiling: TOTAL_BUDGET }
+          }
+
+          /** The streaming capture's own receipt must prove it drained the whole run and kept every verdict line. */
+          function judgeCapture(evidence, capture, result, issues) {
+            if (!capture) {
+              return
+            }
+            let logBytes = null
+            try {
+              logBytes = statSync(path.join(evidence, 'check-changed.log')).size
+            } catch {}
+            const limits = capture.limits ?? {}
+            const consistent =
+              capture.schema === 'orca245-gate-capture-v1' &&
+              capture.state === 'finished' &&
+              Number.isSafeInteger(capture.bytesIn) &&
+              capture.bytesIn === capture.headBytes + capture.tailBytes + capture.omittedBytes &&
+              capture.truncated === (capture.omittedBytes > 0) &&
+              limits.total === 4 * MiB &&
+              logBytes !== null &&
+              logBytes <= limits.total &&
+              (capture.truncated || logBytes === capture.bytesIn)
+            if (capture.complete !== true || capture.verdictsComplete !== true || !consistent) {
+              issues.push('gate log capture is incomplete or inconsistent')
+            }
+            if (capture.interrupted) {
+              issues.push(`gate log capture was interrupted by ${capture.interrupted}`)
+            }
+            if (capture.evidenceError) {
+              issues.push(`gate log capture failed: ${capture.evidenceError}`)
+            }
+            if (result && result.captureExit !== 0) {
+              issues.push(`gate log capture exited ${result?.captureExit}`)
+            }
+          }
+
+          /** Judge an evidence directory; bad evidence never throws, it only leaves the run unqualified. */
+          export function collect({ evidence, gateExit, source }) {
+            const issues = []
+            const files = {
+              provenance: readJson(evidence, 'source.json', issues),
+              result: readJson(evidence, 'result.json', issues),
+              selection: readJson(evidence, 'selection.json', issues),
+              refs: readJson(evidence, 'refs.json', issues),
+              capture: readJson(evidence, 'capture.json', issues)
+            }
+            judgeProvenance(evidence, source, files, issues)
+            judgeCapture(evidence, files.capture, files.result, issues)
+            // Verdicts come from the capture's full-stream index; the bounded log may omit its middle.
+            let log = ''
+            try {
+              readFileSync(path.join(evidence, 'check-changed.log'))
+              log = readFileSync(path.join(evidence, 'check-changed.verdicts.log'), 'utf8')
+            } catch {
+              issues.push('check-changed.log or its verdict index is missing or unreadable')
+            }
+            let checks = { passed: [], failed: [], allPassedLine: false }
+            let unit = { invocations: [], totals: {}, expectedKinds: [], unitRan: false }
+            let summary = { present: false }
+            try {
+              checks = judgeChecks(files.selection, log, issues)
+              unit = judgeUnit(evidence, files.selection, checks, issues)
+              summary = judgeSummary(evidence, unit, issues)
+            } catch (error) {
+              issues.push(`evidence could not be judged: ${String(error)}`)
+            }
+            const budgets = judgeBudgets(evidence, issues)
+            const gatePassed = gateExit === 0 && checks.allPassedLine && checks.failed.length === 0
+            const evidenceComplete = issues.length === 0
+            const verdict = {
+              gatePassed,
+              evidenceComplete,
+              qualified: gatePassed && evidenceComplete,
+              // A failed gate with complete evidence still names every failure of what ran; it never counts as a pass.
+              failureInventoryComplete: evidenceComplete,
+              unitCoverageComplete: unit.invocations.every(
+                (invocation) => invocation.status === 'clean' || invocation.status === 'failed'
+              ),
+              githubProvenanceAuthenticated: false
+            }
+            return {
+              schema: 'orca245-hosted-collector-v3',
+              source: source ?? null,
+              gateExit,
+              verdict,
+              issues,
+              checks,
+              unit,
+              summary,
+              budgets
+            }
+          }
+
+          if (process.env.ORCA245_COLLECTOR_LIBRARY !== '1') {
+            const evidence = process.argv[2]
+            const judged = collect({ evidence, gateExit: Number(process.argv[3]), source: process.argv[4] })
+            writeFileSync(path.join(evidence, 'collector.json'), `${JSON.stringify(judged, null, 1)}\n`)
+            console.log(JSON.stringify({ verdict: judged.verdict, issues: judged.issues }))
+            process.exitCode = judged.verdict.qualified ? 0 : 1
+          }
+          NODE
+          collector_exit=$?
+          test "$gate_exit" -eq 0 && test "$capture_exit" -eq 0 && test "$result_exit" -eq 0 && test "$collector_exit" -eq 0
+      - name: Enforce the evidence storage limit
+        id: evidence_budget
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          import os
+          root = Path(os.environ['RUNNER_TEMP']) / 'orca245-evidence'
+          allowed = {'source.json', 'toolchain.txt', 'refs.json', 'selection.json', 'check-changed.log', 'check-changed.verdicts.log', 'capture.json', 'vitest-step-summary.md', 'result.json', 'collector.json'}
+          total = 0
+          for entry in root.iterdir():
+              assert not entry.is_symlink(), entry.name
+              if entry.name == 'unit-failures':
+                  assert entry.is_dir()
+                  unit = sum(f.stat().st_size for f in entry.iterdir() if f.is_file() and not f.is_symlink())
+                  assert all(f.is_file() and not f.is_symlink() and f.name.startswith('unit-failures-') for f in entry.iterdir())
+                  assert unit <= 8 * 1024 * 1024, 'Unit failure reports exceed their budget'
+                  total += unit
+              else:
+                  assert entry.name in allowed and entry.is_file(), entry.name
+                  total += entry.stat().st_size
+          assert total <= 16 * 1024 * 1024, 'Evidence exceeds reserved storage limit'
+          print(f'Bounded evidence: {total} bytes')
+          PYTHON
+      - name: Retain bounded qualification evidence for one day
+        if: ${{ always() && steps.evidence_budget.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: orca245-b7d96b2-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/orca245-evidence/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 9
