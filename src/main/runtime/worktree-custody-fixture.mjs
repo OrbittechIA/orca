@@ -37,12 +37,33 @@ writeFileSync(
   let remove;
   export function setRemove(effect) { remove = effect; }
   export async function removeWorktree(...args) { return remove(...args); }
+  let results = { records: [], receipts: [] };
+  export function nativeWorktreeCustodyResultJournal() {
+    return {
+      read: () => structuredClone(results),
+      write: (state) => { if (failResult(state)) { throw new Error('result write failed'); } results = structuredClone(state); }
+    };
+  }
+  let failResult = () => false;
+  export function setResultFailure(next) { failResult = next; }
+  export function nativeResults() { return structuredClone(results); }
   let clean = () => {};
   export function setClean(effect) { clean = effect; }
   export async function assertWorktreeCleanForRemoval(...args) { return clean(...args); }
 `
 )
 const nativePorts = await import(pathToFileURL(join(fixtureRoot, 'native-ports.mjs')).href)
+await moduleFromSource('records.mjs', './worktree-custody-records.ts', {
+  '../../shared/worktree/custody': './custody.mjs'
+})
+const { NativeRetirementResults } = await moduleFromSource(
+  'native-results.mjs',
+  './worktree-custody-native-results.ts',
+  {
+    '../../shared/worktree/custody': './custody.mjs',
+    './worktree-custody-records': './records.mjs'
+  }
+)
 const { installNativeWorktreeCustodyRetirement } = await moduleFromSource(
   'retirement.mjs',
   './worktree-custody-retirement.ts',
@@ -51,7 +72,8 @@ const { installNativeWorktreeCustodyRetirement } = await moduleFromSource(
     '../git/worktree': './native-ports.mjs',
     './worktree-custody-observation': './native-ports.mjs',
     './worktree-custody-runtime': './native-ports.mjs',
-    './worktree-custody-authority': './authority.mjs'
+    './worktree-custody-authority': './authority.mjs',
+    './worktree-custody-native-results': './native-results.mjs'
   }
 )
 
@@ -234,5 +256,6 @@ export {
   BASE,
   KEY,
   setup,
-  completeObservation
+  completeObservation,
+  NativeRetirementResults
 }

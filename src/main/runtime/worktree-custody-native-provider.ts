@@ -42,9 +42,10 @@ export type NativeCustodyProviderPorts = {
     | 'getOrchestrationDb'
     | 'requireStore'
   >
+  /** Null: no journal attached in this host; the durable lease fields still decide. */
   structuredWork: (
     sessionId: string
-  ) => { working(): boolean; hasActionablePrompt(): boolean } | undefined
+  ) => { working(): boolean; hasActionablePrompt(): boolean } | null | undefined
   removals: () => Iterable<{ worktreeId: string; worktreePath: string }>
   /** Desktop watcher roots, including suspended and in-flight installs. */
   desktopWatchRoots: () => Iterable<string>

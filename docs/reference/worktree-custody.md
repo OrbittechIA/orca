@@ -175,9 +175,21 @@ product to that projectId explicitly. Any positive hold skips the Git read.
 Its grant takes the existing watcher-removal gate for the exact path, which refuses
 fresh watcher and PTY installs on overlapping roots until release, waits at most
 five seconds for in-flight installs, and refuses if any registered consumer exists.
-`check()` only rereads the registries. Reconcile and prior-epoch release recovery
-return unconfirmed: no owning durable result store or durable consumer-admission
-history exists, so those stay unknown and protected.
+`check()` only rereads the registries. Prior-epoch release recovery returns
+unconfirmed: no durable consumer-admission history exists, so it stays unknown.
+
+The fixed effect keeps its own durable result store,
+`worktree-custody-results-v1/custody.json`, written with the same bounded atomic
+journal. The authority passes the dispatched key to the captured retire callback
+as an internal third argument; two-argument providers ignore it. Inside the
+pre-effect refusal scope, after preflight, the effect records an intent for the
+exact resource and key; if that write fails, Git is never entered and the key is
+refused. After `removeWorktree` resolves, a removal receipt (resource, key and
+owner hashes) replaces the intent. Reconcile confirms only from that receipt for
+the exact resource and key, and the authority persists its own receipt without
+resending removal. Intent without a receipt (Git threw, crashed or the result
+write failed) stays unknown; path absence is never evidence. A failed result
+write never changes the effect outcome and never blocks Starts.
 
 Grants live only in the capturing process. Capture therefore persists a private
 `fenceOwner` witness with the fence: the exclusive desktop/orcad/serve profile-lock

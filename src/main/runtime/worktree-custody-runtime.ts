@@ -10,7 +10,7 @@ import {
   type CustodyCoverage
 } from './worktree-custody-authority'
 import { WorktreeCustodyFileJournal } from './worktree-custody-journal'
-import type { CustodyFenceOwner } from './worktree-custody-records'
+import type { CustodyFenceOwner, CustodyJournal } from './worktree-custody-records'
 import { heldOrcadInstanceLock } from '../orcad/orcad-held-instance-lock'
 import { OrchestrationError } from './orchestration/orchestration-error'
 import type { OrchestrationDb } from './orchestration/db'
@@ -60,6 +60,16 @@ export function nativeWorktreeCustody(_runtimeId?: string): WorktreeCustodyAutho
   )
   authorities.set(directory, custody)
   return custody
+}
+
+/** The fixed native effect's own durable intent/result store, separate from custody effects. */
+export function nativeWorktreeCustodyResultJournal(): CustodyJournal | null {
+  if (!hasAppEnvironment() || process.platform === 'win32') {
+    return null
+  }
+  return new WorktreeCustodyFileJournal(
+    join(getAppEnvironment().getPath('userData'), 'worktree-custody-results-v1')
+  )
 }
 
 export function nativeWorktreeCustodyCapabilities(runtimeId: string): string[] {

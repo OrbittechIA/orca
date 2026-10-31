@@ -72,7 +72,8 @@ export type CustodyCoverage = {
     check: () => boolean
     release: () => void
   }>
-  retire: (resource: WorktreeCustodyResource, check: () => void) => Promise<void>
+  /** `key` is the dispatched outcome key; providers written for two arguments ignore it. */
+  retire: (resource: WorktreeCustodyResource, check: () => void, key?: string) => Promise<void>
   reconcile: (outcome: WorktreeCustodyOutcome) => Promise<CustodyRetirementConfirmation>
   recoverFence: (
     fence: WorktreeCustodyFence,
