@@ -33,6 +33,7 @@ type Host = {
 }
 const hosts = new Map<string, Host>()
 type StateReader = () => AppState
+type CustodyStore = Pick<StoreApi<AppState>, 'getState' | 'subscribe'>
 
 function hostFor(target: RuntimeClientTarget, readState: StateReader): Host {
   const key = targetKey(target)
@@ -205,9 +206,7 @@ export function ensureWorkspaceSelectionCustody(
   }, disconnect)
 }
 
-export function startWorkspaceSelectionCustody(
-  store: Pick<StoreApi<AppState>, 'getState' | 'subscribe'>
-): () => void {
+export function startWorkspaceSelectionCustody(store: CustodyStore): () => void {
   let stopped = false
   const reconnect = (target: RuntimeClientTarget, connection: string) => {
     if (stopped) {
@@ -240,9 +239,7 @@ export function startWorkspaceSelectionCustody(
         ensureWorkspaceSelectionCustody(target, store.getState)
       }
     }
-    for (const host of hosts.values()) {
-      publish(host)
-    }
+    hosts.forEach(publish)
   }
   if (isWebClientLocation()) {
     void window.api.runtimeEnvironments.list().then(
