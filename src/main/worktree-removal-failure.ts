@@ -6,6 +6,7 @@ import {
 } from './worktree-removal-leftover'
 import type { WorktreeRemovalFailure, WorktreeRemovalRecord } from './worktree-removal-records'
 import { worktreeCheckoutExists } from './worktree-removal-table'
+import { WorktreeCustodyAdmissionError } from './runtime/worktree-custody-records'
 
 /** Retain failures for the same checkout without cleaning up its live Git ownership. */
 export async function failureLeftByGit(
@@ -13,6 +14,9 @@ export async function failureLeftByGit(
   error: unknown,
   cleanupPushTargetRemote: (() => Promise<void>) | undefined
 ): Promise<WorktreeRemovalFailure | undefined> {
+  if (error instanceof WorktreeCustodyAdmissionError) {
+    return { message: error.message, failedAt: Date.now() }
+  }
   if (!(await worktreeCheckoutExists(record.worktreePath))) {
     return undefined
   }

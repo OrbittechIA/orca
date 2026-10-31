@@ -213,18 +213,31 @@ fenced and the effect is never retried. Reconciliation proofs exceeding 8 KiB
 remain unknown instead of filling the journal. The fixed native provider cannot manufacture confirmation
 from an absent directory.
 
-Only the fixed native retirement port can issue `CustodyPreEffectRefusal`: its
+Only the fixed native retirement port can certify a no-effect refusal. Its
 preflight catch surrounds identity, material budget, symlink, cleanliness and
-fence checks **before entering removeWorktree**. The runtime exception carries the
-exact resource and an owning native proof; JSON cannot manufacture that type.
-Its durable `refused` receipt spends that key, clears the fence and releases the
-grant, so ordinary Start works across restart. A different key requires a fresh
-capture. A grant-release acknowledgement failure leaves that authority-owned
-resource/key grant pending for automatic same-key retire/reconcile retry; it
-cannot change the canonical refused outcome or release a newer grant. Replay
-never re-enters removal. Generic/provider errors, error text and every exception after removal
-entry remain `unknown`; they cannot authorize a no-effect clear. A failed refusal
-receipt write also retains the original pending protection and returns unknown.
+fence checks **before entering removeWorktree**. The exception and proof are
+private to that module and bound to its exact registered retirement callback,
+resource and error object. There is no exported refusal constructor or issuer.
+Generic coverage cannot manufacture the proof or reuse another fixed port's
+error after an effect; JSON, error names, messages and matching resource fields
+are not authority. Every exception after removal entry remains unknown.
+
+A durable `refused` receipt spends that key and clears the fence, so ordinary
+Start works across restart. A different key requires a fresh capture. If the
+owned terminal grant's synchronous release fails, the authority retains that
+exact resource/key grant. Subsequent native inventory, resource observation or
+capture makes one bounded retry pass over the matching terminal grants, even
+when Core treats REFUSED as terminal and never replays it. Same-key
+retire/reconcile also retries. No timer or destructive resend is added; retries
+cannot change the canonical outcome or release a newer nonterminal grant.
+A failed refusal receipt write retains the original pending protection and
+returns unknown.
+
+Startup interrupted-removal jobs also take a `reopen=false` custody admission
+before metadata, teardown or Git entry and retain it through the resumed job's
+actual background settlement, including asynchronous failure cleanup. Native pending-removal observation is an
+additional positive hold, not the only exclusion protecting startup resumption.
+A typed custody refusal is retained as a failed removal without entering branch, remote or filesystem failure cleanup. This guard does not certify or activate any complete provider.
 
 Release eligibility carries `releaseEpoch`, the stable custody authority UUID,
 which survives runtime-ID changes but changes across process restarts. Historical
@@ -262,15 +275,24 @@ not proof of an unused checkout. Do not change path policy, follow the link or
 remove custody state to enable the capability; use an explicitly supported host
 storage layout and qualified owning recovery instead.
 
-Rollback before activation is to revert the source commit. After v3 custody
-state exists, a v2-only reader must reject the unknown envelope rather than treat
-a refused receipt as retired. The public wire remains v1; private v3 writes gate
-these new terminal semantics, while forward readers preserve existing v1/v2
-retired receipts. Do not rewrite the version field to downgrade storage. After activation,
-remove the producer's coverage registration to withhold capability and preserve
-the journal and unresolved fences. Do not delete journal state to clear an
-unknown operation. Reverting code does not restore a removed checkout; retained
-branch/source/material preservation proof remains required independently.
+Rollback before any custody state exists may revert the source commit. Once
+v3 effects state exists, reverting to a v2-only reader rejects its envelope and
+**refuses every local Start/admission**, not only the recorded checkout. This is
+the global unreadable-effects behavior, including an otherwise empty v3 effects
+file. Removing a provider registration or disabling its consumer does not make
+that old reader compatible.
+
+Preserve both journals, locks, temporary files and pending operation evidence.
+Restore a qualified forward reader that understands v3 (or retain the compatible
+reader while reverting unrelated code), verify its exact state and owning
+reconciliation before resuming affected operations. Do not delete, truncate,
+restore an older snapshot or rewrite version fields to force a downgrade.
+The public wire remains v1; forward readers preserve v1/v2 retired receipts,
+while private v3 prevents old readers treating refused receipts as retired.
+After activation, remove the producer's coverage registration to withhold the
+capability while retaining journals and unresolved fences. Code rollback never
+restores a removed checkout; branch/source/material preservation proof remains
+independently required.
 
 ## Validation
 

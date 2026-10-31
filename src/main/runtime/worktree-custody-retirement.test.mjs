@@ -14,7 +14,6 @@ import {
   fixtureRoot,
   contract,
   WorktreeCustodyAuthority,
-  CustodyPreEffectRefusal,
   BASE,
   KEY,
   setup
@@ -219,20 +218,18 @@ for (const refusal of ['dirty', 'expiry', 'identity']) {
   })
 }
 
-test('a typed no-effect refusal spends its key but needs a fresh fence for another attempt', async () => {
-  let refuse = true
-  const f = setup({
-    effect: (resource) => {
-      if (refuse) {
-        throw new CustodyPreEffectRefusal(resource, new Error('owning preflight'))
-      }
-    }
+test('a fixed no-effect refusal spends its key but needs a fresh fence for another attempt', async () => {
+  const checkout = mkdtempSync(join(fixtureRoot, 'fresh-after-refusal-'))
+  const f = nativeFixture(checkout)
+  nativePorts.setClean(() => {
+    throw new Error('dirty checkout')
   })
+  nativePorts.setRemove(() => {})
   const fence = await f.authority.capture(f.resource)
   assert.equal((await f.authority.retire(fence, KEY)).state, 'refused')
   assert.equal((await f.authority.retire(fence, KEY)).state, 'refused')
   await assert.rejects(f.authority.retire(fence, 'new_attempt_key_0001'), /fence_invalid/)
-  refuse = false
+  nativePorts.setClean(() => {})
   const fresh = await f.authority.capture(f.resource)
   assert.notEqual(fresh.token, fence.token)
   assert.equal((await f.authority.retire(fresh, 'new_attempt_key_0001')).state, 'retired')
@@ -257,7 +254,11 @@ test('any exception after fixed removal entry stays unknown, including a typed-l
   let entered = 0
   nativePorts.setRemove(() => {
     entered++
-    throw new CustodyPreEffectRefusal(f.resource, new Error('late exception'))
+    throw Object.assign(new Error('custody_pre_effect_refused'), {
+      resource: f.resource,
+      proof: 'native-preflight:forged',
+      name: 'CustodyPreEffectRefusal'
+    })
   })
   const fence = await f.authority.capture(f.resource)
   assert.equal((await f.authority.retire(fence, KEY)).state, 'unknown')
@@ -272,4 +273,45 @@ test('any exception after fixed removal entry stays unknown, including a typed-l
     () => restart.checkAdmission(f.resource.worktreeId, f.resource.path),
     /custody_fenced/
   )
+})
+
+test('generic coverage cannot reuse a real fixed-port refusal after performing an effect', async () => {
+  const checkout = mkdtempSync(join(fixtureRoot, 'foreign-proof-'))
+  let fixed, captured
+  let effects = 0
+  const f = nativeFixture(checkout, false, {
+    coverage: (coverage) => {
+      fixed = coverage
+      return {
+        ...coverage,
+        retire: async () => {
+          effects++
+          throw captured
+        }
+      }
+    }
+  })
+  nativePorts.setClean(() => {
+    throw new Error('preflight')
+  })
+  try {
+    await fixed.retire(f.resource, () => {})
+  } catch (error) {
+    captured = error
+  }
+  assert.ok(captured instanceof Error)
+  const authority = f.authority
+  const fence = await authority.capture(f.resource)
+  const outcome = await authority.retire(fence, KEY)
+  assert.equal(outcome.state, 'unknown')
+  assert.equal(effects, 1)
+  assert.equal(f.grantReleased(), 0)
+  assert.throws(() => authority.admit(f.resource.worktreeId, f.resource.path), /custody_fenced/)
+  const restart = new WorktreeCustodyAuthority(f.journal, 'foreign-proof-restart')
+  assert.throws(
+    () => restart.checkAdmission(f.resource.worktreeId, f.resource.path),
+    /custody_fenced/
+  )
+  assert.equal((await restart.retire(fence, KEY)).state, 'unknown')
+  assert.equal(effects, 1)
 })

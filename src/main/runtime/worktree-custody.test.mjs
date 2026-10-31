@@ -1,11 +1,18 @@
+import { nativePorts, nativeFixture } from './worktree-custody-native-fixture.mjs'
 import assert from 'node:assert/strict'
-import { readFileSync, writeFileSync, renameSync, existsSync, symlinkSync } from 'node:fs'
+import {
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+  renameSync,
+  existsSync,
+  symlinkSync
+} from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'vitest'
 import {
   fixtureRoot,
   WorktreeCustodyAuthority,
-  CustodyPreEffectRefusal,
   WorktreeCustodyFileJournal,
   BASE,
   KEY,
@@ -275,16 +282,20 @@ test('oversized reconciliation proof returns structured unknown without lifting 
 
 test('refused replay preserves the canonical receipt and retries only its bound pending grant', async () => {
   let failRelease = true
-  const f = setup({
-    effect: (resource) => {
-      throw new CustodyPreEffectRefusal(resource, new Error('preflight'))
-    },
+  const f = nativeFixture(mkdtempSync(join(fixtureRoot, 'refused-release-')), false, {
     releaseGrant: () => {
       if (failRelease) {
         failRelease = false
         throw new Error('release acknowledgement unavailable')
       }
     }
+  })
+  let effects = 0
+  nativePorts.setClean(() => {
+    throw new Error('preflight')
+  })
+  nativePorts.setRemove(() => {
+    effects++
   })
   const original = await f.authority.capture(f.resource)
   const refused = await f.authority.retire(original, KEY)
@@ -297,7 +308,7 @@ test('refused replay preserves the canonical receipt and retries only its bound 
   f.authority.check(fresh)
   assert.deepEqual(await f.authority.retire(original, KEY), refused)
   assert.equal(f.grantReleased(), 2)
-  assert.equal(f.effects(), 1)
+  assert.equal(effects, 0)
   await f.authority.cancel(fresh)
   assert.equal(f.grantReleased(), 3)
   const restart = new WorktreeCustodyAuthority(f.journal, 'refused-grant-restart')
@@ -333,4 +344,31 @@ test('private journal forward compatibility preserves v2 retired receipts and re
   assert.equal(unsupported.complete, false)
   assert.throws(() => unsupported.checkAdmission(BASE.worktreeId, BASE.path), /effects_unknown/)
   await assert.rejects(unsupported.reconcile(f.resource, KEY), /effects_unknown/)
+})
+
+test('inventory retries a refused terminal grant without Core replay or destructive resend', async () => {
+  let fail = true
+  const f = nativeFixture(mkdtempSync(join(fixtureRoot, 'inventory-release-')), false, {
+    releaseGrant: () => {
+      if (fail) {
+        fail = false
+        throw new Error('retry release')
+      }
+    }
+  })
+  let effects = 0
+  nativePorts.setClean(() => {
+    throw new Error('preflight')
+  })
+  nativePorts.setRemove(() => {
+    effects++
+  })
+  const fence = await f.authority.capture(f.resource)
+  assert.equal((await f.authority.retire(fence, KEY)).state, 'refused')
+  assert.equal(f.grantReleased(), 1)
+  assert.equal(f.authority.resources().length, 1)
+  assert.equal(f.grantReleased(), 2)
+  f.authority.resources()
+  assert.equal(f.grantReleased(), 2)
+  assert.equal(effects, 0)
 })

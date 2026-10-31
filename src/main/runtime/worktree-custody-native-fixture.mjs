@@ -1,45 +1,12 @@
-import { writeFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
 import {
   fixtureRoot,
   moduleFromSource,
   contract,
   WorktreeCustodyAuthority,
-  BASE
+  BASE,
+  nativePorts,
+  installNativeWorktreeCustodyRetirement
 } from './worktree-custody-fixture.mjs'
-
-writeFileSync(
-  join(fixtureRoot, 'native-ports.mjs'),
-  `
-  let coverage;
-  export function installNativeWorktreeCustodyCoverage(owner, installed) { coverage = installed; return () => {}; }
-  export function installedCoverage() { return coverage; }
-  export async function observeNativeWorktreeCustody(runtime, resource) { return runtime.observeNative(resource); }
-  export function getStructuredAgentSessionHost() { return null; }
-  export const pendingWorktreeRemovals = new Map();
-  export const failedWorktreeRemovals = new Map();
-  export function reconcileWorkerWorktreeCustodyRelease() {}
-  let remove;
-  export function setRemove(effect) { remove = effect; }
-  export async function removeWorktree(...args) { return remove(...args); }
-  let clean = () => {};
-  export function setClean(effect) { clean = effect; }
-  export async function assertWorktreeCleanForRemoval(...args) { return clean(...args); }
-`
-)
-const nativePorts = await import(pathToFileURL(join(fixtureRoot, 'native-ports.mjs')).href)
-const { installNativeWorktreeCustodyRetirement } = await moduleFromSource(
-  'retirement.mjs',
-  './worktree-custody-retirement.ts',
-  {
-    '../../shared/worktree/custody': './custody.mjs',
-    '../git/worktree': './native-ports.mjs',
-    './worktree-custody-observation': './native-ports.mjs',
-    './worktree-custody-runtime': './native-ports.mjs',
-    './worktree-custody-authority': './authority.mjs'
-  }
-)
 
 function nativeFixture(path, nativeHold = false, options = {}) {
   nativePorts.setClean(() => {})
@@ -107,6 +74,7 @@ function nativeFixture(path, nativeHold = false, options = {}) {
       check: () => true,
       release: () => {
         releasedGrants++
+        options.releaseGrant?.()
       }
     }),
     recoverFence: async (fence) => ({ fence, recovered: false, proof: null }),
@@ -117,7 +85,8 @@ function nativeFixture(path, nativeHold = false, options = {}) {
       proof: null
     })
   })
-  authority.installCoverage(BASE.owner, nativePorts.installedCoverage())
+  const coverage = nativePorts.installedCoverage()
+  authority.installCoverage(BASE.owner, options.coverage ? options.coverage(coverage) : coverage)
   authority.release(`dispatch:${path}`, `native-worker-release:${path}`)
   return {
     authority,

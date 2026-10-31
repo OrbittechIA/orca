@@ -1,3 +1,8 @@
+import {
+  failureLeftByGit,
+  interruptedRemovalPorts,
+  interruptedLocalWorktreeRemovalJob
+} from './worktree-custody-runtime-fixture.mjs'
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync } from 'node:fs'
 import { join } from 'node:path'
@@ -258,5 +263,51 @@ test('worker placement reports typed custody refusal with truthful pre/post-crea
   )
   assert.equal(placementPorts.creates, 1)
   f.custody.check(fence)
+  await f.custody.cancel(fence)
+})
+
+test('startup interrupted removal refuses a captured resource before metadata or Git entry', async () => {
+  const f = runtimeFixture()
+  f.custody.release('dispatch:fixture', 'owning-release')
+  const fence = await f.custody.capture(f.resource)
+  interruptedRemovalPorts.prepare()
+  const job = interruptedLocalWorktreeRemovalJob(
+    { worktreeId: BASE.worktreeId, worktreePath: BASE.path, repoId: 'repo' },
+    {}
+  )
+  let refusal
+  await assert.rejects(job.run(new AbortController().signal), (error) => {
+    refusal = error
+    return /custody_fenced/.test(error.message)
+  })
+  assert.deepEqual(interruptedRemovalPorts.counts, { metadata: 0, list: 0 })
+  let remoteCleanup = 0
+  const failure = await failureLeftByGit({}, refusal, async () => {
+    remoteCleanup++
+  })
+  assert.equal(failure.message, refusal.message)
+  assert.equal(remoteCleanup, 0)
+  await f.custody.cancel(fence)
+})
+
+test('startup interrupted removal retains admission through async proof and releases on failure', async () => {
+  const f = runtimeFixture()
+  const entered = interruptedRemovalPorts.prepare()
+  const settlement = Promise.withResolvers()
+  interruptedRemovalPorts.setPending(settlement.promise)
+  const job = interruptedLocalWorktreeRemovalJob(
+    { worktreeId: BASE.worktreeId, worktreePath: BASE.path, repoId: 'repo' },
+    { store: { getRepo: () => ({ path: '/fixture/repo' }) } }
+  )
+  const running = job.run(new AbortController().signal)
+  await entered
+  f.custody.release('dispatch:fixture', 'owning-release')
+  await assert.rejects(f.custody.capture(f.resource), /admission_active/)
+  interruptedRemovalPorts.fail()
+  await assert.rejects(running, /fixture list refusal/)
+  await assert.rejects(f.custody.capture(f.resource), /admission_active/)
+  settlement.resolve({})
+  await Promise.resolve()
+  const fence = await f.custody.capture(f.resource)
   await f.custody.cancel(fence)
 })

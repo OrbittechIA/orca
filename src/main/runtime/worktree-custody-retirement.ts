@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { lstat, opendir } from 'node:fs/promises'
 import { dirname, join, parse } from 'node:path'
 import {
@@ -9,7 +10,29 @@ import { removeWorktree, assertWorktreeCleanForRemoval } from '../git/worktree'
 import type { OrcaRuntimeService } from './orca-runtime'
 import { observeNativeWorktreeCustody } from './worktree-custody-observation'
 import { installNativeWorktreeCustodyCoverage } from './worktree-custody-runtime'
-import { CustodyPreEffectRefusal, type CustodyCoverage } from './worktree-custody-authority'
+import type { CustodyCoverage } from './worktree-custody-authority'
+
+const preEffectRefusals = new WeakMap<
+  object,
+  {
+    retire: CustodyCoverage['retire']
+    resourceKey: string
+    proof: string
+  }
+>()
+
+export function nativeWorktreePreEffectRefusal(
+  retire: CustodyCoverage['retire'],
+  error: unknown,
+  resource: WorktreeCustodyResource
+): string | null {
+  const proof =
+    error !== null && typeof error === 'object' ? preEffectRefusals.get(error) : undefined
+  if (!proof || proof.retire !== retire || proof.resourceKey !== custodyResourceKey(resource)) {
+    return null
+  }
+  return proof.proof
+}
 
 export type NativeWorktreeCustodyProvider = {
   owner: string
@@ -97,6 +120,66 @@ export function installNativeWorktreeCustodyRetirement(
   runtime: OrcaRuntimeService,
   producer: NativeWorktreeCustodyProvider
 ): () => void {
+  const retire: CustodyCoverage['retire'] = async (resource, check) => {
+    const prepared = await (async () => {
+      try {
+        const deadline = Date.now() + 10_000
+        check()
+        const worktree = await runtime.showManagedWorktree(`id:${resource.worktreeId}`)
+        if (
+          resource.hostId !== 'local' ||
+          worktree.hostId !== 'local' ||
+          worktree.id !== resource.worktreeId ||
+          worktree.projectId !== resource.product ||
+          worktree.path !== resource.path ||
+          worktree.instanceId !== resource.instanceId ||
+          worktree.isMainWorktree ||
+          worktree.isBare ||
+          worktree.childWorktreeIds.length > 0
+        ) {
+          throw new Error('custody_checkout_replaced_or_unsupported')
+        }
+        const repo = await runtime.showRepo(`id:${worktree.repoId}`)
+        if (repo.kind === 'folder' || repo.path === resource.path) {
+          throw new Error('custody_folder_unsupported')
+        }
+        const identity = await boundedCheckout(resource, check)
+        await assertWorktreeCleanForRemoval(resource.path, false)
+        const current = await lstat(resource.path)
+        if (`${current.dev}:${current.ino}:${current.ctimeMs}` !== identity) {
+          throw new Error('custody_checkout_changed')
+        }
+        check()
+        const remaining = deadline - Date.now()
+        if (remaining <= 0) {
+          throw new Error('custody_effect_budget')
+        }
+        return { repo, worktree, remaining }
+      } catch (cause) {
+        const error = new Error('custody_pre_effect_refused', { cause })
+        preEffectRefusals.set(error, {
+          retire,
+          resourceKey: custodyResourceKey(resource),
+          proof: `native-preflight:${randomUUID()}`
+        })
+        throw error
+      }
+    })()
+    const stop = new AbortController()
+    const timer = setTimeout(() => stop.abort(), prepared.remaining)
+    try {
+      await removeWorktree(prepared.repo.path, resource.path, false, {
+        deleteBranch: false,
+        knownRemovedWorktree: prepared.worktree.git,
+        checkoutDeleteSignal: stop.signal
+      })
+    } catch (cause) {
+      throw new Error('custody_effect_outcome_unknown', { cause })
+    } finally {
+      clearTimeout(timer)
+    }
+    // Completion is the native Git result; a missing path alone never reconciles an unknown effect.
+  }
   return installNativeWorktreeCustodyCoverage(
     producer.owner,
     {
@@ -112,60 +195,7 @@ export function installNativeWorktreeCustodyRetirement(
         }
         return mergeNativeObservation(native, supplied)
       },
-      retire: async (resource, check) => {
-        const prepared = await (async () => {
-          try {
-            const deadline = Date.now() + 10_000
-            check()
-            const worktree = await runtime.showManagedWorktree(`id:${resource.worktreeId}`)
-            if (
-              resource.hostId !== 'local' ||
-              worktree.hostId !== 'local' ||
-              worktree.id !== resource.worktreeId ||
-              worktree.projectId !== resource.product ||
-              worktree.path !== resource.path ||
-              worktree.instanceId !== resource.instanceId ||
-              worktree.isMainWorktree ||
-              worktree.isBare ||
-              worktree.childWorktreeIds.length > 0
-            ) {
-              throw new Error('custody_checkout_replaced_or_unsupported')
-            }
-            const repo = await runtime.showRepo(`id:${worktree.repoId}`)
-            if (repo.kind === 'folder' || repo.path === resource.path) {
-              throw new Error('custody_folder_unsupported')
-            }
-            const identity = await boundedCheckout(resource, check)
-            await assertWorktreeCleanForRemoval(resource.path, false)
-            const current = await lstat(resource.path)
-            if (`${current.dev}:${current.ino}:${current.ctimeMs}` !== identity) {
-              throw new Error('custody_checkout_changed')
-            }
-            check()
-            const remaining = deadline - Date.now()
-            if (remaining <= 0) {
-              throw new Error('custody_effect_budget')
-            }
-            return { repo, worktree, remaining }
-          } catch (cause) {
-            throw new CustodyPreEffectRefusal(resource, cause)
-          }
-        })()
-        const stop = new AbortController()
-        const timer = setTimeout(() => stop.abort(), prepared.remaining)
-        try {
-          await removeWorktree(prepared.repo.path, resource.path, false, {
-            deleteBranch: false,
-            knownRemovedWorktree: prepared.worktree.git,
-            checkoutDeleteSignal: stop.signal
-          })
-        } catch (cause) {
-          throw new Error('custody_effect_outcome_unknown', { cause })
-        } finally {
-          clearTimeout(timer)
-        }
-        // Completion is the native Git result; a missing path alone never reconciles an unknown effect.
-      }
+      retire
     },
     runtime.getRuntimeId()
   )

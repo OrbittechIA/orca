@@ -23,8 +23,41 @@ function moduleFromSource(name, source, replacements = {}) {
 }
 
 const contract = await moduleFromSource('custody.mjs', '../../shared/worktree/custody.ts')
+writeFileSync(
+  join(fixtureRoot, 'native-ports.mjs'),
+  `
+  let coverage;
+  export function installNativeWorktreeCustodyCoverage(owner, installed) { coverage = installed; return () => {}; }
+  export function installedCoverage() { return coverage; }
+  export async function observeNativeWorktreeCustody(runtime, resource) { return runtime.observeNative(resource); }
+  export function getStructuredAgentSessionHost() { return null; }
+  export const pendingWorktreeRemovals = new Map();
+  export const failedWorktreeRemovals = new Map();
+  export function reconcileWorkerWorktreeCustodyRelease() {}
+  let remove;
+  export function setRemove(effect) { remove = effect; }
+  export async function removeWorktree(...args) { return remove(...args); }
+  let clean = () => {};
+  export function setClean(effect) { clean = effect; }
+  export async function assertWorktreeCleanForRemoval(...args) { return clean(...args); }
+`
+)
+const nativePorts = await import(pathToFileURL(join(fixtureRoot, 'native-ports.mjs')).href)
+const { installNativeWorktreeCustodyRetirement } = await moduleFromSource(
+  'retirement.mjs',
+  './worktree-custody-retirement.ts',
+  {
+    '../../shared/worktree/custody': './custody.mjs',
+    '../git/worktree': './native-ports.mjs',
+    './worktree-custody-observation': './native-ports.mjs',
+    './worktree-custody-runtime': './native-ports.mjs',
+    './worktree-custody-authority': './authority.mjs'
+  }
+)
+
 const custodyModules = {
   '../../shared/worktree/custody': './custody.mjs',
+  './worktree-custody-retirement': './retirement.mjs',
   ...Object.fromEntries(
     ['records', 'state', 'release-recovery', 'admission', 'fences'].map((name) => [
       `./worktree-custody-${name}`,
@@ -35,7 +68,7 @@ const custodyModules = {
 for (const name of ['records', 'state', 'release-recovery', 'admission', 'fences']) {
   await moduleFromSource(`${name}.mjs`, `./worktree-custody-${name}.ts`, custodyModules)
 }
-const { WorktreeCustodyAuthority, CustodyPreEffectRefusal } = await moduleFromSource(
+const { WorktreeCustodyAuthority } = await moduleFromSource(
   'authority.mjs',
   './worktree-custody-authority.ts',
   custodyModules
@@ -195,7 +228,8 @@ export {
   boundaryModule,
   contract,
   WorktreeCustodyAuthority,
-  CustodyPreEffectRefusal,
+  nativePorts,
+  installNativeWorktreeCustodyRetirement,
   WorktreeCustodyFileJournal,
   BASE,
   KEY,

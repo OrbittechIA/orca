@@ -1,3 +1,4 @@
+import { nativeWorktreePreEffectRefusal } from './worktree-custody-retirement'
 import {
   custodyObservationRefusals,
   custodyResourceKey,
@@ -5,14 +6,10 @@ import {
   type WorktreeCustodyOutcome,
   type WorktreeCustodyResource
 } from '../../shared/worktree/custody'
-import {
-  CustodyPreEffectRefusal,
-  digest,
-  type CustodyRetirementConfirmation
-} from './worktree-custody-records'
+import { digest, type CustodyRetirementConfirmation } from './worktree-custody-records'
 import { WorktreeCustodyFences } from './worktree-custody-fences'
 
-export { CustodyPreEffectRefusal, WorktreeCustodyAdmissionError } from './worktree-custody-records'
+export { WorktreeCustodyAdmissionError } from './worktree-custody-records'
 export type {
   CustodyRecord,
   CustodyReceipt,
@@ -24,6 +21,21 @@ export type {
 } from './worktree-custody-records'
 
 export class WorktreeCustodyAuthority extends WorktreeCustodyFences {
+  override resources(): WorktreeCustodyResource[] {
+    this.releaseTerminalGrants()
+    return super.resources()
+  }
+
+  override async observe(resource: WorktreeCustodyResource) {
+    this.releaseTerminalGrants(resource)
+    return super.observe(resource)
+  }
+
+  override async capture(resource: WorktreeCustodyResource): Promise<WorktreeCustodyFence> {
+    this.releaseTerminalGrants(resource)
+    return super.capture(resource)
+  }
+
   async retire(fence: WorktreeCustodyFence, key: string): Promise<WorktreeCustodyOutcome> {
     if (!/^[a-zA-Z0-9_-]{16,128}$/.test(key)) {
       throw new Error('custody_key_invalid')
@@ -76,12 +88,9 @@ export class WorktreeCustodyAuthority extends WorktreeCustodyFences {
         await coverage.retire(fence.resource, () => this.check(fence))
         result = this.outcome(fence.resource, key, 'retired', null)
       } catch (error) {
-        if (
-          error instanceof CustodyPreEffectRefusal &&
-          custodyResourceKey(error.resource) === custodyResourceKey(fence.resource)
-        ) {
-          result = this.outcome(fence.resource, key, 'refused', error.message)
-          proof = error.proof
+        proof = nativeWorktreePreEffectRefusal(coverage.retire, error, fence.resource)
+        if (proof) {
+          result = this.outcome(fence.resource, key, 'refused', 'custody_pre_effect_refused')
         } else {
           const unknown = this.outcome(fence.resource, key, 'unknown', 'reconcile_same_key')
           try {
@@ -193,11 +202,15 @@ export class WorktreeCustodyAuthority extends WorktreeCustodyFences {
     return { ...outcome, state: 'unknown', reason: 'native_outcome_commit_pending' }
   }
 
-  private releaseTerminalGrants(resource: WorktreeCustodyResource, key: string): boolean {
-    const resourceKey = custodyResourceKey(resource)
+  private releaseTerminalGrants(resource?: WorktreeCustodyResource, key?: string): boolean {
+    const resourceKey = resource ? custodyResourceKey(resource) : null
     let released = true
     for (const [token, grant] of this.grants) {
-      if (grant.resourceKey !== resourceKey || grant.terminalKey !== key) {
+      if (
+        !grant.terminalKey ||
+        (resourceKey !== null && grant.resourceKey !== resourceKey) ||
+        (key !== undefined && grant.terminalKey !== key)
+      ) {
         continue
       }
       try {

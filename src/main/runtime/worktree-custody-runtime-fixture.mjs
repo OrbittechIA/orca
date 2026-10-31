@@ -208,3 +208,45 @@ export {
   placementPorts,
   placeWorkerAgent
 }
+
+writeFileSync(
+  join(fixtureRoot, 'interrupted-removal-runtime-ports.mjs'),
+  `
+  export const LOCAL_EXECUTION_HOST_ID = 'local';
+  export const counts = { metadata: 0, list: 0 };
+  let entered, reject, pending;
+  export function setPending(value) { pending = value; }
+  export function waitForPendingWorktreeRemoval() { return pending; }
+  export function releaseStartupRemovalFence() {}
+  export function prepare() { pending = undefined; counts.metadata = counts.list = 0; return new Promise(resolve => { entered = resolve; }); }
+  export function fail() { reject(new Error('fixture list refusal')); }
+  export function resolveWorktreeRemovalMetadata() { counts.metadata++; return null; }
+  export function getLocalProjectWorktreeGitOptions() { return {}; }
+  export function listWorktreesStrict() { counts.list++; entered(); return new Promise((_resolve, no) => { reject = no; }); }
+`
+)
+const interruptedRemovalPorts = await import(
+  pathToFileURL(join(fixtureRoot, 'interrupted-removal-runtime-ports.mjs')).href
+)
+const { interruptedLocalWorktreeRemovalJob } = await boundaryModule(
+  'interrupted-removal',
+  './runtime-interrupted-local-worktree-removal.ts',
+  {
+    './worktree-custody-runtime': './runtime.mjs',
+    '../../shared/execution-host': './interrupted-removal-runtime-ports.mjs',
+    '../worktree-removal-repo-owner': './interrupted-removal-runtime-ports.mjs',
+    '../project-runtime-git-options': './interrupted-removal-runtime-ports.mjs',
+    '../git/worktree': './interrupted-removal-runtime-ports.mjs',
+    '../worktree-background-removal': './interrupted-removal-runtime-ports.mjs'
+  }
+)
+export { interruptedRemovalPorts, interruptedLocalWorktreeRemovalJob }
+
+const { failureLeftByGit } = await boundaryModule(
+  'custody-removal-failure',
+  '../worktree-removal-failure.ts',
+  {
+    './runtime/worktree-custody-records': './records.mjs'
+  }
+)
+export { failureLeftByGit }

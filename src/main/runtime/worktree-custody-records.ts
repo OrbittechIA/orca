@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import { isAbsolute, relative, sep } from 'node:path'
 import {
   custodyResourceKey,
@@ -95,19 +95,6 @@ export class WorktreeCustodyAdmissionError extends Error {
   constructor(reason: string) {
     super(reason)
     this.name = 'WorktreeCustodyAdmissionError'
-  }
-}
-
-/** Only the fixed native port's preflight can certify that removal was never entered. */
-export class CustodyPreEffectRefusal extends Error {
-  readonly proof = `native-preflight:${randomUUID()}`
-
-  constructor(
-    readonly resource: WorktreeCustodyResource,
-    cause: unknown
-  ) {
-    super('custody_pre_effect_refused', { cause })
-    this.name = 'CustodyPreEffectRefusal'
   }
 }
 
