@@ -59,6 +59,8 @@ export type { AgentSessionAccountHome } from './agent-session-account-home'
 export type { AgentSessionOptionsReplacement } from './agent-session-options-replacement'
 
 export const AGENT_SESSION_RECORD_SCHEMA_VERSION = 2 as const
+/** Scoped records use their own version: earlier readers set them aside instead of launching them unscoped. */
+export const AGENT_SESSION_SCOPED_RECORD_SCHEMA_VERSION = 3 as const
 
 export type AgentSessionWorkspaceKind = 'git-worktree' | 'folder'
 
@@ -80,7 +82,9 @@ export type AgentSessionLaunchArgs = string[]
 export type AgentSessionRecord = {
   launchOrigin?: StructuredAgentSessionLaunchOrigin
   launchAuthority?: StructuredAgentSessionLaunchAuthority
-  schemaVersion: typeof AGENT_SESSION_RECORD_SCHEMA_VERSION
+  schemaVersion:
+    | typeof AGENT_SESSION_RECORD_SCHEMA_VERSION
+    | typeof AGENT_SESSION_SCOPED_RECORD_SCHEMA_VERSION
   sessionId: string
   location: AgentSessionExecutionLocation
   /** The agent this session names, whether this build can run it or not. */
@@ -276,7 +280,11 @@ export function isPersistedAgentSessionObservationRecord(
   const record = value
   if (
     !(
-      record.schemaVersion === AGENT_SESSION_RECORD_SCHEMA_VERSION &&
+      ((record.schemaVersion === AGENT_SESSION_RECORD_SCHEMA_VERSION &&
+        record.filesystemScope === undefined) ||
+        (record.schemaVersion === AGENT_SESSION_SCOPED_RECORD_SCHEMA_VERSION &&
+          record.provider === 'codex' &&
+          isBoundOrchestrationFilesystemScope(record.filesystemScope))) &&
       isAgentSessionId(record.sessionId) &&
       isAgentSessionExecutionLocation(record.location) &&
       isStructuredAgentId(record.provider) &&
@@ -290,10 +298,6 @@ export function isPersistedAgentSessionObservationRecord(
       (record.options === undefined || isAgentSessionOptions(record.options)) &&
       (record.permissionMode === undefined ||
         isBoundedString(record.permissionMode, MAX_ID_LENGTH)) &&
-      // An unreadable scope makes the record unreadable rather than launchable without it.
-      (record.filesystemScope === undefined ||
-        (record.provider === 'codex' &&
-          isBoundOrchestrationFilesystemScope(record.filesystemScope))) &&
       (record.rewind === undefined || isAgentSessionRewindRecord(record.rewind)) &&
       (record.providerContextBoundary === undefined ||
         isAgentSessionProviderContextBoundary(record.providerContextBoundary)) &&

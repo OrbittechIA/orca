@@ -5,6 +5,7 @@ import {
 import { AGENT_CHAT_PERMISSION_MODE_OPTION_ID } from '../../shared/agent-chat-permission-mode'
 import {
   AGENT_SESSION_RECORD_SCHEMA_VERSION,
+  AGENT_SESSION_SCOPED_RECORD_SCHEMA_VERSION,
   type AgentSessionRecord
 } from '../../shared/agent-session-record'
 
@@ -30,7 +31,9 @@ export function agentSessionRecordIdentityFields(
   const { [AGENT_CHAT_PERMISSION_MODE_OPTION_ID]: permissionMode, ...options } =
     identity.options ?? {}
   return {
-    schemaVersion: AGENT_SESSION_RECORD_SCHEMA_VERSION,
+    schemaVersion: identity.filesystemScope
+      ? AGENT_SESSION_SCOPED_RECORD_SCHEMA_VERSION
+      : AGENT_SESSION_RECORD_SCHEMA_VERSION,
     sessionId: identity.sessionId,
     ...(identity.launchOrigin ? { launchOrigin: identity.launchOrigin } : {}),
     ...(identity.launchAuthority ? { launchAuthority: { ...identity.launchAuthority } } : {}),
