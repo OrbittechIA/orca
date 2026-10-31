@@ -88,6 +88,23 @@ function acknowledgements(fixture: ReturnType<typeof native>) {
   )
 }
 
+async function pageAcknowledgementFixture() {
+  const fixture = native()
+  const pair = page(fixture.client)
+  await pair.flush()
+  mobileWorkspaceSelection(pair.client)
+  await pair.flush()
+  fixture.fence()
+  await pair.flush()
+  const message = pair
+    .readToShell()
+    .find((frame) => frame.type === 'request' && frame.method === 'workspace.selection.ack.v1')
+  if (message?.type !== 'request') {
+    throw new Error('the real page did not acknowledge its round')
+  }
+  return { fixture, pair, acknowledgement: SelectionAckSchema.parse(message.params) }
+}
+
 it('accounts for page-only folder mounts through one physical watch and keeps the mounted page working', async () => {
   const fixture = native()
   const pair = page(fixture.client)
@@ -159,20 +176,7 @@ it('bootstraps an already active native fence before a late page can mount its t
 })
 
 it('refuses a stale page ACK locally without opening another native request or watch', async () => {
-  const fixture = native()
-  const pair = page(fixture.client)
-  await pair.flush()
-  mobileWorkspaceSelection(pair.client)
-  await pair.flush()
-  fixture.fence()
-  await pair.flush()
-  const message = pair
-    .readToShell()
-    .find((frame) => frame.type === 'request' && frame.method === 'workspace.selection.ack.v1')
-  if (message?.type !== 'request') {
-    throw new Error('the real page did not acknowledge its round')
-  }
-  const acknowledgement = SelectionAckSchema.parse(message.params)
+  const { fixture, pair, acknowledgement } = await pageAcknowledgementFixture()
   const answer = pair.client.sendRequest('workspace.selection.ack.v1', acknowledgement)
   await pair.flush()
   await expect(answer).resolves.toEqual({
@@ -187,7 +191,32 @@ it('refuses a stale page ACK locally without opening another native request or w
   expect(fixture.transport.streams).toHaveLength(1)
   expect(mobileWorkspaceSelection(pair.client).canSelect(fence.resource.worktreeId)).toBe(false)
   expect(fixture.selection.canSelect(fence.resource.worktreeId)).toBe(false)
+})
 
+class UnexpectedSelectionError extends Error {
+  code = 'unexpected_selection_fixture'
+}
+
+it.each([
+  { kind: 'an unknown refusal token', failure: () => new Error('unexpected_selection_fixture') },
+  {
+    kind: 'a custom exception with a known refusal token',
+    failure: () => new UnexpectedSelectionError('custody_selection_view_ack_changed')
+  },
+  {
+    kind: 'a delivery-unknown error with a known refusal token',
+    failure: () => markRpcDeliveryUnknown(new Error('custody_selection_view_ack_changed'))
+  },
+  {
+    kind: 'a plain error carrying delegate code and cause',
+    failure: () =>
+      Object.assign(new Error('custody_selection_view_ack_changed'), {
+        code: 'unexpected_delegate_code',
+        cause: new Error('unexpected_delegate_cause')
+      })
+  }
+])('preserves $kind as a rejected delegate error', async ({ failure: makeFailure }) => {
+  const { fixture, pair, acknowledgement } = await pageAcknowledgementFixture()
   const hosts: MobileSelectionHost[] = []
   const stopObserving = observeMobileSelectionHosts(fixture.client, (host) => hosts.push(host))
   stopObserving()
@@ -195,42 +224,30 @@ it('refuses a stale page ACK locally without opening another native request or w
   if (!host) {
     throw new Error('the real native selection host was not represented')
   }
-  class UnexpectedSelectionError extends Error {
-    code = 'unexpected_selection_fixture'
-  }
   const acknowledge = vi.spyOn(host.views, 'acknowledge')
   try {
-    for (const failure of [
-      new Error('unexpected_selection_fixture'),
-      new UnexpectedSelectionError('custody_selection_view_ack_changed'),
-      markRpcDeliveryUnknown(new Error('custody_selection_view_ack_changed')),
-      Object.assign(new Error('custody_selection_view_ack_changed'), {
-        code: 'unexpected_delegate_code',
-        cause: new Error('unexpected_delegate_cause')
-      })
-    ]) {
-      acknowledge.mockImplementationOnce(() => {
-        throw failure
-      })
-      const rejected = pair.client
-        .sendRequest('workspace.selection.ack.v1', acknowledgement)
-        .catch((error: unknown) => error)
-      await pair.flush()
-      const error = await rejected
-      expect(error).toBeInstanceOf(Error)
-      expect(error).toMatchObject({ name: failure.constructor.name, message: failure.message })
-      expect(isRpcDeliveryUnknown(error)).toBe(isRpcDeliveryUnknown(failure))
-      if ('code' in failure) {
-        expect(error).toMatchObject({ code: failure.code })
-      }
-      if ('cause' in failure) {
-        expect(error).toMatchObject({ cause: { message: 'unexpected_delegate_cause' } })
-      }
-      expect(acknowledgements(fixture)).toHaveLength(1)
-      expect(fixture.transport.streams).toHaveLength(1)
-      expect(mobileWorkspaceSelection(pair.client).canSelect(fence.resource.worktreeId)).toBe(false)
-      expect(fixture.selection.canSelect(fence.resource.worktreeId)).toBe(false)
+    const failure = makeFailure()
+    acknowledge.mockImplementationOnce(() => {
+      throw failure
+    })
+    const rejected = pair.client
+      .sendRequest('workspace.selection.ack.v1', acknowledgement)
+      .catch((error: unknown) => error)
+    await pair.flush()
+    const error = await rejected
+    expect(error).toBeInstanceOf(Error)
+    expect(error).toMatchObject({ name: failure.constructor.name, message: failure.message })
+    expect(isRpcDeliveryUnknown(error)).toBe(isRpcDeliveryUnknown(failure))
+    if ('code' in failure) {
+      expect(error).toMatchObject({ code: failure.code })
     }
+    if ('cause' in failure) {
+      expect(error).toMatchObject({ cause: { message: 'unexpected_delegate_cause' } })
+    }
+    expect(acknowledgements(fixture)).toHaveLength(1)
+    expect(fixture.transport.streams).toHaveLength(1)
+    expect(mobileWorkspaceSelection(pair.client).canSelect(fence.resource.worktreeId)).toBe(false)
+    expect(fixture.selection.canSelect(fence.resource.worktreeId)).toBe(false)
   } finally {
     acknowledge.mockRestore()
   }
