@@ -122,7 +122,7 @@ describe('cross-version structured agent sessions', () => {
     beforeEach(() => {
       resetOperationIds()
       hostCalls = structuredHostStub(SESSION, WORKSPACE)
-      setStructuredAgentSessionHost(installableHost(hostCalls))
+      setStructuredAgentSessionHost(installableHost(hostCalls, [SESSION]))
     })
 
     afterEach(() => {
@@ -191,7 +191,7 @@ describe('cross-version structured agent sessions', () => {
 
     beforeEach(async () => {
       for (const build of [current, baseline]) {
-        await build.installStructuredHost(installableHost(structuredHostStub(SESSION, WORKSPACE)))
+        await build.installStructuredHost(installableHost(structuredHostStub(SESSION, WORKSPACE), [SESSION]))
       }
     })
 
@@ -306,7 +306,7 @@ describe('cross-version structured agent sessions', () => {
         // Without a host every call answers `structured_agent_session_unsupported`, which would
         // read as the params refusal this looks for.
         const hostCalls = structuredHostStub(SESSION, WORKSPACE)
-        await build.installStructuredHost(installableHost(hostCalls))
+        await build.installStructuredHost(installableHost(hostCalls, [SESSION]))
         try {
           const replies = await callBuild(build, 'agentSession.cancel', unnamed, {
             clientKind: 'runtime',
@@ -378,7 +378,7 @@ describe('cross-version structured agent sessions', () => {
           continue
         }
         const hostCalls = structuredHostStub(SESSION, WORKSPACE)
-        await build.installStructuredHost(installableHost(hostCalls))
+        await build.installStructuredHost(installableHost(hostCalls, [SESSION]))
         try {
           const replies = await callBuild(build, method, params, {
             clientKind: 'runtime',
@@ -404,7 +404,7 @@ describe('cross-version structured agent sessions', () => {
         ).toHaveLength(STRUCTURED_CALLS.length)
         // Install this graph’s host slot explicitly so unsupported-host fallback cannot masquerade as capability refusal.
         const hostCalls = structuredHostStub(SESSION, WORKSPACE)
-        await releasedCurrent.installStructuredHost(installableHost(hostCalls))
+        await releasedCurrent.installStructuredHost(installableHost(hostCalls, [SESSION]))
         try {
           await expectDeclaredSurfaceExecutes(
             releasedCurrent,

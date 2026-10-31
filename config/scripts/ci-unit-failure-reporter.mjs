@@ -1,7 +1,8 @@
 // Failures-only unit evidence for hosted runs whose console keeps only a tail; it never changes the test verdict.
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
+import { VALUE_OPTIONS } from './vitest-run-filters.mjs'
 
 export const UNIT_FAILURE_REPORT_DIR_ENV = 'ORCA_UNIT_FAILURE_REPORT_DIR'
 /** Every invocation's reports together stay within this, leaving the rest of a 16 MiB artifact. */
@@ -28,6 +29,51 @@ export function clipText(value, limitBytes = TEXT_LIMIT_BYTES) {
     end += character.length
   }
   return { text: text.slice(0, end), truncated: true }
+}
+
+const VITEST_COMMANDS = new Set(['run', 'related', 'watch', 'dev', 'bench', 'list', 'typecheck'])
+
+function parseArgList(text) {
+  try {
+    const value = JSON.parse(text)
+    return Array.isArray(value) && value.every((arg) => typeof arg === 'string') ? value : null
+  } catch {
+    return null
+  }
+}
+
+/** Inputs after the command, skipping option values; everything after `--` is an input. */
+function countInputs(args, start) {
+  let count = 0
+  for (let index = start; index < args.length; index += 1) {
+    const arg = args[index]
+    if (arg === '--') {
+      return count + args.length - index - 1
+    }
+    if (!arg.startsWith('-')) {
+      count += 1
+    } else if (!arg.includes('=') && VALUE_OPTIONS.has(arg)) {
+      index += 1
+    }
+  }
+  return count
+}
+
+/** A clipped args prefix is not the invocation; identify the whole one by kind, counts and digest. */
+export function describeInvocationArgs(value) {
+  const text = typeof value === 'string' ? value : String(value ?? '')
+  const clipped = clipText(text)
+  const args = parseArgList(text)
+  const command = args && VITEST_COMMANDS.has(args[0]) ? args[0] : null
+  return {
+    args: clipped.text,
+    argsTruncated: clipped.truncated,
+    argsBytes: Buffer.byteLength(text),
+    argsSha256: createHash('sha256').update(text).digest('hex'),
+    argsKind: args ? (command ?? 'default') : 'unparsed',
+    argCount: args ? args.length : null,
+    inputCount: args ? countInputs(args, command ? 1 : 0) : null
+  }
 }
 
 function describeError(error, depth = 0) {
@@ -203,8 +249,9 @@ export default class UnitFailureReporter {
     this.invocation = {
       id: this.id,
       pid: process.pid,
-      args: clipText(process.env.ORCA_VITEST_RUN_ARGS ?? JSON.stringify(process.argv.slice(2)))
-        .text,
+      ...describeInvocationArgs(
+        process.env.ORCA_VITEST_RUN_ARGS ?? JSON.stringify(process.argv.slice(2))
+      ),
       vitestVersion: this.ctx?.version ?? null,
       nodeVersion: process.env.ORCA_TEST_NODE_VERSION ?? process.versions.node,
       ...(process.versions.bun ? { bunVersion: process.versions.bun } : {}),

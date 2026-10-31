@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  getPathMock,
+  lstatSyncMock,
   statSyncMock,
   spawnMock,
   wslUncDirectoryExistsAsyncMock,
@@ -76,6 +78,23 @@ describe('registerPtyHandlers', () => {
 
     const [, , options] = spawnMock.mock.calls.at(-1) as [string, string[], { cwd: string }]
     expect(options.cwd).toBe('/tmp/floating-notes')
+  })
+  it('refuses a local worktree spawn when the custody journal is unreadable', async () => {
+    // A fresh userData keys a new custody authority, so this read is not served from an earlier case.
+    getPathMock.mockReturnValue('/tmp/orca-user-data-unreadable-custody')
+    lstatSyncMock.mockImplementation(() => {
+      throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' })
+    })
+    registerPtyHandlers(mainWindow as never)
+
+    await expect(
+      handlers.get('pty:spawn')!(null, {
+        cols: 80,
+        rows: 24,
+        worktreeId: 'repo-1::/repo/app'
+      })
+    ).rejects.toThrow('custody_effects_unknown')
+    expect(spawnMock).not.toHaveBeenCalled()
   })
   it('rejects a renderer spawn while destructive worktree removal holds the gate', async () => {
     const removal = acquireWatcherRemovalGate('/repo/app')

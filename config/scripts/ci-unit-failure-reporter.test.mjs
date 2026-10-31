@@ -1,9 +1,11 @@
+import { createHash } from 'node:crypto'
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import UnitFailureReporter, {
   clipText,
+  describeInvocationArgs,
   UNIT_FAILURE_REPORT_BUDGET_BYTES,
   UNIT_FAILURE_REPORT_PREFIX
 } from './ci-unit-failure-reporter.mjs'
@@ -323,6 +325,87 @@ describe('unit failure evidence', () => {
         .sort()
     ).toEqual([firstName, `${second.id}.json`].sort())
     expect(directoryBytes(directory)).toBeLessThanOrEqual(budgetBytes)
+  })
+
+  // The hosted related run named 275 plan files, past the 16 KiB args clip.
+  const relatedArgs = [
+    'related',
+    '--run',
+    '--maxWorkers',
+    '2',
+    ...Array.from(
+      { length: 275 },
+      (_, index) => `src/main/runtime/rpc/methods/orchestration/worker/plan-input-${index}.test.ts`
+    )
+  ]
+  const sha256 = (text) => createHash('sha256').update(text).digest('hex')
+
+  it('identifies a related run past the args clip by kind, counts and digest', () => {
+    const raw = JSON.stringify(relatedArgs)
+    expect(Buffer.byteLength(raw)).toBeGreaterThan(16 * 1024)
+    process.env.ORCA_VITEST_RUN_ARGS = raw
+    const directory = reportDirectory()
+    run(directory, [failingModule('related.test.ts')], [], 'failed')
+
+    const [{ report }] = reports(directory)
+    const { invocation } = report
+    expect(invocation).toMatchObject({
+      argsTruncated: true,
+      argsBytes: Buffer.byteLength(raw),
+      argsSha256: sha256(raw),
+      argsKind: 'related',
+      argCount: 279,
+      inputCount: 275
+    })
+    expect(Buffer.byteLength(invocation.args)).toBeLessThanOrEqual(16 * 1024)
+    expect(raw.startsWith(invocation.args)).toBe(true)
+    // The kept prefix is not a whole invocation, so a reader cannot take it for one.
+    expect(() => JSON.parse(invocation.args)).toThrow()
+    // Clipping the identity never softens the verdict the run itself reported.
+    expect(report).toMatchObject({ status: 'failed', counts: { tests: { failed: 1 } } })
+    expect(report.failures).toHaveLength(1)
+  })
+
+  it('keeps an interrupted long related run incomplete', () => {
+    process.env.ORCA_VITEST_RUN_ARGS = JSON.stringify(relatedArgs)
+    const directory = reportDirectory()
+    run(
+      directory,
+      [testModule('unfinished.test.ts', { state: 'pending', tests: [testCase('t', 'pending')] })],
+      [],
+      'interrupted'
+    )
+
+    const [{ report }] = reports(directory)
+    expect(report.invocation.argsTruncated).toBe(true)
+    expect(report).toMatchObject({
+      status: 'interrupted',
+      executionComplete: false,
+      unfinishedModules: ['unfinished.test.ts']
+    })
+  })
+
+  it('keeps short args whole and marks only unreadable args as unparsed', () => {
+    const short = JSON.stringify(['run', '--project', 'node', 'a.test.ts', '--', '-b.test.ts'])
+    expect(describeInvocationArgs(short)).toEqual({
+      args: short,
+      argsTruncated: false,
+      argsBytes: Buffer.byteLength(short),
+      argsSha256: sha256(short),
+      argsKind: 'run',
+      argCount: 6,
+      inputCount: 2
+    })
+    expect(describeInvocationArgs('["a.test.ts","--shard=1/2"]')).toMatchObject({
+      argsKind: 'default',
+      inputCount: 1
+    })
+    expect(describeInvocationArgs('related --run a.test.ts')).toMatchObject({
+      argsTruncated: false,
+      argsKind: 'unparsed',
+      argCount: null,
+      inputCount: null
+    })
   })
 
   it('keeps the default budget within half of a 16 MiB artifact', () => {

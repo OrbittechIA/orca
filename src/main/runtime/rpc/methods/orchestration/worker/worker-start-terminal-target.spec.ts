@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LaunchedAgentForeground } from '../../../../launched-agent-foreground'
 import type { RuntimeTerminalWait } from '../../../../../../shared/runtime-terminal-contracts'
 import { createOrchestrationWorkerReleaseHarness } from './worker-release.test-support'
+import { localDispatchAuthority } from '../../../../orchestration/terminal-authority/dispatch-authority-test-fixture'
 
 export function registerWorkerStartTerminalTargetTests(): void {
   describe('worker-start --terminal target', () => {
@@ -58,11 +59,11 @@ export function registerWorkerStartTerminalTargetTests(): void {
     it('refuses an injected dispatch aimed at the coordinator handle', async () => {
       vi.spyOn(harness.runtime, 'getOrchestrationDispatchAuthority').mockImplementation(
         (handle) =>
-          ({
+          localDispatchAuthority({
             terminalHandle: handle,
             paneKey: harness.coordinatorPaneKey,
             processIncarnation: 'runtime_test:term_coord:1'
-          }) as never
+          })
       )
       const task = harness.db.createTask({ spec: 'self dispatch', runId: harness.activeRunId })
 
@@ -84,11 +85,11 @@ export function registerWorkerStartTerminalTargetTests(): void {
       )
       vi.spyOn(harness.runtime, 'getOrchestrationDispatchAuthority').mockImplementation(
         (handle) =>
-          ({
+          localDispatchAuthority({
             terminalHandle: handle,
             paneKey: harness.coordinatorPaneKey,
             processIncarnation: 'runtime_test:term_coord:1'
-          }) as never
+          })
       )
       const task = harness.db.createTask({
         spec: 'self dispatch alias',
@@ -130,13 +131,13 @@ export function registerWorkerStartTerminalTargetTests(): void {
       vi.spyOn(harness.runtime, 'isTerminalRunningAgent').mockResolvedValue(false)
       vi.spyOn(harness.runtime, 'getOrchestrationDispatchAuthority').mockImplementation(
         (handle) =>
-          (handle === 'term_coord_alias'
-            ? {
+          handle === 'term_coord_alias'
+            ? localDispatchAuthority({
                 terminalHandle: handle,
                 paneKey: harness.coordinatorPaneKey,
                 processIncarnation: 'runtime_test:term_coord:1'
-              }
-            : null) as never
+              })
+            : null
       )
       const task = harness.db.createTask({
         spec: `self inject ${target}`,

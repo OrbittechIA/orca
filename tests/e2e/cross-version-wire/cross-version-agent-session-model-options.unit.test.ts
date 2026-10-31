@@ -33,7 +33,7 @@ describe('selected model reports across released client and host versions', () =
     const host = structuredHostStub(SESSION, 'folder-options')
     const report = { models: [], current: { effort: 'off' } }
     host.readOptions.mockResolvedValue(report)
-    await current.installStructuredHost(installableHost(host))
+    await current.installStructuredHost(installableHost(host, [SESSION]))
     const legacy = [
       ...baseline.capabilities.filter(
         (value) => value !== AGENT_SESSION_OPTIONAL_MODEL_CLIENT_CAPABILITY
@@ -94,7 +94,7 @@ describe('selected model reports across released client and host versions', () =
     const host = structuredHostStub(SESSION, 'folder-options')
     const report = { models: [], current: { model: 'released-model', effort: 'off' } }
     host.readOptions.mockResolvedValue(report)
-    await baseline.installStructuredHost(installableHost(host))
+    await baseline.installStructuredHost(installableHost(host, [SESSION]))
     expect(
       await callBuild(baseline, 'agentSession.options', { sessionId: SESSION }, client)
     ).toMatchObject([{ ok: true, result: report }])

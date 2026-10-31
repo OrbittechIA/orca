@@ -147,7 +147,7 @@ async function framesFor(
   })
   const hostCalls = structuredHostStub(SESSION, WORKSPACE)
   hostCalls.subscribeTurnCompletions = vi.fn((subscriber: unknown) => feed.subscribe(subscriber))
-  await rpc.installStructuredHost(installableHost(hostCalls))
+  await rpc.installStructuredHost(installableHost(hostCalls, [SESSION]))
   const replies: RpcReply[] = []
   await rpc.createDispatcher(runtimeStub()).dispatchStreaming(
     {

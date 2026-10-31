@@ -7,6 +7,8 @@ export const CROSS_VERSION_WIRE_DIR = 'tests/e2e/cross-version-wire/'
 export const UNIT_INCLUDE = [
   'src/**/*.test.ts',
   'src/**/*.test.tsx',
+  // Bun runs still route these to the node-runtime project listed in vitest-node-runtime-files.mjs.
+  'src/**/*.test.mjs',
   'config/scripts/**/*.test.ts',
   'config/scripts/**/*.test.mjs',
   'tests/tools/**/*.test.mjs',

@@ -6,6 +6,7 @@ import { codexProviderHandle } from '../../../src/shared/agent-session-provider-
 import type { StructuredAgentSessionHost } from '../../../src/main/native-chat/agent-session-wire/structured-agent-session-host'
 import { setStructuredAgentSessionHost } from '../../../src/main/native-chat/agent-session-wire/structured-agent-session-registry'
 import { CODEX_STRUCTURED_AGENT } from '../../../src/main/codex/codex-structured-agent-definition'
+import { ordinaryStructuredSessionStoreFixture } from '../../../src/main/runtime/rpc/methods/structured-agent-session-rpc-client.test-fixture'
 import {
   AGENT_SESSION_TURN_ITEM_CAPABILITY,
   STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY
@@ -120,14 +121,15 @@ export function structuredHostStub(
 
 // Install the nested host shape, but assert against the flat spy map.
 export function installableHost(
-  hostCalls: Record<string, ReturnType<typeof vi.fn>>
+  hostCalls: Record<string, ReturnType<typeof vi.fn>>,
+  // Session admission reads the host's own record; only these sessions have a readable ordinary one.
+  recordedSessionIds: readonly string[]
 ): StructuredAgentSessionHost {
   const host = {
     ...hostCalls,
-    // The catalog read checks the session's record for a floating chat's own folder; none here.
     deps: {
       modelCatalog: { read: hostCalls.modelCatalog, demand: vi.fn(async () => {}) },
-      store: { getRecord: () => null, getConversation: () => null, getOperationRow: () => null }
+      store: ordinaryStructuredSessionStoreFixture(recordedSessionIds)
     },
     restartResume: {
       list: hostCalls.restartResumableList,
@@ -151,7 +153,7 @@ export const turnItemSkew = {
     const host = structuredHostStub(sessionId, workspaceId)
     const items = [{ ...TURN_ROW, body: { kind: 'turn', ...TURN } }]
     host.history.mockReturnValue({ ok: true, page: { items } })
-    setStructuredAgentSessionHost(installableHost(host))
+    setStructuredAgentSessionHost(installableHost(host, [sessionId]))
   },
   clients(
     baseline: { capabilities: readonly string[] },

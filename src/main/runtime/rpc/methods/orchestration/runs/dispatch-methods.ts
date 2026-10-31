@@ -102,13 +102,17 @@ export const ORCHESTRATION_DISPATCH_METHODS = [
 
       const dispatchAuthority = chatAssignee ? null : runtime.getOrchestrationDispatchAuthority(to)
       const admittedWorktreeId = chatLocation?.workspaceId ?? dispatchAuthority?.worktreeId
-      const admittedHostId = chatLocation
-        ? chatLocation.wslDistro
-          ? 'wsl'
-          : chatLocation.executionHostId
-        : dispatchAuthority?.hostScope.kind
+      // A missing host scope reads as local, so custody still checks a fenced worktree.
       const releaseCustody = admittedWorktreeId
-        ? admitOrchestrationWorktreeCustody(admittedWorktreeId, undefined, admittedHostId)
+        ? admitOrchestrationWorktreeCustody(
+            admittedWorktreeId,
+            undefined,
+            chatLocation
+              ? chatLocation.wslDistro
+                ? 'wsl'
+                : chatLocation.executionHostId
+              : dispatchAuthority?.hostScope?.kind
+          )
         : () => {}
       try {
         const assigneePaneKey = chatAssignee

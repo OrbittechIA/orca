@@ -1,6 +1,6 @@
 // Options that always consume the next argument. Anything else is treated as a flag, so an
 // unlisted option's value becomes an extra filter: a wider scan, never a missed file.
-const VALUE_OPTIONS = new Set([
+export const VALUE_OPTIONS = new Set([
   '-c',
   '--config',
   '--maxWorkers',

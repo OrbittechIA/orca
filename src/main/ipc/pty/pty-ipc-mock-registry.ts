@@ -10,6 +10,16 @@ export const removeHandlerMock: Mock = vi.fn()
 export const removeAllListenersMock: Mock = vi.fn()
 export const existsSyncMock: Mock = vi.fn()
 export const statSyncMock: Mock = vi.fn()
+// Model an empty host so the native custody journal reads absent instead of unreadable.
+export function absentLstatSync(path: string, options?: { throwIfNoEntry?: boolean }): undefined {
+  if (options?.throwIfNoEntry === false) {
+    return undefined
+  }
+  throw Object.assign(new Error(`ENOENT: no such file or directory, lstat '${path}'`), {
+    code: 'ENOENT'
+  })
+}
+export const lstatSyncMock: Mock = vi.fn(absentLstatSync)
 export const accessSyncMock: Mock = vi.fn()
 export const mkdirSyncMock: Mock = vi.fn()
 export const readFileSyncMock: Mock = vi.fn()
@@ -81,6 +91,7 @@ export const electronModuleMock = (): ElectronModuleMock => ({
 export const fsModuleMock = () => ({
   existsSync: existsSyncMock,
   statSync: statSyncMock,
+  lstatSync: lstatSyncMock,
   accessSync: accessSyncMock,
   mkdirSync: mkdirSyncMock,
   readFileSync: readFileSyncMock,

@@ -16,6 +16,7 @@ import {
   codexScopeLaunchViolation,
   codexScopeReplyViolation
 } from './codex-structured-filesystem-scope'
+import type { CodexSandboxPolicy } from './codex-structured-sandbox-policy'
 import { disposeCodexServerRequest } from './codex-server-request-disposition'
 import {
   CODEX_COMMAND_APPROVAL_METHOD,
@@ -46,7 +47,7 @@ const disabledServer = {
   resources: [],
   resourceTemplates: []
 }
-const writerSandbox = {
+const writerSandbox: Extract<CodexSandboxPolicy, { type: 'workspaceWrite' }> = {
   type: 'workspaceWrite',
   writableRoots: ['/wt/src', '/wt/docs'],
   networkAccess: false,
@@ -54,7 +55,10 @@ const writerSandbox = {
   excludeSlashTmp: true
 }
 
-function scopedCodex(sandbox: unknown, surface: Partial<Record<string, () => unknown>> = {}) {
+type CodexReadbackSurface = Partial<Record<string, () => unknown>>
+type RefusedSurfaceCase = [name: string, surface: CodexReadbackSurface, message: RegExp]
+
+function scopedCodex(sandbox: unknown, surface: CodexReadbackSurface = {}) {
   const codex = fakeCodex({
     'thread/start': () => ({
       thread: { id: 'thread-abc' },
@@ -154,24 +158,23 @@ describe('Codex filesystem scope on the structured provider', () => {
     expect(callsFor(codex, 'app/installed')[0]?.params).toMatchObject({ threadId: 'thread-abc' })
   })
 
-  it.each([
+  it.each<RefusedSurfaceCase>([
     [
       'an MCP server',
       { 'mcpServerStatus/list': () => ({ data: [{ name: 'shell' }], nextCursor: null }) },
       /MCP servers.*shell/
     ],
     ...(['ready', 'failed', undefined] as const).map(
-      (runtimeStatus) =>
-        [
-          `an MCP server whose status is ${runtimeStatus}`,
-          {
-            'mcpServerStatus/list': () => ({
-              data: [{ ...disabledServer, runtimeStatus }],
-              nextCursor: null
-            })
-          },
-          /MCP servers.*seeded/
-        ] as const
+      (runtimeStatus): RefusedSurfaceCase => [
+        `an MCP server whose status is ${runtimeStatus}`,
+        {
+          'mcpServerStatus/list': () => ({
+            data: [{ ...disabledServer, runtimeStatus }],
+            nextCursor: null
+          })
+        },
+        /MCP servers.*seeded/
+      ]
     ),
     [
       'a disabled MCP server that still lists tools',

@@ -1,9 +1,11 @@
 import { expect, it } from 'vitest'
 import { isPersistedAgentSessionRecord } from './agent-session-record'
 import { agentSessionRecordFixture } from './agent-session-record.test-fixture'
+import { encodeAgentSessionRecord } from './agent-session-record-stored-form'
 
 it('validates persisted launch ownership and retains unowned legacy origins for explicit recovery', () => {
-  const record = agentSessionRecordFixture()
+  // The validator reads the stored form, whose provider handles differ from the in-memory record's.
+  const record = encodeAgentSessionRecord(agentSessionRecordFixture())
   for (const launchAuthority of [
     { kind: 'local-desktop' },
     { kind: 'paired-device', deviceId: 'paired-1' }

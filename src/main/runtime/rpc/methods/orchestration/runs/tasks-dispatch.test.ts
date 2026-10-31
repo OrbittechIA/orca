@@ -1,4 +1,8 @@
+import { chmodSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { installFakeAppEnvironment } from '../../../../../../../config/scripts/vitest-host-ports-setup'
 import type { RpcContext } from '../../../core'
 import { createOrchestrationRpcHarness } from '../rpc-test-harness'
 import type { OrchestrationDb } from '../../../../orchestration/db'
@@ -6,6 +10,7 @@ import type { OrcaRuntimeService } from '../../../../orca-runtime'
 import { buildInjectRejectionMessage } from '../../../../../../shared/orchestration-dispatch-refusal-contract'
 import { createRootDispatch } from '../../../../orchestration/db/root-dispatch-test-fixture'
 import { dispatchPreambleSendOptions } from '../../../../orchestration/preamble'
+import { localDispatchAuthority } from '../../../../orchestration/terminal-authority/dispatch-authority-test-fixture'
 
 describe('orchestration RPC methods', () => {
   const h = createOrchestrationRpcHarness()
@@ -71,11 +76,13 @@ describe('orchestration RPC methods', () => {
       vi.spyOn(runtime, 'getTerminalPaneKey').mockImplementation((handle) =>
         handle === 'term_creator' ? coordinatorPaneKey : null
       )
-      vi.spyOn(runtime, 'getOrchestrationDispatchAuthority').mockReturnValue({
-        terminalHandle: 'term_creator',
-        paneKey: coordinatorPaneKey,
-        processIncarnation: 'pty-creator:incarnation-a'
-      } as never)
+      vi.spyOn(runtime, 'getOrchestrationDispatchAuthority').mockReturnValue(
+        localDispatchAuthority({
+          terminalHandle: 'term_creator',
+          paneKey: coordinatorPaneKey,
+          processIncarnation: 'pty-creator:incarnation-a'
+        })
+      )
       const result = (await call('orchestration.taskCreate', {
         spec: 'spawn related workspace',
         callerTerminalHandle: 'term_creator'
@@ -214,12 +221,11 @@ describe('orchestration RPC methods', () => {
       )
       vi.spyOn(runtime, 'getOrchestrationDispatchAuthority').mockImplementation((candidate) =>
         candidate === handle
-          ? ({
+          ? localDispatchAuthority({
               terminalHandle: handle,
               paneKey: `tab_worker:${handle}`,
-              processIncarnation: `runtime_test:${handle}:1`,
-              launchTokenHash: null
-            } as never)
+              processIncarnation: `runtime_test:${handle}:1`
+            })
           : null
       )
     }
@@ -278,6 +284,40 @@ describe('orchestration RPC methods', () => {
         launch_token_hash: 'launch-token-hash'
       })
     })
+
+    // Native custody is absent on Windows, so there is no journal to fail closed on.
+    it.skipIf(process.platform === 'win32')(
+      'refuses dispatch into a local worktree whose custody journal is unreadable',
+      async () => {
+        setup()
+        const userData = mkdtempSync(join(tmpdir(), 'orca-dispatch-custody-'))
+        try {
+          // A group-readable journal directory is unsafe, so custody cannot prove the worktree unfenced.
+          mkdirSync(join(userData, 'worktree-custody-effects-v1'), { mode: 0o755 })
+          chmodSync(join(userData, 'worktree-custody-effects-v1'), 0o755)
+          installFakeAppEnvironment({ getPath: () => userData })
+          vi.spyOn(runtime, 'getOrchestrationDispatchAuthority').mockReturnValue(
+            localDispatchAuthority({
+              terminalHandle: 'term_a',
+              paneKey: 'tab_w:leaf_w',
+              processIncarnation: 'runtime_test:term_a:1',
+              worktreeId: 'repo::/repo/fenced'
+            })
+          )
+          const task = db.createTask({ spec: 'work' })
+
+          await expect(
+            call('orchestration.dispatch', { task: task.id, to: 'term_a' })
+          ).rejects.toMatchObject({
+            code: 'worktree_custody_refused',
+            data: { effectsApplied: false, worktreeId: 'repo::/repo/fenced' }
+          })
+          expect(db.getDispatchContext(task.id)).toBeUndefined()
+        } finally {
+          rmSync(userData, { recursive: true, force: true })
+        }
+      }
+    )
 
     it('does not infer manual process authority from an unauthenticated handle', async () => {
       setup()

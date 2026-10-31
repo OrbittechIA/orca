@@ -12,6 +12,8 @@ import {
   removeAllListenersMock,
   existsSyncMock,
   statSyncMock,
+  lstatSyncMock,
+  absentLstatSync,
   accessSyncMock,
   mkdirSyncMock,
   readFileSyncMock,
@@ -130,6 +132,8 @@ export function createPtyIpcSuiteEnvironment(): PtyIpcSuiteEnvironment {
     removeAllListenersMock.mockReset()
     existsSyncMock.mockReset()
     statSyncMock.mockReset()
+    lstatSyncMock.mockReset()
+    lstatSyncMock.mockImplementation(absentLstatSync)
     accessSyncMock.mockReset()
     mkdirSyncMock.mockReset()
     readFileSyncMock.mockReset()

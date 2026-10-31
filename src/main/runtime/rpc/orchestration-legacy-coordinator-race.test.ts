@@ -13,6 +13,7 @@ import type { RpcRequest, RpcResponse } from './core'
 import { RpcDispatcher } from './dispatcher'
 import { ORCHESTRATION_METHODS } from './methods/orchestration'
 import { createRootDispatch } from '../orchestration/db/root-dispatch-test-fixture'
+import { localDispatchAuthority } from '../orchestration/terminal-authority/dispatch-authority-test-fixture'
 
 const COORDINATOR_HANDLE = 'term_legacy_coord'
 const COORDINATOR_PANE = 'tab_coord:44444444-4444-4444-8444-444444444444'
@@ -657,12 +658,11 @@ describe('legacy coordinator takeover races', () => {
     vi.spyOn(harness.runtime, 'getTerminalProcessIncarnation').mockReturnValue('current-process')
     vi.spyOn(harness.runtime, 'getOrchestrationDispatchAuthority').mockImplementation((handle) =>
       handle === targetHandle
-        ? ({
+        ? localDispatchAuthority({
             terminalHandle: targetHandle,
             paneKey: targetPane,
-            processIncarnation: 'current-process',
-            launchTokenHash: null
-          } as never)
+            processIncarnation: 'current-process'
+          })
         : null
     )
     let resolveDetection: ((detected: boolean) => void) | undefined

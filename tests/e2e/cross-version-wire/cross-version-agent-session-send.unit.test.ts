@@ -59,7 +59,7 @@ describe('a current client sending a message', () => {
     for (const build of [current, baseline]) {
       resetOperationIds()
       const hostCalls = structuredHostStub(SESSION, WORKSPACE)
-      await build.installStructuredHost(installableHost(hostCalls))
+      await build.installStructuredHost(installableHost(hostCalls, [SESSION]))
       try {
         const replies = await send(build, sendParams('hi', 1, delivery))
         expect(replies, `${build.label}: ${JSON.stringify(replies)}`).toMatchObject([{ ok: true }])
@@ -83,6 +83,22 @@ describe('a current client sending a message', () => {
   })
 })
 
+describe('a current client sending to a chat the host cannot prove', () => {
+  it('is refused before the host when the host holds no readable record of it', async () => {
+    resetOperationIds()
+    const hostCalls = structuredHostStub(SESSION, WORKSPACE)
+    await current.installStructuredHost(installableHost(hostCalls, []))
+    try {
+      expect(await send(current, sendParams('hi', 1))).toMatchObject([
+        { ok: false, error: { message: 'structured_agent_session_unsupported' } }
+      ])
+      expect(hostCalls.send).not.toHaveBeenCalled()
+    } finally {
+      await current.installStructuredHost(null)
+    }
+  })
+})
+
 describe('a current client sending a message with its choices', () => {
   it(
     'is accepted, and the choices reach the host, on a host that advertises them',
@@ -95,7 +111,7 @@ describe('a current client sending a message with its choices', () => {
         )
         resetOperationIds()
         const hostCalls = structuredHostStub(SESSION, WORKSPACE)
-        await build.installStructuredHost(installableHost(hostCalls))
+        await build.installStructuredHost(installableHost(hostCalls, [SESSION]))
         try {
           const replies = await send(build, sendParams('hi', 1, undefined, options))
           expect(replies, `${build.label}: ${JSON.stringify(replies)}`).toMatchObject([

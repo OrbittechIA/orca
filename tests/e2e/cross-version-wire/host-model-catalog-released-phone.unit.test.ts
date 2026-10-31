@@ -17,6 +17,8 @@ import {
 import { createClaudeModelCatalogProbe } from '../../../src/main/claude/claude-model-catalog-probe'
 
 import { REPO_ROOT } from './release-checkout'
+import { agentSessionRecordFixture } from '../../../src/main/native-chat/agent-session-record-test-fixture'
+import { agentSessionConversationView } from '../../../src/shared/agent-session-conversation-view'
 
 // Local acceptance rig: execute the pinned source, with only React's effect scheduler and transport replaced.
 function released(path: string, names: string[], dependencies: Record<string, unknown> = {}) {
@@ -121,11 +123,17 @@ it.each(['success', 'budget'] as const)(
       resolveAccountHome: async () => home,
       probes: { claude: scoped }
     })
+    // The phone reopens an existing chat, so the host holds that chat's readable ordinary record.
+    const chat = agentSessionRecordFixture({ sessionId: 'released', provider: 'claude' })
     setStructuredAgentSessionHost(
       Object.assign(hostStub(), {
         deps: {
           modelCatalog: service,
-          store: { getRecord: () => undefined, getConversation: () => undefined },
+          store: {
+            getRecord: (id: string) => (id === chat.sessionId ? chat : undefined),
+            getConversation: (id: string) =>
+              id === chat.sessionId ? agentSessionConversationView(chat) : undefined
+          },
           adapter: {}
         }
       })

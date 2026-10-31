@@ -17,7 +17,7 @@ import {
 } from './structured-attention-read-retirement.test-fixture'
 import { Fragment, createElement, StrictMode } from 'react'
 import { act, render, waitFor } from '@testing-library/react'
-import { expect, it, describe } from 'vitest'
+import { expect, it, describe, vi } from 'vitest'
 import type { AgentJournalRenderItem } from '../../src/shared/agent-session-journal-types'
 import {
   agentSessionAttentionSubjectPrefix,
@@ -41,6 +41,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { StructuredNotificationRead } from '../../src/shared/notification-settings-types'
 import { RuntimeMobileNotificationController } from '../../src/main/runtime/runtime-mobile-notification-controller'
+import { getStructuredAgentSessionHost } from '../../src/main/native-chat/agent-session-wire/structured-agent-session-registry'
+import { agentSessionRecordFixture } from '../../src/main/native-chat/agent-session-record-test-fixture'
 
 describe('Explicit desktop read acknowledgements', () => {
   const TARGET = { kind: 'local' } as const
@@ -150,6 +152,20 @@ describe('Explicit desktop read acknowledgements', () => {
   it('Mark all read covers every chat it marks, viewed earlier or never opened', async () => {
     const OTHER = 'session-beta'
     const otherSubject = structuredAgentSessionPaneKey('chat-2', OTHER)
+    // A read retires a chat's prompts only once the host's store proves that chat's ordinary record.
+    const store = getStructuredAgentSessionHost()?.deps.store
+    if (!store) {
+      throw new Error('structured host stub missing')
+    }
+    const otherRecord = agentSessionRecordFixture({
+      sessionId: OTHER,
+      provider: 'claude',
+      location: SCOPE
+    })
+    const readRecord = store.getRecord
+    vi.spyOn(store, 'getRecord').mockImplementation((id) =>
+      id === OTHER ? otherRecord : readRecord(id)
+    )
     useAppStore.setState({
       unifiedTabsByWorktree: {
         [WORKSPACE]: [
