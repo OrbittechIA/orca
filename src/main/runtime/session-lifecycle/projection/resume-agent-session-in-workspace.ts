@@ -1,4 +1,5 @@
 import { OrcaRuntimeWithAgentSessionResumeOwnership } from './agent-session-resume-ownership'
+import { assertWorktreeCustodyAdmission } from '../../worktree-custody-runtime'
 import { makePaneKey } from '../../../../shared/stable-pane-id'
 import {
   agentProviderSessionsEqual,
@@ -107,6 +108,7 @@ export abstract class OrcaRuntimeWithResumeAgentSessionInWorkspace extends OrcaR
     if (request.signal?.aborted) {
       return refuse('aborted')
     }
+    assertWorktreeCustodyAdmission(worktreeId, undefined, request.captureHostId)
     let workspace
     try {
       // A resume the user asked for, as its create below.

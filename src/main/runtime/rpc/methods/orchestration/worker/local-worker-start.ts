@@ -1,4 +1,5 @@
 import { probeWorkerOpenCodeModelLaunchSupport } from './worker-opencode-model-preflight'
+import { assertWorktreeCustodyAdmission } from '../../../../worktree-custody-runtime'
 import { resolveWorkerConfiguredAgentParams } from './worker-configured-agent-preflight'
 import { waitForWorkerAgentReady } from '../../../../launched-agent-composer-readiness'
 import type { OrcaRuntimeService } from '../../../../orca-runtime'
@@ -150,6 +151,7 @@ export async function startLocalWorker(args: {
         : 'orchestration_default'
       : 'existing_worktree'
   }
+  if (resolvedWorktree) assertWorktreeCustodyAdmission(resolvedWorktree.id, resolvedWorktree.path, resolvedWorktree.hostId)
   const started = db.createStartingWorkerDispatch({
     creator: resolveDispatchCreator(runtime, params.from, callerSession),
     maxDepth: runtime.getNestedWorkerMaxDepth(),

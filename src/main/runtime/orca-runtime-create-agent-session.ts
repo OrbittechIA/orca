@@ -1,4 +1,5 @@
 import type { BrowserWindow } from 'electron'
+import { assertWorktreeCustodyAdmission } from './worktree-custody-runtime'
 import type { TerminalWorkspaceLaunchScope } from './runtime-legacy-worker-terminal-recovery-types'
 import { OrcaRuntimeWithGetAgentSessionExecutionNamespace } from './session-construction/agent-session/get-agent-session-execution-namespace'
 import type {
@@ -117,6 +118,7 @@ export abstract class OrcaRuntimeWithCreateAgentSession extends OrcaRuntimeWithG
           wslUserAct: true
         }
       )
+      assertWorktreeCustodyAdmission(workspace.id, workspace.path, workspace.connectionId ? 'ssh' : 'local')
       if (
         !(await this.executionOwnerSupportsAgentSessionOperation(
           workspace,

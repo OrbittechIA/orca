@@ -1,4 +1,5 @@
 import type { LocalProjectWorktreeGitOptions } from '../../project-runtime-git-options'
+import { assertWorktreeCustodyAdmission } from '../worktree-custody-runtime'
 import { isStaleLocalWorktreeRegistration } from './stale-worktree-registration-preflight'
 import type { RuntimeStore } from '../runtime-store-contract'
 import type { GitWorktreeInfo } from '../../../shared/worktree/types'
@@ -87,6 +88,7 @@ export abstract class OrcaRuntimeWithRemoveManagedWorktree extends OrcaRuntimeWi
     const fenceOwner = resolveWorktreeRemovalRepoOwner(store, removalTarget.repoId, cleanupHostId)
     const fenceHostId =
       fenceOwner.kind === 'resolved' ? getRepoExecutionHostId(fenceOwner.repo) : cleanupHostId
+    assertWorktreeCustodyAdmission(removalTarget.id, removalTarget.path, fenceHostId)
     if (isWslMoveSourceHost(fenceHostId)) {
       assertWslMoveWorkspaceWritable(store, removalTarget.id)
     }

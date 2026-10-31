@@ -1,4 +1,5 @@
 import type { RuntimeWorkspaceCatalog } from './workspace-catalog'
+import { assertWorktreeCustodyAdmission } from '../worktree-custody-runtime'
 import type { OrcaRuntimeWithListManagedWorktrees } from './managed-workspace-operations'
 import type { OrcaRuntimeWithTransitionGraphReloadToTerminalState } from '../session-graph/session-graph-authority'
 import type { OrcaRuntimeWithBindPtyIncarnationHandle } from '../terminal/identity/terminal-handle-bindings'
@@ -118,6 +119,7 @@ export abstract class OrcaRuntimeWithResolveKnownWorkspaceFileTarget extends Orc
       return null
     }
     const target = targets.get(`${owner.executionHostId}\0${owner.workspaceId}`)
+    if (target) assertWorktreeCustodyAdmission(target.worktree.id, target.worktree.path, target.executionHostId)
     return target ? { ...target, relativePath: owner.relativePath } : null
   }
 

@@ -1,4 +1,5 @@
 import { getRepoRegistrationHostIds } from '../../shared/repo-host-identity'
+import { assertWorktreeCustodyAdmission } from './worktree-custody-runtime'
 import type { GitPushTarget, Worktree } from '../../shared/worktree/types'
 import type { WorktreeMeta } from '../../shared/worktree/meta-types'
 import { worktreeWorkspaceKey } from '../../shared/workspace-scope'
@@ -42,6 +43,7 @@ export async function updateRuntimeManagedWorktreeMetadata(args: {
   ports: Ports
 }): Promise<Worktree> {
   const worktree = await args.ports.resolveWorktree(args.selector)
+  assertWorktreeCustodyAdmission(worktree.id, worktree.path, worktree.hostId)
   const { lineage, ...metaUpdates } = args.updates
   const previousParentRepoId = lineage
     ? splitWorktreeId(args.store.getWorktreeLineage?.(worktree.id)?.parentWorktreeId ?? '')?.repoId
@@ -87,6 +89,7 @@ export async function updateRuntimeManagedWorktreeMetadata(args: {
     args.store.removeWorktreeLineage?.(target)
   } else if (lineage?.parentWorktree) {
     const parent = await args.ports.resolveWorktree(lineage.parentWorktree)
+    assertWorktreeCustodyAdmission(parent.id, parent.path, parent.hostId)
     args.ports.validateParent(worktree, parent)
     nextParentRepoId = parent.repoId
     if (!worktree.instanceId || !parent.instanceId) {

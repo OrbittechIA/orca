@@ -210,3 +210,9 @@ export type {
   RuntimeMarkdownReadTabResult,
   RuntimeMarkdownSaveTabResult
 } from './mobile-markdown-document'
+export type {
+  WorktreeCustodyResource,
+  WorktreeCustodyObservation,
+  WorktreeCustodyFence,
+  WorktreeCustodyOutcome
+} from './worktree/custody'

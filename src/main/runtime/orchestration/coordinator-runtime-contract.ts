@@ -1,4 +1,5 @@
 import type { DispatchPreambleSendOptions } from './preamble'
+import type { WorkerTerminalHostScope } from '../../../shared/worker-terminal-host-scope'
 
 export type WorktreeDrift = {
   base: string
@@ -37,6 +38,8 @@ export type CoordinatorRuntime = {
   getOrchestrationHeartbeatMinutes?(): number | null
   // Automatic dispatch must persist the same authenticated pane/process authority as manual dispatch.
   getOrchestrationDispatchAuthority?(handle: string): {
+    worktreeId?: string
+    hostScope?: WorkerTerminalHostScope
     paneKey: string | null
     processIncarnation: string | null
     launchTokenHash: string | null

@@ -1,4 +1,5 @@
 import { BROWSER_GOOGLE_COOKIE_CLEAR_CAPABILITY } from '../../shared/browser-runtime-capabilities'
+import { nativeWorktreeCustodyCapabilities } from './worktree-custody-runtime'
 import { OrcaRuntimeWithPtyController } from './orca-runtime-pty-controller'
 import type { RuntimeDegradation, RuntimeStatus } from '../../shared/runtime-types'
 import {
@@ -127,6 +128,7 @@ export abstract class OrcaRuntimeWithGetStatus extends OrcaRuntimeWithPtyControl
       capabilities.push(DESKTOP_BROWSER_BRIDGE_RUNTIME_CAPABILITY)
     }
     capabilities.push(...darkSwitchRuntimeCapabilities())
+    capabilities.push(...nativeWorktreeCustodyCapabilities(this.runtimeId))
     // Dev/serve installs may lack out/mobile-web; never advertise downloads this install cannot produce.
     if (loadBundledMobileWebBundle()) {
       capabilities.push(MOBILE_WEB_BUNDLE_CAPABILITY)

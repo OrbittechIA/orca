@@ -3,6 +3,7 @@ import {
   resolveTerminalLaunchResult,
   terminalLaunchPublicFacts
 } from './terminal-launch-result'
+import { assertWorktreeCustodyAdmission } from '../../worktree-custody-runtime'
 import { revealCreatedTerminal } from './terminal-create-reveal'
 import type { PaneSpawnOperation } from '../../../ipc/pty/pane/pane-spawn-operation'
 import { OrcaRuntimeWithTerminalCreateDeduplication } from './terminal-create-deduplication'
@@ -41,6 +42,7 @@ export abstract class OrcaRuntimeWithCreateTerminal extends OrcaRuntimeWithTermi
         throw new Error('runtime_unavailable')
       }
       const workspace = await this.resolveTerminalCreateLaunchScope(worktreeSelector, created, opts)
+      assertWorktreeCustodyAdmission(workspace.id, workspace.path, workspace.connectionId ? 'ssh' : 'local')
       const launchOpts = await this.resolveAgentTerminalCreateOptions(workspace, opts)
       const launchTitleAt = { sequence: this.nextTitleObservationSequence(), epochMs: Date.now() }
       let cwd = this.resolveWorkspaceTerminalStartupCwd(workspace, launchOpts.cwd) ?? workspace.path

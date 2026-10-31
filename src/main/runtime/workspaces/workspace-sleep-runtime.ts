@@ -1,4 +1,5 @@
 import type { RuntimeWorktreeTerminalSleepResult } from '../../../shared/runtime-types'
+import { assertWorktreeCustodyAdmission } from '../worktree-custody-runtime'
 import type { SleepingAgentSessionRecord } from '../../../shared/agent-session-resume'
 import { toRuntimeExecutionHostId } from '../../../shared/execution-host'
 import type {
@@ -120,6 +121,7 @@ export class WorkspaceSleepCoordinator {
   }
 
   noteReopened(worktreeId: string): void {
+    assertWorktreeCustodyAdmission(worktreeId)
     this.reopenings.set(worktreeId, (this.reopenings.get(worktreeId) ?? 0) + 1)
   }
 

@@ -1,4 +1,5 @@
 import { refuse } from '../../../shared/agent-session-wire-refusals'
+import { admitWorktreeCustody } from '../../runtime/worktree-custody-runtime'
 import {
   settlePostAcquisitionAttachFailure,
   settleUnsupportedReservation
@@ -108,6 +109,19 @@ export type AttachFlowInput = {
 }
 
 export async function performAttach(
+  input: AttachFlowInput
+): Promise<AgentSessionMutationResult<AgentSessionAttachResult>> {
+  const location = input.params.location
+  const release = admitWorktreeCustody(location.workspaceId, undefined,
+    location.wslDistro ? 'wsl' : location.executionHostId)
+  try {
+    return await performCustodyAdmittedAttach(input)
+  } finally {
+    release()
+  }
+}
+
+async function performCustodyAdmittedAttach(
   input: AttachFlowInput
 ): Promise<AgentSessionMutationResult<AgentSessionAttachResult>> {
   const { params, store } = input

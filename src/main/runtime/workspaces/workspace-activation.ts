@@ -49,6 +49,7 @@ import {
   type LaunchedAgentHost
 } from '../launched-agent-foreground'
 import { worktreeRowTarget } from '../../persistence/host-qualified-worktree-meta'
+import { assertWorktreeCustodyAdmission } from '../worktree-custody-runtime'
 
 export abstract class OrcaRuntimeWithActivateManagedWorktree extends OrcaRuntimeWithListManagedWorktrees {
   protected abstract toAgentSessionOptions(
@@ -75,6 +76,7 @@ export abstract class OrcaRuntimeWithActivateManagedWorktree extends OrcaRuntime
   }> {
     this.assertGraphReady()
     const worktree = await this.resolveGitWorktreeSelector(worktreeSelector)
+    assertWorktreeCustodyAdmission(worktree.id, worktree.path, worktree.hostId)
     const repo = this.store?.getRepo(worktree.repoId)
     if (!repo) {
       throw new Error('repo_not_found')

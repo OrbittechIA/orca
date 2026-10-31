@@ -1,4 +1,5 @@
 import type { PaneSpawnOperation } from './pane/pane-spawn-operation'
+import { admitWorktreeCustody } from '../../runtime/worktree-custody-runtime'
 import type { AdoptStablePaneArgs } from './ipc/spawn-types'
 import { adoptedOutcome, type PtySpawnOutcome } from './spawn-outcome'
 import type { PtySpawnOperationState, PtySpawnExecutionFacts } from './spawn-operation-state'
@@ -72,6 +73,19 @@ function retirePreparation<State extends PtySpawnOperationState>(
 
 /** One host operation owns preparation, dispatch, settlement and cleanup for every start entry. */
 export async function runPtySpawn<State extends PtySpawnOperationState>(
+  adapter: SpawnAdapter<State>
+): Promise<PtySpawnOutcome> {
+  const worktreeId = adapter.state.args.worktreeId
+  const release = worktreeId ? admitWorktreeCustody(worktreeId, undefined,
+    adapter.state.args.connectionId ? 'ssh' : 'local') : () => {}
+  try {
+    return await runCustodyAdmittedPtySpawn(adapter)
+  } finally {
+    release()
+  }
+}
+
+async function runCustodyAdmittedPtySpawn<State extends PtySpawnOperationState>(
   adapter: SpawnAdapter<State>
 ): Promise<PtySpawnOutcome> {
   const ctx = adapter.state

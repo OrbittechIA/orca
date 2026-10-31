@@ -1,4 +1,5 @@
 import { defineMethod } from '../../../core'
+import { assertWorktreeCustodyAdmission } from '../../../../worktree-custody-runtime'
 import { OrchestrationError } from '../../../../orchestration/orchestration-error'
 import { buildDispatchPreamble } from '../../../../orchestration/preamble'
 import { sendAgentTurn } from '../../../../orchestration/send-agent-turn'
@@ -61,9 +62,9 @@ export const ORCHESTRATION_DISPATCH_METHODS = [
       const assignee = assigneeParty?.address
       // A chat has no pane, process or agent to probe: it is reached as mail to it is.
       const chatAssignee = assigneeParty ? chatAssigneeOf(assigneeParty) : null
-      if (chatAssignee) {
-        await admitChatAssignee(runtime, chatAssignee, db)
-      }
+      const chatLocation = chatAssignee
+        ? (await admitChatAssignee(runtime, chatAssignee, db)).location
+        : undefined
 
       // Dry-run previews without state changes; skip readiness and use a placeholder Dispatch id.
       if (params.dryRun) {
@@ -100,6 +101,8 @@ export const ORCHESTRATION_DISPATCH_METHODS = [
       }
 
       const dispatchAuthority = chatAssignee ? null : runtime.getOrchestrationDispatchAuthority(to)
+      if (dispatchAuthority?.worktreeId) assertWorktreeCustodyAdmission(
+        dispatchAuthority.worktreeId, undefined, dispatchAuthority.hostScope.kind)
       const assigneePaneKey = chatAssignee
         ? undefined
         : (dispatchAuthority?.paneKey ?? runtime.getTerminalPaneKey(to) ?? undefined)
@@ -149,6 +152,11 @@ export const ORCHESTRATION_DISPATCH_METHODS = [
       }
 
       revalidateLegacyCoordinator?.()
+      const admittedWorktreeId = chatLocation?.workspaceId ?? dispatchAuthority?.worktreeId
+      const admittedHostId = chatLocation
+        ? chatLocation.wslDistro ? 'wsl' : chatLocation.executionHostId
+        : dispatchAuthority?.hostScope.kind
+      if (admittedWorktreeId) assertWorktreeCustodyAdmission(admittedWorktreeId, undefined, admittedHostId)
       const ctx = db.createDispatchContext({
         taskId: params.task,
         assigneeHandle: to,

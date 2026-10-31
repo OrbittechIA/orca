@@ -1,4 +1,5 @@
 import type { OrchestrationDb } from './db'
+import { assertWorktreeCustodyAdmission } from '../worktree-custody-runtime'
 import type { TaskRow } from './types'
 import { buildDispatchPreamble } from './preamble'
 import { sendAgentTurn } from './send-agent-turn'
@@ -99,6 +100,8 @@ export async function dispatchTaskToWorker(params: {
   }
 
   const dispatchAuthority = runtime.getOrchestrationDispatchAuthority?.(targetHandle)
+  if (dispatchAuthority?.worktreeId) assertWorktreeCustodyAdmission(
+    dispatchAuthority.worktreeId, undefined, dispatchAuthority.hostScope?.kind)
   const assigneePaneKey =
     dispatchAuthority?.paneKey ?? runtime.getTerminalPaneKey?.(targetHandle) ?? undefined
   const processIncarnation =

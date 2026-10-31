@@ -3,6 +3,7 @@
  * Structured create refusals fail start through the worker error contract instead of silently downgrading. */
 
 import type { AgentLaunchPreferences } from '../../../../../../shared/agent-session-host-authority'
+import type { Worktree } from '../../../../../../shared/worktree/types'
 import type { TuiAgent } from '../../../../../../shared/tui-agent'
 import { executeAgentLaunch } from '../../../../../agent-launch/agent-launch-executor'
 import type { AgentLaunchSurfaceFactory } from '../../../../../agent-launch/agent-launch-surface-factories'
@@ -21,9 +22,11 @@ import {
   type WorkerSetupReceipt
 } from './worker-topology'
 import { createWorkerWorktree, type WorkerWorktreeCreationTarget } from './worker-worktree-creation'
+import { assertWorktreeCustodyAdmission, claimWorkerWorktreeCustody } from '../../../../worktree-custody-runtime'
 
 /** Name only the two required fields so untyped worktree accessors cannot introduce any into unions. */
-type PlacedWorktree = { id: string; repoId: string }
+type PlacedWorktree = Pick<Worktree, 'id' | 'repoId'> &
+  Partial<Pick<Worktree, 'path' | 'instanceId' | 'hostId' | 'projectId' | 'isMainWorktree'>>
 type WorkerStructuredSession = Awaited<ReturnType<typeof createStructuredWorkerSessionForWorktree>>
 
 export type WorkerAgentPlacement = {
@@ -70,6 +73,10 @@ export async function placeWorkerAgent(
   args: WorkerAgentPlacementArgs
 ): Promise<WorkerAgentPlacement> {
   const existing = args.creationTarget ? undefined : requirePlacement(args.resolvedWorktree)
+  if (existing) {
+    assertWorktreeCustodyAdmission(existing.id, existing.path, existing.hostId)
+    claimWorkerWorktreeCustody(existing, args.dispatchId, args.taskId)
+  }
   if (existing && args.params.terminal) {
     args.effects.push({
       kind: 'terminal',
@@ -140,6 +147,7 @@ async function launchWorkerAgent(
             ...(args.launchPreferences ? { launchPreferences: args.launchPreferences } : {}),
             effects: args.effects
           })
+          claimWorkerWorktreeCustody(created.worktree, args.dispatchId, args.taskId)
           return {
             worktreeId: created.worktree.id,
             startupTerminalHandle: created.terminalHandle
