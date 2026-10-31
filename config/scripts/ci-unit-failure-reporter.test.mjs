@@ -185,6 +185,76 @@ describe('unit failure evidence', () => {
     expect(reports(directory)[0].report.executionComplete).toBe(false)
   })
 
+  it('records each executed file and project without substituting aggregate test counts', () => {
+    const directory = reportDirectory()
+    const secondProject = testModule('a.test.ts', {
+      tests: [testCase('another runtime', 'passed')]
+    })
+    secondProject.project.name = 'bun'
+    run(directory, [
+      testModule('a.test.ts', {
+        tests: [testCase('works', 'passed'), testCase('not executed', 'skipped')]
+      }),
+      secondProject,
+      testModule('b.test.ts', { state: 'failed', tests: [testCase('fails', 'failed')] })
+    ])
+
+    const [{ report }] = reports(directory)
+    expect(report.moduleInventory).toEqual([
+      {
+        file: 'a.test.ts',
+        project: 'node',
+        state: 'passed',
+        tests: { passed: 1, failed: 0, skipped: 1, pending: 0, queued: 0 }
+      },
+      {
+        file: 'a.test.ts',
+        project: 'bun',
+        state: 'passed',
+        tests: { passed: 1, failed: 0, skipped: 0, pending: 0, queued: 0 }
+      },
+      {
+        file: 'b.test.ts',
+        project: 'node',
+        state: 'failed',
+        tests: { passed: 0, failed: 1, skipped: 0, pending: 0, queued: 0 }
+      }
+    ])
+    expect(report.counts.tests).toEqual({ passed: 2, failed: 1, skipped: 1, pending: 0, queued: 0 })
+  })
+
+  it('keeps queued assertions incomplete even when their module already says passed', () => {
+    const directory = reportDirectory()
+    run(
+      directory,
+      [testModule('a.test.ts', { tests: [testCase('not started', 'queued')] })],
+      [],
+      'passed'
+    )
+
+    const [{ report }] = reports(directory)
+    expect(report.executionComplete).toBe(false)
+    expect(report.moduleInventory[0].tests.queued).toBe(1)
+  })
+
+  it('counts omitted module identities when successful runs exceed the shared evidence budget', () => {
+    const directory = reportDirectory()
+    const modules = Array.from({ length: 1000 }, (_, index) =>
+      testModule(`long-${index}-${'x'.repeat(100)}.test.ts`, {
+        tests: [testCase('works', 'passed')]
+      })
+    )
+    run(directory, modules, [], 'passed', 256 * 1024)
+
+    const [{ report }] = reports(directory)
+    expect(directoryBytes(directory)).toBeLessThanOrEqual(256 * 1024)
+    expect(report.inventoryComplete).toBe(false)
+    expect(report.truncated).toBe(true)
+    expect(report.moduleInventory.length + report.omitted.moduleInventory).toBe(1000)
+    expect(report.omitted.moduleInventory).toBeGreaterThan(0)
+    expect(report.counts.tests.passed).toBe(1000)
+  })
+
   it('leaves the start record when a run never ends', () => {
     const directory = reportDirectory()
     const reporter = new UnitFailureReporter({ directory })

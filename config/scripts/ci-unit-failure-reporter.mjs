@@ -98,6 +98,7 @@ export function buildUnitFailureReport({ root, modules, unhandledErrors, reason,
   const file = (module) => relative(root, module.moduleId).replaceAll('\\', '/')
   const counts = { modules: emptyCounts(), tests: emptyCounts() }
   const unfinishedModules = []
+  const moduleInventory = []
   const failures = []
   const moduleErrors = []
   const suiteErrors = []
@@ -108,6 +109,7 @@ export function buildUnitFailureReport({ root, modules, unhandledErrors, reason,
       unfinishedModules.push(file(module))
     }
     const project = module.project?.name ?? null
+    const moduleTests = emptyCounts()
     for (const error of module.errors()) {
       moduleErrors.push({ file: file(module), project, error: describeError(error) })
     }
@@ -124,6 +126,7 @@ export function buildUnitFailureReport({ root, modules, unhandledErrors, reason,
     for (const test of module.children.allTests()) {
       const result = test.result()
       counts.tests[result.state] = (counts.tests[result.state] ?? 0) + 1
+      moduleTests[result.state] = (moduleTests[result.state] ?? 0) + 1
       if (result.state === 'failed') {
         failures.push({
           file: file(module),
@@ -134,6 +137,7 @@ export function buildUnitFailureReport({ root, modules, unhandledErrors, reason,
         })
       }
     }
+    moduleInventory.push({ file: file(module), project, state, tests: moduleTests })
   }
   const unhandled = unhandledErrors.map((error) => describeError(error))
   const clipped = (error) => error.truncated || (error.cause !== undefined && clipped(error.cause))
@@ -142,7 +146,10 @@ export function buildUnitFailureReport({ root, modules, unhandledErrors, reason,
     invocation,
     status: reason,
     executionComplete:
-      reason !== 'interrupted' && unfinishedModules.length === 0 && counts.tests.pending === 0,
+      reason !== 'interrupted' &&
+      unfinishedModules.length === 0 &&
+      counts.tests.pending === 0 &&
+      counts.tests.queued === 0,
     inventoryComplete: true,
     // Every entry is present, but a clipped message or stack is still not the whole evidence.
     truncated: [
@@ -153,6 +160,7 @@ export function buildUnitFailureReport({ root, modules, unhandledErrors, reason,
     ].some(clipped),
     counts: { ...counts, unhandledErrors: unhandledErrors.length },
     unfinishedModules,
+    moduleInventory,
     unhandledErrors: unhandled,
     moduleErrors,
     suiteErrors,
@@ -165,7 +173,8 @@ const LIST_FIELDS = [
   'moduleErrors',
   'suiteErrors',
   'failures',
-  'unfinishedModules'
+  'unfinishedModules',
+  'moduleInventory'
 ]
 
 /** Keep whole entries in a fixed order until the limit; anything left out is counted and flagged. */
