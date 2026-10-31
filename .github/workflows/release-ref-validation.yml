@@ -1,39 +1,790 @@
-name: Release ref validation
-
+name: Audit166 pinned Orca qualification
+run-name: Audit166 67aadc7 joint source qualification
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
-    paths:
-      - '.github/workflows/adhoc-mac-build.yml'
-      - '.github/workflows/dev-channel-win-build.yml'
-      - '.github/workflows/release-ref-validation.yml'
-      - 'config/scripts/workflow-ref-reachability.test.mjs'
-      - 'config/scripts/workflow-ref-mirror-case-safety.test.mjs'
   workflow_dispatch:
-
 permissions:
   contents: read
-
 concurrency:
-  group: release-ref-validation-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
+  group: audit166-pinned-67aadc7-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
-  validate:
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft != true
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-15, windows-2022]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+  qualify:
+    if: >-
+      github.repository == 'OrbittechIA/orca' &&
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/audit166/joint-67aadc7-r3' &&
+      github.run_attempt == '1'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      ORCA_BACKGROUND_LAUNCH: '1'
+      ORCA_CHECK_CONCURRENCY: '1'
+      NODE_OPTIONS: --max-old-space-size=6144
+      GOMEMLIMIT: 10GiB
+      GOMAXPROCS: '4'
     steps:
-      - uses: actions/checkout@v6
+      - name: Reserve finalization time and isolated control directories
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/audit166-control"
+          mkdir "$RUNNER_TEMP/orca245-evidence"
+          python3 - <<'AUDITCLOCK'
+          #!/usr/bin/env python3
+          """First-step Linux clock: anchor to this job's Runner.Worker ancestor birth.
+
+          Includes action-download/setup time before the first user step. No global
+          process-name search; read only the current process's verified ancestor chain.
+          """
+          import json
+          import os
+          from pathlib import Path
+          import time
+
+          out = Path(os.environ['RUNNER_TEMP']) / 'orca245-evidence' / 'clock.json'
+          record = {'schema': 'audit166-job-clock-v1', 'anchor': None, 'error': None,
+                    'jobLimitSeconds': 2100, 'hardMarginSeconds': 60,
+                    'finalizationReserveSeconds': 300}
+          try:
+              pid = os.getpid()
+              expected_birth = None
+              chain = []
+              for _ in range(48):
+                  text = Path(f'/proc/{pid}/stat').read_text()
+                  end = text.rindex(')')
+                  comm = text[text.index('(') + 1:end]
+                  fields = text[end + 2:].split()
+                  birth, parent = int(fields[19]), int(fields[1])
+                  assert expected_birth is None or birth == expected_birth
+                  chain.append({'pid': pid, 'birth': birth, 'parentPid': parent, 'comm': comm})
+                  if comm == 'Runner.Worker':
+                      elapsed = time.clock_gettime(time.CLOCK_BOOTTIME) - birth / os.sysconf('SC_CLK_TCK')
+                      assert elapsed >= 0
+                      started = time.time() - elapsed
+                      hard = started + 2100 - 60
+                      finalization = hard - 300
+                      assert finalization > time.time() + 95, 'preparation admission already expired'
+                      record.update({'anchor': 'verified-ancestor-Runner.Worker-birth', 'ancestors': chain,
+                                     'workerBirthWallSeconds': started, 'hardJobDeadline': hard,
+                                     'finalizationStartDeadline': finalization})
+                      with Path(os.environ['GITHUB_ENV']).open('a') as env:
+                          env.write(f'AUDIT166_HARD_JOB_DEADLINE={hard}\n')
+                          env.write(f'AUDIT166_FINALIZATION_DEADLINE={finalization}\n')
+                      break
+                  assert parent > 0 and parent != pid
+                  parent_text = Path(f'/proc/{parent}/stat').read_text()
+                  parent_fields = parent_text[parent_text.rindex(')') + 2:].split()
+                  parent_birth = int(parent_fields[19])
+                  # Revalidate the child's parent edge before following a possibly stale PID.
+                  check = Path(f'/proc/{pid}/stat').read_text()
+                  again = check[check.rindex(')') + 2:].split()
+                  assert int(again[19]) == birth and int(again[1]) == parent
+                  parent_check = Path(f'/proc/{parent}/stat').read_text()
+                  assert int(parent_check[parent_check.rindex(')') + 2:].split()[19]) == parent_birth
+                  pid = parent
+                  expected_birth = parent_birth
+              else:
+                  raise RuntimeError('Runner.Worker ancestor not found; no deadline invented')
+          except BaseException as error:
+              record['error'] = type(error).__name__ + ': ' + str(error)
+              out.write_text(json.dumps(record, indent=1) + '\n')
+              raise
+          out.write_text(json.dumps(record, indent=1) + '\n')
+          AUDITCLOCK
+      - name: Admit bounded phase Prepare frozen capture.py 1 of 1
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PHASE'
+          import os, time
+          hard=float(os.environ["AUDIT166_HARD_JOB_DEADLINE"])
+          final=float(os.environ["AUDIT166_FINALIZATION_DEADLINE"])
+          assert hard-final>=300, "five-minute finalization reserve missing"
+          assert time.time()+60+95<=final, "phase budget exhausted; no producer start"
+          PHASE
+      - name: Prepare frozen capture.py 1 of 1
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYBOOT'
+          import os, base64, hashlib, zlib
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'audit166-control'
+          part = root / 'capture.py.payload'
+          with part.open('x') as stream:
+              stream.write('eNq1Wllz2zgSftevwMZbQzKWGV+TTRTLU04iJ66c5Th5sbUqioQsxhSpBSDbWsf/fbsbAAmKVI6pjWtmRADdjUbjQx/AbPzj0UKKR+M0f8TzazZfqmmR73U22PNikSc8YVIJHs3S/JLF0VwtBGfFhBU5Z/GUx1e9eBrll0AmFjnzpUqydAyj2TIIQcZnGV3yHjuYiyJZxFwcst3DP3bYNzuNFRnOl+wgKy4P2cE1F0kaKwmfdvCrLPJDkHY25QyI2CTNOMs5UDJ+G3OeSJYqCd1CKrbD3qXP2c0UaUCnHBWP8oRFis0KGN+ncWgpkMbzpIcfINzh7gIDK2aplGmRs1kkrrjoIllOTFkEhOOl4jIkleIilwXMdslBCSSQ0YyzKY8SlqXXHGcH+TgwSfMoYypKMzBRzEM2gDUsoUNeMbNuYMk5TcbmGaiBTdKfBC9moM3SdMJOpLBDt2D8iShmZo7jz2/fmj2DYVU4Fu0yWTAFRokjhSuLozwvFJumCUizCoTsHZ8VMEkq2dhAYLw0RiLVBZi0SwiYR0KlsKKaknYhpJu2ULFQ84VCiYmIgBYICzb4cMxgD3MWTRTsZJSDfH4NuoBl2I1IFdgLppNaa7SHARHK0bt/lWaZVu/TyauPJx8HiLnBbap6bBu2ZTbPuOLP2G6bXJ48Y3toIS7EYq60mIjJ9BL2KOyks3khFEPo2e9C2i/B7ZcmL1tL2ekgvPpsZ3t3nz2kn87rwdFL7II2DHbOPpwdvYX2vmm/Ozp9MzgdnQ4+DU6/DHBg++njztnRCRJp4i1GMrZYnbbzZXD68uTF2ejF0Ueg3f3zsZ3y7cn7gel9svN0t/Pi9ef3b6DxuFRKHyeCqpoKzvUmymk05xJsB4aNVSHC2VfJvi6SSwC7nQ3EwKFE84IV/Q6DPzH2/u3/1YN/Lm757sXt0xj+3fvmNP4VsHCTXfgXySZShfAb/CUvAs/yf6u5kx4DAmZ9Cx74Cx+owd64i+HDZ+XZ1nTASgQXYSXQVWWFDJArJQhOc5AV/NPrBJ1OJ4aDLdlJhQh/AN5ljkcl6JFU5ALChKMDHOm99/PFbIz+YTQRYExDCTCXvCbLAOsT/UjDFYQ58hiZsDaD2ZFcTCbprZ9EKjISHzx48Bx9juO60BEjBbShUyo4jYDgz2fHW0+Y5P9ZaMSn4Gnh8IHvSeUULZaqEISR0Ekh2DiKr9AQAm3t73QZ+Hp/r8synuv5A7bJdowW+IeuDzCAY+dbyD0sh9KJHv2Dbd++2Gb9Pvw+2a5Y8Q/cpUrzBS87c/DgiN4a98BwgxSegSn3aqPHZnRgRvfro0/06LEZ3SmnEhwCSm6WPNG/B1oBotzuOFTbZlsy8ORgt5FRnHyndLcmBjepYAWaW4ce3XfQYkz0k2Q7IhmutZWWsNk36hulqNcoNgNf6hsdIC6O5pGadq3/laYpeMzTuaIW6AguKozE5fX5Tm9/WGIAUYgY8D1wpGeD03del+Hnyfsz8/X680fPwYBBszkCEPkipYTBeJfEBd3qjATEBwAl4NyVUjwJR3IWeT3mFSKOdvf/3LoEmi0T+Leud3B24kMaQjhPsM8eFOg+huPEu5XMLJ1BNgADdx7GYPhA3wk8GLyghY4VW4WKqIkOFtrWbNDleNUuystxGutR752pKAk4yWF0GwhxNjqipo3zuW3IKBSoXyPRwZgnLeswCr2F6S251fFFtfozseCoZJFfupROXIOe9xCsHck2Gg6EKIQdRptSHlPrJaZ7+i/Hfgn7dz7sUAdCENBViMSnMQcecLYws9As9eOv+8JoPgcP5k+8O7WccyMgHI0QOqPRPewedd17QTUZBe+RAbTvTKfEsj4JOj1WwAx+Df6bzAvVbI4AuvHgJEoGASbJeJ0Z/zDuh8liNvfvHj4kAHabdtNLOd8e4nqNeciNoOnuu0Z4lzKhXPV3gto0hQwFhxwv5uuUdLsrXk5BiX34RGrgImjq+hpq+9IxXkqnqdoHQKYOUSEcQ5zhojKxKkaGznVwZkvJDud1nAwxG8P1ln6trkhjaxxVQtpQPdFamkm2kFO/Pm5M4BsbdNmXKFtohYI1BikdUEP/PvsxCLWBVvDH2AaEW5OD2toIgsU1BmlmnFXXiep2Q9mYQyBOrN8GDdCAnYa59BjBuHLv3s3Y09b4IRDqIMAedFEjzBz6bOx5piszTVwPVS3k1ugALznkFYBdzNeVU+qMeRwtJGaOfEmZyCxNtiBbE1EMfkevBEuFPsmKhIiWZgspy2x2W8+m3YvTM9LKYHAtQSqhcPHLVAklOjjNofgsYihKagIqV8FvMVTXuEOo/EQ698fehfACF/EmEoSzSMVTH3mDOqyApq7oJoV6osS0iR260WQtJBuOHWFJAaHBofOAWrfltk6VZm+jsDr260p21mukYwpqgxx2IuNRamDVaQ+Go5V0b7rIrxDG6O6ixIfoRMVIsGpHxBsRN600Bs6rNi1tAB7aNZGAYMUVStpxHFmd04ipIvcQUjZMF5o6YK1rxZz3bD3WFDBs2bFKgXNUEkUFveE6MLjamGURR4PeOc1++b1JmgbnW/stM8CS0amk+nSXbntdrP6uE3e8lHHk7Vq6dG3O/Jfi2voYtzq6wY5Y6ZEgVV6aAgmy3Chn4HyyFPo14MB7CwHVf75ki1wXSnjxRTUYi2JRQF3I6aqGFho2wQGWx9Kqr92p3oNmSFsgDppVnuFursGJxoYGkEd4MByAQBA6bIMGeXXL1eRZAUc6IZg2jU1ufLNPo61wQkcCNAF4Osys27cr4fray6ivGbaIYbh6rkVVSv3It+jq8cbEFNrLELYvQU+eQwJF0oI2tS3XAdtu13ieQqwuTy0JajlPjhEoDBn3T8xoEVs0rAdxjfug/xMcjqeosv5hVSi2nr3VqAsG2vbYQ+aXF0VY41NKMy9SSH7xCkZfspU3g+2nFmJU7/vzgmZkkFaqpmtfZ32zZcPOz2/AD+1JmQQFEV+rqmcOmpjh2a/t1M/u0Jp8qO1MWMzaiG0cpnPJhE7Tqfyccl1r41aFGNMh7fGdPj31BjvGa+r0v3RXJJmc4tUmhonZAgIZxooxJ18GrnQaZRNzcQreGGjs/envvVmwl2knr0Ynr95rvXF/7D1060bRSKslTAnjKFHHhcGDKeDJcCvpR1smAJ2ls7MaWhGHrt+h2L0uONjAXuECBRry9qupakY6YUWyNAjTQ+dWQM8JHEb92h0FQsQqvFlpuVlq0PlO5tK3KVLJB8gyBsPLrpLWyLPfrgar8qvrEpSP8aCk0K80VMxd5OfmNslWZVDIaQkPXOkPhvem1LGLHHN1w80rj34PultZxH35zEGvQHe4wWjgwIgaQtwJOWxiwv1aJfEraVdruoXpk12/v6JV0EotOb/6OUqdvhkTbhJiWgvuH+dm7TmZk8e0TFIPIQ24/v/NqJf7O1dpssBqCgvg8krQllQVSVWO1JyTW9nS9Wk7wFcesizenW6A+zNCLr7UptJxNb8XtNraqPzvsnYlu6nzdy4JUbk4K6S76L9xudashMvLx5WreLq6WXfrqPssNj0v/FqkukZHIGE+S/GUOiCelqX4374LWoO32n1e22ZvsJf1R1xary6PVt5Zs4hKjrDTuIFzrjnWXoG4B0e/ASC5Z+szr+1O7udOknlL2XMfVnZXL3Ht8w89WY/okXqED8dw3Ozd8wZ7w/m8/jgd2Td//WxKpxH/74TiBqrO21TpN2+YS03B0sAWc6guYxHhmsJ19yqN25M6eOhhsomDisi8XMK09nYTY7A3GuEb0mjk9ZoTozsAe+tHJld4+Spa0bbaaFXSrt7QpQzRDj72Bp3/AbtP/hs=')
+          data = zlib.decompress(base64.b64decode(part.read_text(), validate=True))
+          assert hashlib.sha256(data).hexdigest() == '7795e35295d36dcf27896110698ac0c63065b80a1c5d095af38effcc1225ef4a'
+          with (root / 'capture.py').open('xb') as stream:
+              stream.write(data)
+          part.unlink()
+          PYBOOT
+      - name: Admit bounded phase Prepare frozen supervisor.py 1 of 1
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PHASE'
+          import os, time
+          hard=float(os.environ["AUDIT166_HARD_JOB_DEADLINE"])
+          final=float(os.environ["AUDIT166_FINALIZATION_DEADLINE"])
+          assert hard-final>=300, "five-minute finalization reserve missing"
+          assert time.time()+60+95<=final, "phase budget exhausted; no producer start"
+          PHASE
+      - name: Prepare frozen supervisor.py 1 of 1
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYBOOT'
+          import os, base64, hashlib, zlib
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'audit166-control'
+          part = root / 'supervisor.py.payload'
+          with part.open('x') as stream:
+              stream.write('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')
+          data = zlib.decompress(base64.b64decode(part.read_text(), validate=True))
+          assert hashlib.sha256(data).hexdigest() == '831bcb29c7678cd627949f0206cbfbbf65487842d0a9eda3468246044a2b2504'
+          with (root / 'supervisor.py').open('xb') as stream:
+              stream.write(data)
+          part.unlink()
+          PYBOOT
+      - name: Admit bounded phase Prepare frozen control-runtime.py 1 of 1
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PHASE'
+          import os, time
+          hard=float(os.environ["AUDIT166_HARD_JOB_DEADLINE"])
+          final=float(os.environ["AUDIT166_FINALIZATION_DEADLINE"])
+          assert hard-final>=300, "five-minute finalization reserve missing"
+          assert time.time()+60+95<=final, "phase budget exhausted; no producer start"
+          PHASE
+      - name: Prepare frozen control-runtime.py 1 of 1
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYBOOT'
+          import os, base64, hashlib, zlib
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'audit166-control'
+          part = root / 'control-runtime.py.payload'
+          with part.open('x') as stream:
+              stream.write('eNqlWVlz2zgSfvev4M48gJxI9LFJata1elAceaLa+FhZztSsVsuCSVDCmCI5AKhYcfm/bzcOHjqcPfQgiUCj0Xd/AH/803ElxfEDz49ZvvbKjVoW+Z+Pfvjhh0tRfGO5Fxe5EkXmLVlWMiF7Xs7WTHilKJIqVjCdsNC7LjzFpPJ4vi5iqniRw19PLbm060JgeMRXZSGUR8WipEIy95xQxRRf1c9LKpcZf3CPv8sid/8LeZSKYuWVVCGJZ4dv4dGRiJqPrB5AyphJeXT0aTQZeQNN6EdRyjMWRUEomCyyNfODEARiuTq64h+A6vTk7K33k/45OjpKWOolfAHq+SApDc6PPPgIpiqRO1lDuaRn794bgnDJnuyCwK6Pi1VJY+WvaVaxLgdUL0yqVSnNbM+TDKShqhBy4JMe6XnknAQ9j+WyEiyiMuZ8cEkzyYKQ5Wj/epuvgivmo3F6XnsrxdAiVGxAOZwNv3K1jGSVpvxJk4fmv/fGI6FalSTQy5CqWRsWJct98pUEHpWeVILRlWGPn1qNWgtN0IM4SMCyg9OgJjUzoRGW/DMnO1NpVsml3wwXMkzlJo99Nw/+yws/CLragT/LjMbGAs4mC678nyDk1l2zN8ERxksWP0ZFpcpK+TMCC9Dm/X5e9IsSY5lm/ayIHyUMa07zHuz5pAZTgYpi6MLiwelJEIJ8vKzdkRU08e22Oo0gBMAD2lQ4J31fx+WxR+5u7icXo/7FzfV0MryYhkhDMEBpEuFeoOuMOB5krlmWPJevs7sdX9/tY6WXUykZZAlY0kdOgTcYeG9P3rXnbBS76E04fElILZboJSE4cCWBH3xwtZNvRlZQHDJ2CzRkPiMmOazUK5rzFGvFfskn99fT8dWofzn+PDose1oIL6crDLMlxVLjuDqRmsC0qujMxyVBiN8oLv5uk1mNnThmgd7+YQMVzjeKwqa9ZrmNKKd9TzumV4tkg0EqKHN+l8iKuQT+EEeCgVg6Xolg676ukRiJn0bDj1gA9s/86xkXvtgkwnrEMCqeUbxzp09L+64yzpBow8Z9hguZvxiPaWdG/w9rVPalbaxnIotKxIycW+0JagFP+ANPCRdqA49aZzRdJU1SQqbHLKMcwqJXOw8/TuhzawOgNoJ/cuMdPbYWr6iK7WoQpxvMVtK5R/PEeqk9rQWfd9i1PrjGWW6wx8SaYMvCA2svEzilYGnGF0vlQ5XZqibbsQbeMUXHUFUCuxoM7g2+dqZb0lltCCNYXrSmjE/m7WU4/4qL9CNf5IVgCenspxetmFiw/gPVwdyYRg/M68Dv2s1Mbsugg5Dk0AsjY0sJVYM9cakgFGtNDFUYU9DwWFf9fryk+YIlrtC4Jab9FeIxzYqvYD9oQICOuCjyGfllPP10/yH69Wbyt8vPN79Gd5+GVqCEyxLNt39BQ2cFFyxMqyzTFvfJ7KT/F9pP589vT17AHG5zI30jyqDepc1qz3aT0e3N3Xh6M/kNfNkxIXTJQnLAF1vO3Mvk0qyGRak8xtyQxwRgQsshgubx8rucRl9G19Poeng1sgydSpHTh3xPlvvraDidjq5up5bFKWmSARDqAKsKuHVFIY0JrRKuTt+/79vpPkDchOeL/voU49Jtf7dEavfU205j4qQzdO4JGIgqx85/yTNTXGwG7nJgTyWLoWUOY8QSE4ScFf7DVY0ZD1PNd1nSbaJhpZaQoxywN2Tauafh4e66HKD5mt2KYs1y8Bq7wByYsD8qLvQyBDSmTBtwBgUHe7K1oEmSnrO3SRJTHLdsDwWAnr19118WEuTpG5p+We/bX5+RbemahlAXHFd4m+5QT5miCxO6HpzvVo9t7nHGaG5VPOz+ZmLCUph4Le91buzsczBe4NSUq/0s27mxw1AcEsTs77XT+fx7hWCXe5WPkwPrIN/GH/UWVCHGVofp6rzc2YCv6IJ1FoYLBrV/jONf4EDJsfDCHoU0VBViBh/BBHhsN4gJFVAqIMae3r8lHk/bS1ZQ2Hmu2zN5+vl9hBQMEmEPzW58lBVwRTAMxBjJSQRyUjgV5Vxt/JMAZVyxFZj5AyIcI6zcSIi81Cd3F9Htp9/uotvhL6M76Fk/7czCRHQ3/sdoG7e0kUsd3g4d7IKYplG3x+d7stZkj0ta8+ROJhKMq2vIXkwRGVAR7UcVQFLRbAu+uz0d34PI3dW5QweX0efRxXR8c/3qUag+AzyyjT3pSoSZM5/Yhg4aGzlnJNUVeg7+84nu79AEWtP10HzHMc0HcXema2uzsILAwNONmzE7xEVWxAcom7l5MN85odiDldFGox5nqxmoCaEA3+0W6bibgvc9lOSo4YCcG+qaux3ruZDx8DkHFykqH4+FBoTqGKr370DvrSAr8JrDSwRPFbEBBWlCM/6NteLpR28EJQ/gi8eoyDaIY/W9Bl4OpZRnlWCQb3QNrqMAq6GDARoCUCSrTLlbJgqUD8K0NXPDBKN4DA1NMAlRCDySzIyusiqZWHOwJDakly0Q7Aaak7gdUWLTeGMbWh/Igv8UX+MHqlQHSDcYGwTdhtfnnSA0Goa0LFme+M5BsKyAOlekZ6dv4MiuLwJc4Ls0i1mpvJH+QYtTaXg17PezBvvylJs7PKiyAPXUpmS+Jg7CKMIyGkV4UWRmpRJ2Mti1Zccf+8pFPf9KvfivFWk2FSxmvFT/ix54r4aObSTUbWsBfh496Rui07N3htS6l0twg0J44+NivPlSAbpqZ+KhAPSEM7jsxPvrwOwGv2fv3h3Ui+dQGnjSNmotTSsmjdwgnD1uYzq9Ds+QS98QamC2C8WM7nY0OIDcruojdGeVC/aeAaVB63DfoTODe5grinVxiOhj2xvNHLLFVg3d0JC6S+Ww/pMXX/36Ab++QQ6FlYqDEDhCNwFJ/d39axufe8Z7JKalguJlB7dlas/ucouLFdSTpIVY7So7bvXAWqpTcKRjAMhNMOzwA0wFk8/kZnIxjO6vx9Pocjj+fD8Zadg3mUYfxxN0OVvzhEEEHmMv6tvyK8mhjmf4XUxu7u6iL6PJHTTk6MMQmvP4eqSBJ7Bcn4ZvQwgj8rIjlTlnfIayGW8AeP8dOk9dVOrTCcQBS0xp/0xzJvdS7cE1JlIdrjFPge04HwtTaeFIhGGvX0BAjJdEeu4UPh3dRnf3V1fDyW+hN10ynUTtpIqLkrPEMoRjlX3VAd3IcpIV+EpsvAcGQcM8riRkdJUnMIZJH2cVnjM9aHaKA1DCZhnaNvlQJejupknSDM4aGg09wxGliB+dXqTVLp2/6rkutCMK6gmUf56H6knfXeNhvSHuYjIM4M7VR1YsduNgi8Z2XWmI6xSoOa45Nuc+GqhvzROuEiNKy1u7uxQZCufqf2+3JfS2jp8vnVuCSkHuRlA6Wrc8dlBuVhnPH227VoXSmPWkho5QeMCHABo1vUIFxZ57Y+SoSTs8e3asc4UMfaAZ1YeQbrJ1O7vlX/PW23co9FU2og4AqL6lc3IG+3hBMPkp8kLI27JI2pFdD6dayFAXUInvefyusH1iLnBTtJAWpLujBKyn2+MKdswQ/vj49iPS468tdGAX6aDh/QwnpSv+oUNifPVmoImabgjV4BULuptml1CoZG1bY4+9TutsaOa31GkHnKEEuU/fG8F7TWn1ICk0XGFQ16ABmVJUlQh5vGKNR91vIBjYRuLrKwWQGFBvbrCtY2JutEoB2MFvvRl8rndxh08tCeye8ZVuQ06glwDPeBCKNcTBQIwAxfI8imwM6hcIiMncq9hwKBbVCoS61TM2EA1ZSJMkonbeJwXkpynRPcCcBY+ZHMxIfUndqTik6Wb6fYUpf3D6Ocy+NkRPA7bBrX6Vp18Cavwn9StMvVD/4FJ3YbvIigdoGn4ws7RhLezcd0Nug+Do33EBx7s=')
+          data = zlib.decompress(base64.b64decode(part.read_text(), validate=True))
+          assert hashlib.sha256(data).hexdigest() == '069ef0b4bd1a03c951aed73c2a08f74355bf81d81a321d3e9d6a442b182f49d4'
+          with (root / 'control-runtime.py').open('xb') as stream:
+              stream.write(data)
+          part.unlink()
+          PYBOOT
+      - name: Admit bounded phase Prepare frozen collector.mjs 1 of 2
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PHASE'
+          import os, time
+          hard=float(os.environ["AUDIT166_HARD_JOB_DEADLINE"])
+          final=float(os.environ["AUDIT166_FINALIZATION_DEADLINE"])
+          assert hard-final>=300, "five-minute finalization reserve missing"
+          assert time.time()+60+95<=final, "phase budget exhausted; no producer start"
+          PHASE
+      - name: Prepare frozen collector.mjs 1 of 2
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYBOOT'
+          import os, base64, hashlib, zlib
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'audit166-control'
+          part = root / 'collector.mjs.payload'
+          with part.open('x') as stream:
+              stream.write('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')
+          PYBOOT
+      - name: Admit bounded phase Prepare frozen collector.mjs 2 of 2
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PHASE'
+          import os, time
+          hard=float(os.environ["AUDIT166_HARD_JOB_DEADLINE"])
+          final=float(os.environ["AUDIT166_FINALIZATION_DEADLINE"])
+          assert hard-final>=300, "five-minute finalization reserve missing"
+          assert time.time()+60+95<=final, "phase budget exhausted; no producer start"
+          PHASE
+      - name: Prepare frozen collector.mjs 2 of 2
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYBOOT'
+          import os, base64, hashlib, zlib
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'audit166-control'
+          part = root / 'collector.mjs.payload'
+          with part.open('a') as stream:
+              stream.write('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')
+          data = zlib.decompress(base64.b64decode(part.read_text(), validate=True))
+          assert hashlib.sha256(data).hexdigest() == '3b75b728e5f3150cce47e521f49062dd3349d94032e2a8e23a80c28d5ee24fd3'
+          with (root / 'collector.mjs').open('xb') as stream:
+              stream.write(data)
+          part.unlink()
+          PYBOOT
+      - name: Admit bounded phase Prepare frozen clock.py 1 of 1
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PHASE'
+          import os, time
+          hard=float(os.environ["AUDIT166_HARD_JOB_DEADLINE"])
+          final=float(os.environ["AUDIT166_FINALIZATION_DEADLINE"])
+          assert hard-final>=300, "five-minute finalization reserve missing"
+          assert time.time()+60+95<=final, "phase budget exhausted; no producer start"
+          PHASE
+      - name: Prepare frozen clock.py 1 of 1
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYBOOT'
+          import os, base64, hashlib, zlib
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'audit166-control'
+          part = root / 'clock.py.payload'
+          with part.open('x') as stream:
+              stream.write('eNqdVltz2jgUfvevUNMHwSQYSNvMlg6ZSQJtaQjJELKdWZbxCFuAGiN5JJmEzeS/7zmyAZs03QsPRpfvHJ3rJ719U0+Nrk+FrHO5IsnaLpR85x0cHHwW2tiasTwhfSHTRxLGKrxvESbDhdLEKmIXwpAfakoNGaZScu1/V/qea4RwYwE0FdoufM/ryTBOI24IC61QshapBxkrFtUNt2lCrFhyMuUzpTko5WSGR5PUgCo83ycDReaxmrLYS7QC3aYmGYgYznS4+EQ0ZxFRMl476TDVmktLcihYt+JazASPdoaFCyakj256YpkobckPo+RmrIw302pJEmYXsZiSfPkGphsImux5KrWk7dYryvgQQKGVHNPh3WDQHQaj7tUNnVRJnVClQ3b8/kONr0TEwQiKiy6gPh5MPc1DpSNQ9kRNuOBLRluEsjQStnlyUoMg1xy6tmrSI9hwOQDIQEkOc671buqR7Y+CYF8shb0F9TIyADluNhogsWA6umJ6LuRu66RRkp0JyWLxF8OMDTkkY8V32HeNxrNn9brlJBKBpkMI5tzCuFJ1q/wx4aHlUeDKAABonttx4YeF8cRNIfEkILCimZzzyvvfqq2tIZY/bmM8o3VMav0JzniuG8ssrfqY/ABR+anuZIn24KKvhYz4Y4VW6W47VMtlvj92oBwDKHJImi0Qn2zBUDhxZDZw1HxIjlsT3ySxKJ7pnDyCmnHF1wZ3bCWTHTc/TqpHpYXJTo4ZCK3dDxZ0FkaLbJqItNt7kJ03rpZZkoBtlScKsYH8wBey7IAwy22jmXE3GcKNYRGjAXP8e96ZJWZ5mNqElrqbtgpFAqGOWWK4Cze0hO+qNIAywFnFLV30ry8ug/Pr69God9WtklruUR0LxqwNlNSsQm8vgov+ZTC6uCwkqhif/JzTNmmU9qEMtN0Z4M7FQ3KBEharHoAbkUPXDYA9KassVj7AnVQNS/5nhpXApyUjDsnHDxh1zSHYGYBFS2GMG8VYuWvMqtA8oiXdGR34aRIxyyGp24anGy6rbbisVspOLUt5xhFuH7vVlchR6YS9H31w4uco/Z3F8a7T82DlnPFNTTtgdiwkhz1c+bXaYnRuUVNBurj3XE76g4ACecGrX3qjr3fnQXfwO9Cqr6DgK5RBzzIDHb9qvTAEFv0HLSCCM3p21+mNgEuDr2fDTvDt+jzodM86/d6g235CN57/lHuF96qGz73BWb/3x9modz0oaCm580LbFLJ9v9/0OVmckgZcTdFm+qaN7bvFZqvBz4nQ7f2SC3PxLY0V1I0L4yJRvsJwOXrD5shnJeWO57bot2TIVxAQrODsXl6IOILbOPeSR/PtpT9TcawehJwTRhIF/TGFuxx8ijm56XX8AtXx8P4/3wZsnt02Tnrsvv/C2zxF6KVT4LxDOsz8x3wV9rKtzLX9gL1i9T+nrmBCUdW4OHndk63BxbztbHNX9p7BL27sF6I8NnzXaJoJw/Hxh4TXxUdIhb7yFJQKqFKlMvoEQxLlLAC+reAAoL+qxx9DnlhyzgzvuqFjSWht1JudmdHiOH/vTJDz1wmvuGnVDwJ8FQYBhAGZEv6M1fmmE4fnWtbNWaDx5eVH6TIxlUwx3tHwPLPtJoaSbnvYuen9H+m/AWyhg28=')
+          data = zlib.decompress(base64.b64decode(part.read_text(), validate=True))
+          assert hashlib.sha256(data).hexdigest() == '13346b17be108221697f3e1ad84223c4a1c69167d95854efb9f6449c251c00a5'
+          with (root / 'clock.py').open('xb') as stream:
+              stream.write(data)
+          part.unlink()
+          PYBOOT
+      - name: Admit bounded phase Prepare frozen budget.py 1 of 1
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PHASE'
+          import os, time
+          hard=float(os.environ["AUDIT166_HARD_JOB_DEADLINE"])
+          final=float(os.environ["AUDIT166_FINALIZATION_DEADLINE"])
+          assert hard-final>=300, "five-minute finalization reserve missing"
+          assert time.time()+60+95<=final, "phase budget exhausted; no producer start"
+          PHASE
+      - name: Prepare frozen budget.py 1 of 1
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYBOOT'
+          import os, base64, hashlib, zlib
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'audit166-control'
+          part = root / 'budget.py.payload'
+          with part.open('x') as stream:
+              stream.write('eNp1U01v00AQvftXDOFgJ8ROGwpCFTmA1CNVVcEJoWi7XjdL1jvWzjglVP3v7K7jOA6Qg5V5M/Pmzce+frVoyS0etF0ou4Nmzxu0b5PJZPLJPIk95cSqAbXTpbJSgRTNHLQtVaP8xzJgBYxoKG+caoQTrNECtVIqosKzJLpu0DH8JLT9f6SkclhDI3hj9AMc4DtvJolDZFhFI0MqvCjt0H5P77/d3t7cr7/efLlLf0xhASk6KZZX7/JeXJoIY/BJlT79OZUG5bYIZdM5pCfq8kpo0zp19BG2Tg5maEduhLYF/+IAOFXRwZvA8EtJGSUD4zFVbpTc5j7ZPqqyMPj4N7hTrtSS6egVDQ9iRvw7zYo4LiCntq6F2xd12Smi1vBQFk1Qgm5oqW2U22k6gSRadmg6+yURRMrPPEy70LQutcumIGwJFgeU9rXRdptNE0YWxs/1IqnQgRdW+ys4xHFoyadfR/UH4kATwkY08w6yolYxVlcDAKsVpK3V3O+H0uvjOA6kPWEsd3RW2ijy2owmzrqQXtL0nMFfSFYFipB00nE10hnhKsoqiIVjetL+HMfy8nQKYRhVmETUMFQj/ds35N9B7asZT8HZ1DOtI/6/pIPEGPNxBR9gBpcXyyuYzWB5DOoW8WYVwyKqDKl/TyqO1dfpn0Xoqh9h1//5QkYVoutMfH83XZBXefl+JLNx2nIWbqwo27qh7Dntn+fnPYeddqn+II2uNXt7zPDid/YHDNV3rQ==')
+          data = zlib.decompress(base64.b64decode(part.read_text(), validate=True))
+          assert hashlib.sha256(data).hexdigest() == 'e747ee4ec1e2178fdd16a2aecd28e4dbec25ef4a9e2657cd6f585e553675d737'
+          with (root / 'budget.py').open('xb') as stream:
+              stream.write(data)
+          part.unlink()
+          PYBOOT
+      - name: Admit bounded phase Prepare frozen SOURCE-CONTRACT.json 1 of 1
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PHASE'
+          import os, time
+          hard=float(os.environ["AUDIT166_HARD_JOB_DEADLINE"])
+          final=float(os.environ["AUDIT166_FINALIZATION_DEADLINE"])
+          assert hard-final>=300, "five-minute finalization reserve missing"
+          assert time.time()+60+95<=final, "phase budget exhausted; no producer start"
+          PHASE
+      - name: Prepare frozen SOURCE-CONTRACT.json 1 of 1
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYBOOT'
+          import os, base64, hashlib, zlib
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'audit166-control'
+          part = root / 'SOURCE-CONTRACT.json.payload'
+          with part.open('x') as stream:
+              stream.write('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')
+          data = zlib.decompress(base64.b64decode(part.read_text(), validate=True))
+          assert hashlib.sha256(data).hexdigest() == 'c1929afe3c8452b407b0333663b0b1871f7e107dacb5826d21e54e594269760e'
+          with (root / 'SOURCE-CONTRACT.json').open('xb') as stream:
+              stream.write(data)
+          part.unlink()
+          PYBOOT
+      - name: Admit bounded phase Prepare frozen SOURCE-PINS.json 1 of 3
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PHASE'
+          import os, time
+          hard=float(os.environ["AUDIT166_HARD_JOB_DEADLINE"])
+          final=float(os.environ["AUDIT166_FINALIZATION_DEADLINE"])
+          assert hard-final>=300, "five-minute finalization reserve missing"
+          assert time.time()+60+95<=final, "phase budget exhausted; no producer start"
+          PHASE
+      - name: Prepare frozen SOURCE-PINS.json 1 of 3
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYBOOT'
+          import os, base64, hashlib, zlib
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'audit166-control'
+          part = root / 'SOURCE-PINS.json.payload'
+          with part.open('x') as stream:
+              stream.write('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')
+          PYBOOT
+      - name: Admit bounded phase Prepare frozen SOURCE-PINS.json 2 of 3
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PHASE'
+          import os, time
+          hard=float(os.environ["AUDIT166_HARD_JOB_DEADLINE"])
+          final=float(os.environ["AUDIT166_FINALIZATION_DEADLINE"])
+          assert hard-final>=300, "five-minute finalization reserve missing"
+          assert time.time()+60+95<=final, "phase budget exhausted; no producer start"
+          PHASE
+      - name: Prepare frozen SOURCE-PINS.json 2 of 3
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYBOOT'
+          import os, base64, hashlib, zlib
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'audit166-control'
+          part = root / 'SOURCE-PINS.json.payload'
+          with part.open('a') as stream:
+              stream.write('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')
+          PYBOOT
+      - name: Admit bounded phase Prepare frozen SOURCE-PINS.json 3 of 3
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PHASE'
+          import os, time
+          hard=float(os.environ["AUDIT166_HARD_JOB_DEADLINE"])
+          final=float(os.environ["AUDIT166_FINALIZATION_DEADLINE"])
+          assert hard-final>=300, "five-minute finalization reserve missing"
+          assert time.time()+60+95<=final, "phase budget exhausted; no producer start"
+          PHASE
+      - name: Prepare frozen SOURCE-PINS.json 3 of 3
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYBOOT'
+          import os, base64, hashlib, zlib
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'audit166-control'
+          part = root / 'SOURCE-PINS.json.payload'
+          with part.open('a') as stream:
+              stream.write('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')
+          data = zlib.decompress(base64.b64decode(part.read_text(), validate=True))
+          assert hashlib.sha256(data).hexdigest() == '704e40a255256ccf7c4c4b8a4a1d1847f994fff8410c8be5cd015d0c3eee5c68'
+          with (root / 'SOURCE-PINS.json').open('xb') as stream:
+              stream.write(data)
+          part.unlink()
+          PYBOOT
+      - name: Admit bounded phase Prepare frozen SELECTION-CONTRACT.json 1 of 1
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PHASE'
+          import os, time
+          hard=float(os.environ["AUDIT166_HARD_JOB_DEADLINE"])
+          final=float(os.environ["AUDIT166_FINALIZATION_DEADLINE"])
+          assert hard-final>=300, "five-minute finalization reserve missing"
+          assert time.time()+60+95<=final, "phase budget exhausted; no producer start"
+          PHASE
+      - name: Prepare frozen SELECTION-CONTRACT.json 1 of 1
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYBOOT'
+          import os, base64, hashlib, zlib
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'audit166-control'
+          part = root / 'SELECTION-CONTRACT.json.payload'
+          with part.open('x') as stream:
+              stream.write('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')
+          data = zlib.decompress(base64.b64decode(part.read_text(), validate=True))
+          assert hashlib.sha256(data).hexdigest() == 'eea51384633e18ca3f5f94f2219499e908225e06541fd56e43ccdd0096da7612'
+          with (root / 'SELECTION-CONTRACT.json').open('xb') as stream:
+              stream.write(data)
+          part.unlink()
+          PYBOOT
+      - name: Admit bounded phase Prepare frozen SUPERVISOR-SPEC.json 1 of 1
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PHASE'
+          import os, time
+          hard=float(os.environ["AUDIT166_HARD_JOB_DEADLINE"])
+          final=float(os.environ["AUDIT166_FINALIZATION_DEADLINE"])
+          assert hard-final>=300, "five-minute finalization reserve missing"
+          assert time.time()+60+95<=final, "phase budget exhausted; no producer start"
+          PHASE
+      - name: Prepare frozen SUPERVISOR-SPEC.json 1 of 1
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYBOOT'
+          import os, base64, hashlib, zlib
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'audit166-control'
+          part = root / 'SUPERVISOR-SPEC.json.payload'
+          with part.open('x') as stream:
+              stream.write('eNqV0b1uwyAQB/DdT4E81xIcBkOlzH2ADh2qDsdxNFHkD2E7qlT13YudRk3HTgfc/cVP8FmJeqYj91g/ihrXeFqUtc28Tpwvp3nMzTwxNRdVP2yT45qJt0nbIUbqgktBJ+tbia1noBBBA7VgQ5BJBw97bMm8hzp20KHemqyT9h5S5KisolYRRtkqBw582kM09j0Occt9XFJo8jqIBsU0TL0oYDo/0hGHd46iadJYWKUGnPmgyCI50tRGIB2ZCst4ayOAIQSULNtORV3me/x4GfOZ83yAsl1OPY/rclByF2B+v5TrXyvxS9gaom7wWjfMdfVH9DN0Zd02/7LdQvfA29mdshJvG3TKY1yJ8zPTOMS5mBVIub885/4pI/Fda28QTsua+fmIYOz+N503rA14E7WNlKBz3iolrXdIkqyW1gQnUZGJ0htM2nFKRKrIObVYV1/VN4Upp3Y=')
+          data = zlib.decompress(base64.b64decode(part.read_text(), validate=True))
+          assert hashlib.sha256(data).hexdigest() == '0c0c01104508a0c3832089b634b2f3062426f42cc0378f429d2f5797cf5ab963'
+          with (root / 'SUPERVISOR-SPEC.json').open('xb') as stream:
+              stream.write(data)
+          part.unlink()
+          PYBOOT
+      - name: Admit bounded phase Prepare frozen EXPECTED-REFS.json 1 of 1
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PHASE'
+          import os, time
+          hard=float(os.environ["AUDIT166_HARD_JOB_DEADLINE"])
+          final=float(os.environ["AUDIT166_FINALIZATION_DEADLINE"])
+          assert hard-final>=300, "five-minute finalization reserve missing"
+          assert time.time()+60+95<=final, "phase budget exhausted; no producer start"
+          PHASE
+      - name: Prepare frozen EXPECTED-REFS.json 1 of 1
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYBOOT'
+          import os, base64, hashlib, zlib
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'audit166-control'
+          part = root / 'EXPECTED-REFS.json.payload'
+          with part.open('x') as stream:
+              stream.write('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')
+          data = zlib.decompress(base64.b64decode(part.read_text(), validate=True))
+          assert hashlib.sha256(data).hexdigest() == '90ad37888c45aaa620b99be3ad378d6c75bfa421de980753fe514f68f0254295'
+          with (root / 'EXPECTED-REFS.json').open('xb') as stream:
+              stream.write(data)
+          part.unlink()
+          PYBOOT
+      - name: Admit bounded phase Prepare frozen RUNTIME-FILES.json 1 of 1
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PHASE'
+          import os, time
+          hard=float(os.environ["AUDIT166_HARD_JOB_DEADLINE"])
+          final=float(os.environ["AUDIT166_FINALIZATION_DEADLINE"])
+          assert hard-final>=300, "five-minute finalization reserve missing"
+          assert time.time()+60+95<=final, "phase budget exhausted; no producer start"
+          PHASE
+      - name: Prepare frozen RUNTIME-FILES.json 1 of 1
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYBOOT'
+          import os, base64, hashlib, zlib
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'audit166-control'
+          part = root / 'RUNTIME-FILES.json.payload'
+          with part.open('x') as stream:
+              stream.write('eNplk09rHDYQxe/+FGHPdRjNH2nUW9lswVBsYzulV2k0E5I6XrNeF0rpd+/Y66SFHiWYn948vffX2buNjcfj88HfP/65+fHdprUuToJdFtVlgU17LQVq12FglaDKVBjFZEGXEaQeYVYQxYPH5odEPj0/+uGPz0/7wxtVqUyb2K3VprYqts49AKHajDmjCmtTxgWj+xrEVZErMA+cKMCvVNs/HA/7+/PD88Px89dvglOZB0yeqwwg61KGr0aGAzQak8gMLUvLICyLvK86mHEWxeC+vqHv792Oqffrl6cXKs0ms6G6BBUBM+fmgiVHoOJaRDnbGQgdhzrSUDDUJe7IsehEvd/b728yS07UWdr0AopYam9BXsbKrZGM09DaS22riwp7zB6VuRtKMYAhr8D5vD758Y3oLSU5uxXH0jTWKnXgcFspm9d0O/1Id6zS0vRIsotQbZIGtVfi7dXHm+3ufHt1eXfz0/bu/Zen/cML3ErHPsLJlAUnQ5tARLXShLSulWi5SFvDpijWhcVTtXTGXKyC/xd+fXF5+x3cgJ1hoAhKNYtmbDx1pAGrKLfonSNCuYDpdLEFJZNm5J6Hqifw7pfd9u7i6vL/wt2HFFKulO6qDQqJJKbjmbju/cV88Qwxl1hSnclsLYBe12i14In/8Xp38+vF7dXN+e31bvsdDtkAyDKwgI7UpISgfVbiiZHNwFw/GM2A8kMY+8KQ1puFjNnrKRW73xJ5t/twfrP7+V9fOoyVQ6rGMsaoCLP36fR6u6plHGNwJti7QhMKl8JRNUsk+ZBszv4++wcKrwWB')
+          data = zlib.decompress(base64.b64decode(part.read_text(), validate=True))
+          assert hashlib.sha256(data).hexdigest() == '9e013cf951555367597c7ce090b615194f7c7167e3e0de83426af9d3212daa1d'
+          with (root / 'RUNTIME-FILES.json').open('xb') as stream:
+              stream.write(data)
+          part.unlink()
+          PYBOOT
+      - name: Admit bounded phase Checkout the exact reviewed product source
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PHASE'
+          import os, time
+          hard=float(os.environ["AUDIT166_HARD_JOB_DEADLINE"])
+          final=float(os.environ["AUDIT166_FINALIZATION_DEADLINE"])
+          assert hard-final>=300, "five-minute finalization reserve missing"
+          assert time.time()+120+95<=final, "phase budget exhausted; no producer start"
+          PHASE
+      - name: Checkout the exact reviewed product source
+        timeout-minutes: 2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
+          ref: 67aadc7b8fb3f6940a49e2cbd232c426bb0f3b92
+          fetch-depth: 147
           persist-credentials: false
-      - uses: ./.github/actions/install-node-dependencies
-      - name: Verify case-twin refs and release trust boundary
-        run: >-
-          pnpm exec vitest run --config config/vitest.config.ts
-          config/scripts/workflow-ref-reachability.test.mjs
-          config/scripts/workflow-ref-mirror-case-safety.test.mjs
+      - name: Admit bounded phase Verify immutable21 and405 source pins and control provenance
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PHASE'
+          import os, time
+          hard=float(os.environ["AUDIT166_HARD_JOB_DEADLINE"])
+          final=float(os.environ["AUDIT166_FINALIZATION_DEADLINE"])
+          assert hard-final>=300, "five-minute finalization reserve missing"
+          assert time.time()+60+95<=final, "phase budget exhausted; no producer start"
+          PHASE
+      - name: Verify immutable21 and405 source pins and control provenance
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$RUNNER_TEMP/audit166-control/control-runtime.py" preflight "$RUNNER_TEMP/orca245-evidence"
+      - name: Admit bounded phase Fetch the validated official release snapshots into this disposable checkout only
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PHASE'
+          import os, time
+          hard=float(os.environ["AUDIT166_HARD_JOB_DEADLINE"])
+          final=float(os.environ["AUDIT166_FINALIZATION_DEADLINE"])
+          assert hard-final>=300, "five-minute finalization reserve missing"
+          assert time.time()+180+95<=final, "phase budget exhausted; no producer start"
+          PHASE
+      - name: Fetch the validated official release snapshots into this disposable checkout only
+        timeout-minutes: 3
+        shell: bash
+        env:
+          EXPECTED_REFS: '{"tags":{"v1.4.184":{"tagObject":"284a244a12dfe266f62c103cc6b1b1d13203e0b4","commit":"2307f2ebbe1c1e737c0b12d920bb0a208332db2c"},"v1.4.190":{"tagObject":"43268cadff07d513a73181741090ece06a364fd6","commit":"6e4f817101daa18d82824b69243d9079baa9c416"},"v1.4.199":{"tagObject":"cb958df54b401a30172f8051d1a682cad33a7551","commit":"28957d6004dd191b6f0baff493a9fd3d37405d9d"},"v1.4.205":{"tagObject":"c3ac507ba02a652cce627d5acad9605f4792d7fc","commit":"11aba8bdc5e492d3ba01fc7fe333495ace74128f"},"v1.4.211":{"tagObject":"309f465bd44b511b82d3ce3fb8d1e3a5aedc00eb","commit":"5534462b50c660888487a2108700d4cf284270db"},"v1.4.212":{"tagObject":"2d61ec19a384106b46a66254e054103c480fc826","commit":"d937d22f498505c017634be9bf0540c9fa42e665"},"v1.4.214":{"tagObject":"4780b6aeb243d7c3e5c5dc2f61e950c87470339b","commit":"7468e9cccb35a8494f76dc95a37627121113ee80"},"v1.4.218":{"tagObject":"24d7d0362e4a2c9e613756f1529bb6bb455649df","commit":"75ea50273328d9bd5465170d10a098711d61b5a4"},"v1.4.219":{"tagObject":"482a2438d5d5b76d538b903c8bb8fa81ed48c540","commit":"e705cac04a1db7e7e2184746e912142d34ca838b"},"v1.4.220":{"tagObject":"7e66229dfdc57c53581ce97fd9a69dc73d5beb90","commit":"a7927b28ce45cbb044add478d957abe36c99ccd8"},"v1.4.221":{"tagObject":"bf0963821fcb8c6ef2674540f16c802688f5d70a","commit":"9dd8812384db85d0b4ede2d1e37f9d73bdb4ea8c"},"v1.4.222":{"tagObject":"fae770adf60aac8f0af02720565c1691fdd95dec","commit":"4bb6f2072b07c1f0664b809551f77754700570e4"},"v1.4.224":{"tagObject":"270a21b6767d6f63170711ec3222d17c3dd7c0f5","commit":"2bb20586ebc39d605e16d95f57420e20a16e7485"},"v1.4.228":{"tagObject":"45d0a479f5cd08a8e3f3c04c149c60e2d3bef582","commit":"d4d37f5d8f14b198f32883897110fbbee15e8ac2"},"v1.4.229":{"tagObject":"a3fdce0977b75dc3777439df6d3b928ad4d911cf","commit":"a0cd1644f320f1327f7495650a816111b495f3cd"},"v1.4.244":{"tagObject":"9096d705d84b8b8fd5d2d605ca2a27428cd74442","commit":"b8ec5c8d170bcb9988e65de547a3a4e98b2885a9"},"v1.4.245":{"tagObject":"7a5202ad17310bc22e1f03398a96a189a3b33f03","commit":"1c6ac8c3c4d2c3dec2cb5966d225ca2a0e0471d3"}},"literals":["3727100cc9dbcea6201f8a3e506676a3c4b53b18","4bb337741c335cfcc428d3b4271023566e2dadb8","4cb013c0a9251275fa3d20ea33b45429e07aa6be","5a56636f6679071d6ec68b851ef7932cd3222560","aac38d698ff75ac4c8658addab48ef5a83617619","b49abdb1f4da6b3d62dfa9ccf3c74dc9e74d291c","b6b4d68cd844c921c7c5191cef72d5adafc0dafa","e817b0e23747ffd6f16f2ddefea861950d82a3c0","f97ca2a49d9c711dab54a656a7f8a47ae6c6749c","fd9125ea8c7b347cd8b675a4095e31cd3c865d25"]}'
+        run: |
+          set -euo pipefail
+          # Release tags land only in this runner's checkout; nothing is pushed or published anywhere.
+          git fetch --no-tags --depth=1 https://github.com/stablyai/orca.git refs/tags/v1.4.184:refs/tags/v1.4.184 refs/tags/v1.4.190:refs/tags/v1.4.190 refs/tags/v1.4.199:refs/tags/v1.4.199 refs/tags/v1.4.205:refs/tags/v1.4.205 refs/tags/v1.4.211:refs/tags/v1.4.211 refs/tags/v1.4.212:refs/tags/v1.4.212 refs/tags/v1.4.214:refs/tags/v1.4.214 refs/tags/v1.4.218:refs/tags/v1.4.218 refs/tags/v1.4.219:refs/tags/v1.4.219 refs/tags/v1.4.220:refs/tags/v1.4.220 refs/tags/v1.4.221:refs/tags/v1.4.221 refs/tags/v1.4.222:refs/tags/v1.4.222 refs/tags/v1.4.224:refs/tags/v1.4.224 refs/tags/v1.4.228:refs/tags/v1.4.228 refs/tags/v1.4.229:refs/tags/v1.4.229 refs/tags/v1.4.244:refs/tags/v1.4.244 refs/tags/v1.4.245:refs/tags/v1.4.245
+          git fetch --no-tags --depth=1 https://github.com/stablyai/orca.git 3727100cc9dbcea6201f8a3e506676a3c4b53b18 4bb337741c335cfcc428d3b4271023566e2dadb8 4cb013c0a9251275fa3d20ea33b45429e07aa6be 5a56636f6679071d6ec68b851ef7932cd3222560 aac38d698ff75ac4c8658addab48ef5a83617619 b49abdb1f4da6b3d62dfa9ccf3c74dc9e74d291c b6b4d68cd844c921c7c5191cef72d5adafc0dafa e817b0e23747ffd6f16f2ddefea861950d82a3c0 f97ca2a49d9c711dab54a656a7f8a47ae6c6749c fd9125ea8c7b347cd8b675a4095e31cd3c865d25
+          test "$(git rev-parse HEAD)" = 67aadc7b8fb3f6940a49e2cbd232c426bb0f3b92
+          test -z "$(git status --porcelain)"
+          node --input-type=module <<'NODE'
+          import {writeFileSync} from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          const git=(...args)=>execFileSync('git',args,{encoding:'utf8'}).trim();
+          const expected=JSON.parse(process.env.EXPECTED_REFS);
+          const tags=Object.entries(expected.tags).map(([tag,{tagObject,commit}])=>({tag,tagObject,commit,observedTagObject:git('rev-parse',`refs/tags/${tag}`),observedCommit:git('rev-parse',`refs/tags/${tag}^{commit}`)}));
+          const literals=expected.literals.map(commit=>({commit,type:git('cat-file','-t',commit)}));
+          const verified=tags.every(t=>t.observedTagObject===t.tagObject&&t.observedCommit===t.commit)&&literals.every(l=>l.type==='commit')&&expected.tags['v1.4.245']?.commit==='1c6ac8c3c4d2c3dec2cb5966d225ca2a0e0471d3'&&expected.tags['v1.4.222']?.commit==='4bb6f2072b07c1f0664b809551f77754700570e4';
+          writeFileSync(`${process.env.RUNNER_TEMP}/orca245-evidence/refs.json`,JSON.stringify({schema:'orca245-hosted-release-refs-v1',source:'https://github.com/stablyai/orca.git',verified,baselineRef:'v1.4.245',tags,literals,objects:git('count-objects','-v')},null,2)+'\n');
+          if(!verified) throw Error('Official release refs do not match their reviewed identities');
+          NODE
+      - name: Admit bounded phase Install the source-declared toolchain without saving caches
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PHASE'
+          import os, time
+          hard=float(os.environ["AUDIT166_HARD_JOB_DEADLINE"])
+          final=float(os.environ["AUDIT166_FINALIZATION_DEADLINE"])
+          assert hard-final>=300, "five-minute finalization reserve missing"
+          assert time.time()+480+95<=final, "phase budget exhausted; no producer start"
+          PHASE
+      - name: Install the source-declared toolchain without saving caches
+        timeout-minutes: 8
+        uses: ./.github/actions/install-node-dependencies
+        with:
+          node-version: '24.18.1'
+          native-runtime: node
+          cache-pnpm-store: 'false'
+          cache-pnpm-verification: 'false'
+          persist-native-cache: 'false'
+          cache-electron-package: 'false'
+      - name: Admit bounded phase Install the exact source-pinned Bun
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PHASE'
+          import os, time
+          hard=float(os.environ["AUDIT166_HARD_JOB_DEADLINE"])
+          final=float(os.environ["AUDIT166_FINALIZATION_DEADLINE"])
+          assert hard-final>=300, "five-minute finalization reserve missing"
+          assert time.time()+120+95<=final, "phase budget exhausted; no producer start"
+          PHASE
+      - name: Install the exact source-pinned Bun
+        timeout-minutes: 2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version-file: config/.bun-version
+          no-cache: true
+      - name: Admit bounded phase Prepare isolated display and Electron test runtime
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PHASE'
+          import os, time
+          hard=float(os.environ["AUDIT166_HARD_JOB_DEADLINE"])
+          final=float(os.environ["AUDIT166_FINALIZATION_DEADLINE"])
+          assert hard-final>=300, "five-minute finalization reserve missing"
+          assert time.time()+180+95<=final, "phase budget exhausted; no producer start"
+          PHASE
+      - name: Prepare isolated display and Electron test runtime
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v xvfb-run >/dev/null || { sudo apt-get update; sudo apt-get install -y xvfb; }
+          node config/scripts/install-electron-package-binary.mjs
+          node --version > "$RUNNER_TEMP/orca245-evidence/toolchain.txt"
+          pnpm --version >> "$RUNNER_TEMP/orca245-evidence/toolchain.txt"
+          bun --version >> "$RUNNER_TEMP/orca245-evidence/toolchain.txt"
+          node -p "require('./node_modules/vitest/package.json').version" >> "$RUNNER_TEMP/orca245-evidence/toolchain.txt"
+          df -B1 . >> "$RUNNER_TEMP/orca245-evidence/toolchain.txt"
+      - name: Admit bounded phase Record the selection the final source itself plans
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PHASE'
+          import os, time
+          hard=float(os.environ["AUDIT166_HARD_JOB_DEADLINE"])
+          final=float(os.environ["AUDIT166_FINALIZATION_DEADLINE"])
+          assert hard-final>=300, "five-minute finalization reserve missing"
+          assert time.time()+120+95<=final, "phase budget exhausted; no producer start"
+          PHASE
+      - name: Record the selection the final source itself plans
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import {existsSync,readdirSync,writeFileSync} from 'node:fs';
+          import {collectChangedFiles,computePassHash} from './config/scripts/check-changed-pass-cache.mjs';
+          import {planChangedChecks} from './config/scripts/check-changed-selection.mjs';
+          import path from 'node:path';
+          const root=process.cwd(),base='1c6ac8c3c4d2c3dec2cb5966d225ca2a0e0471d3';
+          const files=collectChangedFiles(root,base);
+          const plan=planChangedChecks(files,{scriptsDir:path.join(root,'config/scripts'),listDirectory:d=>{try{return readdirSync(path.join(root,d))}catch{return []}}});
+          const exists=f=>existsSync(path.join(root,f));
+          // No fixed counts: the collector holds the run to exactly this plan and the frozen changed paths.
+          writeFileSync(`${process.env.RUNNER_TEMP}/orca245-evidence/selection.json`,JSON.stringify({base,files,existing:files.filter(exists),plan,unit:{related:plan.unitTests.related.filter(exists),colocated:plan.unitTests.colocated.filter(exists)},sourceInputHash:computePassHash(root,base)},null,2)+'\n');
+          NODE
+      - name: Admit bounded phase Enforce exact41 tasks391 paths376 related and4 colocated selection
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PHASE'
+          import os, time
+          hard=float(os.environ["AUDIT166_HARD_JOB_DEADLINE"])
+          final=float(os.environ["AUDIT166_FINALIZATION_DEADLINE"])
+          assert hard-final>=300, "five-minute finalization reserve missing"
+          assert time.time()+60+95<=final, "phase budget exhausted; no producer start"
+          PHASE
+      - name: Enforce exact41 tasks391 paths376 related and4 colocated selection
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$RUNNER_TEMP/audit166-control/control-runtime.py" selection "$RUNNER_TEMP/orca245-evidence"
+      - name: Run the canonical complete selection once with finite producer supervision
+        id: gate
+        timeout-minutes: 23
+        shell: bash
+        env:
+          ORCA_UNIT_FAILURE_REPORT_DIR: ${{ runner.temp }}/orca245-evidence/unit-failures
+          ORCA_CROSS_VERSION_BASELINE_REF: v1.4.245
+        run: |
+          set -euo pipefail
+          test ! -e "$ORCA_UNIT_FAILURE_REPORT_DIR"
+          test ! -e .cache/check-changed.json
+          python3 "$RUNNER_TEMP/audit166-control/supervisor.py" --spec "$RUNNER_TEMP/audit166-control/SUPERVISOR-SPEC.json" --capture "$RUNNER_TEMP/audit166-control/capture.py" --evidence "$RUNNER_TEMP/orca245-evidence" --job-finalization-deadline "$AUDIT166_FINALIZATION_DEADLINE" --hard-job-deadline "$AUDIT166_HARD_JOB_DEADLINE"
+      - name: Always finalize source verification and judge the bounded evidence
+        if: ${{ always() }}
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/audit166-control"
+          evidence="$RUNNER_TEMP/orca245-evidence"
+          if [ ! -f "$tools/control-runtime.py" ] || [ ! -f "$tools/collector.mjs" ]; then
+            python3 - <<'PREPFAIL'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'orca245-evidence'
+          root.mkdir(exist_ok=True)
+          (root / 'preparation-failure.json').write_text(json.dumps({'schema':'audit166-preparation-failure-v1','productStarted':None,'complete':False,'reason':'frozen tools preparation incomplete','workflowSha':os.environ.get('GITHUB_WORKFLOW_SHA')})+'\n')
+          PREPFAIL
+            exit 1
+          fi
+          python3 "$tools/control-runtime.py" finalize "$evidence"
+          gate_exit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["gateExit"])' "$evidence/result.json")"
+          node "$tools/collector.mjs" "$evidence" "$gate_exit" 67aadc7b8fb3f6940a49e2cbd232c426bb0f3b92
+      - name: Enforce the evidence storage limit
+        id: evidence_budget
+        if: ${{ always() }}
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'BUDGET'
+          #!/usr/bin/env python3
+          """Always-step evidence cap, independent of tools-preparation success."""
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ['RUNNER_TEMP']) / 'orca245-evidence'
+          allowed = {'clock.json', 'preparation-failure.json', 'source.json', 'toolchain.txt', 'refs.json',
+                     'selection.json', 'check-changed.log', 'check-changed.verdicts.log', 'capture.json',
+                     'vitest-step-summary.md', 'result.json', 'collector.json', 'supervisor.json', 'control.json'}
+          assert root.is_dir() and not root.is_symlink()
+          total = 0
+          for item in root.iterdir():
+              assert not item.is_symlink(), item.name
+              if item.name == 'unit-failures':
+                  assert item.is_dir()
+                  files = list(item.iterdir())
+                  assert all(f.is_file() and not f.is_symlink() and f.name.startswith('unit-failures-') for f in files)
+                  size = sum(f.lstat().st_size for f in files)
+                  assert size <= 8 * 1024 ** 2
+                  total += size
+              else:
+                  assert item.name in allowed and item.is_file(), item.name
+                  total += item.lstat().st_size
+          assert total <= 16 * 1024 ** 2
+          print(json.dumps({'evidenceBytes': total, 'limit': 16 * 1024 ** 2}))
+          BUDGET
+      - name: Retain bounded qualification evidence for one day
+        if: ${{ always() && steps.evidence_budget.outcome == 'success' }}
+        timeout-minutes: 2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: orca245-67aadc7-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/orca245-evidence/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 9
