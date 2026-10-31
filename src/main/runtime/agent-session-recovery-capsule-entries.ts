@@ -14,7 +14,6 @@ import {
 
 const RESUME_ACTION_LEASE_TTL_MS = 10 * 60 * 1000
 export const MAX_FAILURE_FIELD_LENGTH = 512
-const MAX_SESSION_FENCES = 1024
 
 const legacyCapsuleSchema = z.object({ version: z.literal(1), markers: z.array(z.unknown()) })
 const entrySchema = z.object({
@@ -118,11 +117,10 @@ export function capsuleDocument(
   { entries, failed }: Pick<RecoveryCapsuleState, 'entries' | 'failed'>,
   { dismissedAt, sessionFences }: RecoveryCapsuleFences
 ) {
-  // Drop fences the global fence covers and bound the rest to the newest dismissals.
+  // The global fence covers these entries; the existing file byte cap bounds the rest.
   const scoped = [...(sessionFences ?? [])]
     .filter(([, fencedAt]) => fencedAt > (dismissedAt ?? -1))
     .sort(([, left], [, right]) => right - left)
-    .slice(0, MAX_SESSION_FENCES)
     .map(([sessionId, fencedAt]) => ({ sessionId, dismissedAt: fencedAt }))
   return {
     version: 2,
@@ -133,15 +131,14 @@ export function capsuleDocument(
   }
 }
 
-// Advisory like failures: an unreadable fence list must not block offers or teardown writes.
+// Unreadable protection must survive rather than disappear during another caller's write.
 function parseSessionFences(value: unknown): Map<string, number> {
   const fences = new Map<string, number>()
-  for (const fence of Array.isArray(value) ? value : []) {
-    const parsed = sessionFenceSchema.safeParse(fence)
-    if (parsed.success) {
-      const { sessionId, dismissedAt } = parsed.data
-      fences.set(sessionId, Math.max(dismissedAt, fences.get(sessionId) ?? dismissedAt))
-    }
+  if (value === undefined) {
+    return fences
+  }
+  for (const { sessionId, dismissedAt } of z.array(sessionFenceSchema).parse(value)) {
+    fences.set(sessionId, Math.max(dismissedAt, fences.get(sessionId) ?? dismissedAt))
   }
   return fences
 }

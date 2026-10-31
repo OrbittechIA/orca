@@ -529,6 +529,33 @@ describe('durable restart offers', () => {
     expect(olderCapsule.parse(stored).entries).toHaveLength(3)
   })
 
+  it('does not forget dismissed sessions after a large burst of scoped dismissals', async () => {
+    const witnesses = Array.from({ length: 1025 }, (_, index) =>
+      marker({ sessionId: `burst-session-${index}` })
+    )
+    await capsule.record(witnesses, NOW)
+    expect(await capsule.clearAll(NOW + 1, () => false, 'dismissed-sessions')).toBe(
+      witnesses.length
+    )
+
+    await capsule.record(witnesses, NOW + 2)
+    expect(await capsule.list(NOW + 2)).toEqual([])
+  })
+
+  it.each([
+    [
+      { sessionId: SESSION, dismissedAt: NOW },
+      { sessionId: 'other', dismissedAt: 'invalid' }
+    ],
+    { [SESSION]: NOW }
+  ])('preserves bytes when a stored dismissal fence is unreadable (%#)', async (sessionFences) => {
+    const raw = JSON.stringify({ version: 2, entries: [], sessionFences })
+    await writeFile(filePath, raw)
+
+    await expect(capsule.record([marker()], NOW + 2)).rejects.toThrow()
+    expect(await readFile(filePath, 'utf8')).toBe(raw)
+  })
+
   it('keeps unreadable bytes another caller may own when a scoped dismissal cannot read them', async () => {
     await writeFile(filePath, '{')
     await expect(capsule.clearAll(NOW, () => false, 'dismissed-sessions')).rejects.toThrow()
