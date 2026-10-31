@@ -1,5 +1,5 @@
 import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
-import { useAppStore } from '@/store'
+import type { AppState } from '@/store/types'
 import { tryRuntimeTargetForWorktreeOwner } from '@/store/slices/worktrees/listing/worktree-owner-target'
 import { isWebClientLocation } from '@/lib/web-client-location'
 
@@ -20,8 +20,7 @@ export function canonicalTarget(target: RuntimeClientTarget): RuntimeClientTarge
 export const targetKey = (target: RuntimeClientTarget) =>
   target.kind === 'local' ? 'local' : `environment:${target.environmentId}`
 
-export function snapshot(target: RuntimeClientTarget) {
-  const state = useAppStore.getState()
+export function snapshot(target: RuntimeClientTarget, state: AppState) {
   const ids = new Set<string>()
   if (state.activeWorktreeId) {
     ids.add(state.activeWorktreeId)

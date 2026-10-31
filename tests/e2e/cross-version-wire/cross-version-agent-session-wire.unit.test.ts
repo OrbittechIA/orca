@@ -87,6 +87,10 @@ beforeAll(async () => {
   baseline = await loadAgentSessionWireBuild(baselineRef)
 }, SUITE_TIMEOUT_MS)
 
+function baselineWithout(excluded: string): string[] {
+  return baseline.capabilities.filter((capability) => capability !== excluded)
+}
+
 // Remove the capability from the baseline’s own list so the old-client gate remains exercised after releases gain it.
 function legacyClientCapabilities(): string[] {
   return baseline.capabilities.filter(
@@ -173,9 +177,7 @@ describe('cross-version structured agent sessions', () => {
     const released = (...extra: string[]): RpcClientIdentity => ({
       clientKind: 'mobile',
       clientCapabilities: [
-        ...baseline.capabilities.filter(
-          (capability) => capability !== STRUCTURED_AGENT_SESSION_CLIENT_LAUNCH_MODE_CAPABILITY
-        ),
+        ...baselineWithout(STRUCTURED_AGENT_SESSION_CLIENT_LAUNCH_MODE_CAPABILITY),
         STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
         ...extra
       ]
@@ -849,9 +851,7 @@ describe('cross-version structured agent sessions', () => {
     // Legacy clients cannot show rejection after pending; answer after handoff, while accepted-send clients may answer before provider start.
     it('holds the send reply of a released client until the handover, and answers a current one at once', async () => {
       // Why: the baseline is the newest release, which will itself carry accepted sends.
-      const released = baseline.capabilities.filter(
-        (capability) => capability !== AGENT_SESSION_ACCEPTED_SEND_RUNTIME_CAPABILITY
-      )
+      const released = baselineWithout(AGENT_SESSION_ACCEPTED_SEND_RUNTIME_CAPABILITY)
       const created = await answer('agentSession.create', createIntentParams())
       await bootHost('b')
       let open = (): void => undefined
@@ -902,9 +902,7 @@ describe('cross-version structured agent sessions', () => {
 
     // Create replies at spawn, so the first send carries handshake proof; unproven starts must time out as rejected messages.
     it("answers a released client's send once the startup limit ends a start that never proves itself", async () => {
-      const released = baseline.capabilities.filter(
-        (capability) => capability !== AGENT_SESSION_ACCEPTED_SEND_RUNTIME_CAPABILITY
-      )
+      const released = baselineWithout(AGENT_SESSION_ACCEPTED_SEND_RUNTIME_CAPABILITY)
       const created = await answer('agentSession.create', createIntentParams())
       // The ceiling counts from the start's registration, so a short one ends a start whose
       // handshake never answers without waiting out the real ten minutes.

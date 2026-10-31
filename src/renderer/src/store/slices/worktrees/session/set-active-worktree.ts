@@ -34,7 +34,7 @@ export function createSetActiveWorktree(
       worktreeId &&
       (get().activeWorktreeId !== worktreeId ||
         get().activeWorkspaceExecutionHostId !== (executionHostId ?? null)) &&
-      !canSelectWorkspace(worktreeId, executionHostId)
+      !canSelectWorkspace(worktreeId, get, executionHostId)
     ) {
       return false
     }

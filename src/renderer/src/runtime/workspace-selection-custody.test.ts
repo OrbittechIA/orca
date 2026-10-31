@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { useAppStore } from '@/store'
 import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
 import type { SelectionFrame } from '../../../shared/worktree/custody-selection'
 import type { RuntimeRpcSubscriptionHandlers } from './runtime-rpc-subscribe'
@@ -129,7 +130,7 @@ function round(stream: Stream, worktreeId: string): SelectionFrame {
 it('reads selected and mounted folder/background views and guards only new target admissions', async () => {
   const api = await import('./workspace-selection-custody')
   api.registerMountedWorkspaceReader(() => new Set(['folder:background']))
-  stop = api.startWorkspaceSelectionCustody()
+  stop = api.startWorkspaceSelectionCustody(useAppStore)
   const local = streams[0]
   ready(local)
   local.handlers.onEvent(round(local, 'folder:background'))
@@ -139,18 +140,18 @@ it('reads selected and mounted folder/background views and guards only new targe
     expect.objectContaining({ disposition: 'held' })
   )
   local.handlers.onEvent(round(local, 'target'))
-  expect(api.canSelectWorkspace('target')).toBe(false)
-  expect(api.canSelectWorkspace('other')).toBe(true)
-  expect(api.canMountWorkspace('selected')).toBe(true)
-  expect(api.canMountWorkspace('target')).toBe(false)
+  expect(api.canSelectWorkspace('target', useAppStore.getState)).toBe(false)
+  expect(api.canSelectWorkspace('other', useAppStore.getState)).toBe(true)
+  expect(api.canMountWorkspace('selected', useAppStore.getState)).toBe(true)
+  expect(api.canMountWorkspace('target', useAppStore.getState)).toBe(false)
   local.handlers.onClose()
-  expect(api.canSelectWorkspace('target')).toBe(false)
+  expect(api.canSelectWorkspace('target', useAppStore.getState)).toBe(false)
 })
 
 it('keeps same-ID workspaces on different execution hosts separate and holds on unknown mounted owners', async () => {
   const api = await import('./workspace-selection-custody')
   api.registerMountedWorkspaceReader(() => new Set(['unresolved-owner']))
-  stop = api.startWorkspaceSelectionCustody()
+  stop = api.startWorkspaceSelectionCustody(useAppStore)
   const local = streams[0]
   ready(local)
   local.handlers.onEvent(round(local, 'target'))
@@ -159,14 +160,14 @@ it('keeps same-ID workspaces on different execution hosts separate and holds on 
     'workspace.selection.ack.v1',
     expect.objectContaining({ disposition: 'unknown' })
   )
-  expect(api.canSelectWorkspace('target', 'runtime:another-host')).toBe(true)
-  expect(api.canSelectWorkspace('target')).toBe(false)
+  expect(api.canSelectWorkspace('target', useAppStore.getState, 'runtime:another-host')).toBe(true)
+  expect(api.canSelectWorkspace('target', useAppStore.getState)).toBe(false)
 })
 
 it('uses a single real browser environment target, including local-owner aliases', async () => {
   mocks.web = true
   const api = await import('./workspace-selection-custody')
-  stop = api.startWorkspaceSelectionCustody()
+  stop = api.startWorkspaceSelectionCustody(useAppStore)
   await Promise.resolve()
   expect(streams).toHaveLength(1)
   expect(streams[0].target).toEqual({ kind: 'environment', environmentId: 'browser-host' })
@@ -178,7 +179,7 @@ it('uses a single real browser environment target, including local-owner aliases
     expect.objectContaining({ disposition: 'held' })
   )
   streams[0].handlers.onEvent(round(streams[0], 'target'))
-  expect(api.canSelectWorkspace('target')).toBe(false)
+  expect(api.canSelectWorkspace('target', useAppStore.getState)).toBe(false)
 })
 
 it.each(['custody_unsupported', 'custody_selection_native_inventory_unknown', 'method_not_found'])(
@@ -188,7 +189,7 @@ it.each(['custody_unsupported', 'custody_selection_native_inventory_unknown', 'm
     mocks.owners.set('selected', target)
     mocks.owners.set('target', target)
     const api = await import('./workspace-selection-custody')
-    stop = api.startWorkspaceSelectionCustody()
+    stop = api.startWorkspaceSelectionCustody(useAppStore)
     const diagnostics = mocks.diagnostics.mock.calls[0][0]
     const event = {
       environmentId: 'paired-host',
@@ -211,37 +212,37 @@ it.each(['custody_unsupported', 'custody_selection_native_inventory_unknown', 'm
     const attempts = mocks.subscribe.mock.calls.length
     for (let i = 0; i < 20; i++) {
       mocks.stateSubscribe.mock.calls[0][0]()
-      api.ensureWorkspaceSelectionCustody(target)
+      api.ensureWorkspaceSelectionCustody(target, useAppStore.getState)
       diagnostics(event)
     }
     expect(mocks.subscribe).toHaveBeenCalledTimes(attempts)
-    expect(api.canSelectWorkspace('target')).toBe(false)
-    expect(api.canSelectWorkspace('other')).toBe(true)
+    expect(api.canSelectWorkspace('target', useAppStore.getState)).toBe(false)
+    expect(api.canSelectWorkspace('other', useAppStore.getState)).toBe(true)
     diagnostics({ ...event, transportGeneration: 2 })
     expect(mocks.subscribe).toHaveBeenCalledTimes(attempts + 1)
     expect(latestStream().params).toEqual(expect.objectContaining({ pendingFences: [fence] }))
     current.handlers.onError({ code })
     ready(latestStream())
-    expect(api.canSelectWorkspace('target')).toBe(false)
+    expect(api.canSelectWorkspace('target', useAppStore.getState)).toBe(false)
   }
 )
 
 it('does not retry a rejected local watch promise on subsequent store updates', async () => {
   mocks.subscribe.mockRejectedValueOnce(new Error('custody_selection_native_inventory_unknown'))
   const api = await import('./workspace-selection-custody')
-  stop = api.startWorkspaceSelectionCustody()
+  stop = api.startWorkspaceSelectionCustody(useAppStore)
   await Promise.resolve()
   await Promise.resolve()
   for (let i = 0; i < 20; i++) {
     mocks.stateSubscribe.mock.calls[0][0]()
   }
   expect(mocks.subscribe).toHaveBeenCalledTimes(1)
-  expect(api.canSelectWorkspace('other')).toBe(true)
+  expect(api.canSelectWorkspace('other', useAppStore.getState)).toBe(true)
 })
 
 it('keeps failed selection reports terminal for the current watch without affecting ordinary navigation', async () => {
   const api = await import('./workspace-selection-custody')
-  stop = api.startWorkspaceSelectionCustody()
+  stop = api.startWorkspaceSelectionCustody(useAppStore)
   ready(streams[0])
   await Promise.resolve()
   await Promise.resolve()
@@ -255,13 +256,13 @@ it('keeps failed selection reports terminal for the current watch without affect
     mocks.stateSubscribe.mock.calls[0][0]()
   }
   expect(mocks.subscribe).toHaveBeenCalledTimes(1)
-  expect(api.canSelectWorkspace('other')).toBe(true)
+  expect(api.canSelectWorkspace('other', useAppStore.getState)).toBe(true)
 })
 
 it('retries browser custody after actual contact returns while duplicate ready statuses leave a refusal latched', async () => {
   mocks.web = true
   const api = await import('./workspace-selection-custody')
-  stop = api.startWorkspaceSelectionCustody()
+  stop = api.startWorkspaceSelectionCustody(useAppStore)
   await Promise.resolve()
   const status = mocks.status.mock.calls[0][0]
   const event = {
@@ -284,7 +285,7 @@ it('retries browser custody after actual contact returns while duplicate ready s
     mocks.stateSubscribe.mock.calls[0][0]()
   }
   expect(mocks.subscribe).toHaveBeenCalledTimes(attempts)
-  expect(api.canSelectWorkspace('target')).toBe(false)
+  expect(api.canSelectWorkspace('target', useAppStore.getState)).toBe(false)
   status({ ...event, transport: 'disconnected' })
   status(event)
   expect(mocks.subscribe).toHaveBeenCalledTimes(attempts + 1)

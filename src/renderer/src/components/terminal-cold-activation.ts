@@ -65,7 +65,11 @@ export function applyTerminalColdActivation(controller: TerminalParkingFoundatio
   if (
     renderedActiveWorktreeId &&
     !startupHeldWorktreeId &&
-    canMountWorkspace(renderedActiveWorktreeId, activeWorktreeDeferralHostId ?? undefined)
+    canMountWorkspace(
+      renderedActiveWorktreeId,
+      useAppStore.getState,
+      activeWorktreeDeferralHostId ?? undefined
+    )
   ) {
     const worktreeTabs = tabsByWorktree[renderedActiveWorktreeId] ?? []
     const coldActivationDeferralEnabled =

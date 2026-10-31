@@ -5,7 +5,8 @@ import {
   WORKTREE_SELECTION_CAPABILITY
 } from '../../../shared/worktree/custody-selection'
 import { WorktreeSelectionClient } from '../../../shared/worktree/custody-selection-client'
-import { useAppStore } from '@/store'
+import type { StoreApi } from 'zustand'
+import type { AppState } from '@/store/types'
 import { tryRuntimeTargetForWorktreeOwner } from '@/store/slices/worktrees/listing/worktree-owner-target'
 import { callRuntimeRpc } from './runtime-rpc-client'
 import { subscribeRuntimeRpc } from './runtime-rpc-subscribe'
@@ -31,12 +32,13 @@ type Host = {
   signature: string
 }
 const hosts = new Map<string, Host>()
+type StateReader = () => AppState
 
-function hostFor(target: RuntimeClientTarget): Host {
+function hostFor(target: RuntimeClientTarget, readState: StateReader): Host {
   const key = targetKey(target)
   let host = hosts.get(key)
   if (!host) {
-    const client = new WorktreeSelectionClient(createUuidV4(), () => snapshot(target))
+    const client = new WorktreeSelectionClient(createUuidV4(), () => snapshot(target, readState()))
     const created: Host = {
       target,
       client,
@@ -90,35 +92,46 @@ function publish(host: Host): void {
     })
 }
 
-export function canSelectWorkspace(workspaceId: string, hostId?: ExecutionHostId): boolean {
-  const state = useAppStore.getState()
+export function canSelectWorkspace(
+  workspaceId: string,
+  readState: StateReader,
+  hostId?: ExecutionHostId
+): boolean {
+  const state = readState()
   const resolved = tryRuntimeTargetForWorktreeOwner(state, workspaceId, hostId)
   const target = resolved && canonicalTarget(resolved)
   if (!target) {
     return [...hosts.values()].every((host) => host.client.canSelect(workspaceId))
   }
-  const host = hostFor(target)
+  const host = hostFor(target, readState)
   return host.client.canSelect(workspaceId)
 }
 
-export function canMountWorkspace(workspaceId: string, hostId?: ExecutionHostId): boolean {
-  const state = useAppStore.getState()
+export function canMountWorkspace(
+  workspaceId: string,
+  readState: StateReader,
+  hostId?: ExecutionHostId
+): boolean {
+  const state = readState()
   if (
     state.activeWorktreeId === workspaceId &&
     (!hostId || (state.activeWorkspaceExecutionHostId ?? 'local') === hostId)
   ) {
     return true
   }
-  return canSelectWorkspace(workspaceId, hostId)
+  return canSelectWorkspace(workspaceId, readState, hostId)
 }
 
-export function ensureWorkspaceSelectionCustody(target: RuntimeClientTarget): void {
+export function ensureWorkspaceSelectionCustody(
+  target: RuntimeClientTarget,
+  readState: StateReader
+): void {
   const canonical = canonicalTarget(target)
   if (!canonical) {
     return
   }
   target = canonical
-  const host = hostFor(target)
+  const host = hostFor(target, readState)
   if (host.stop || host.opening || host.failed) {
     return
   }
@@ -137,7 +150,7 @@ export function ensureWorkspaceSelectionCustody(target: RuntimeClientTarget): vo
     host.stop = undefined
     stop?.()
   }
-  const selected = snapshot(target)
+  const selected = snapshot(target, readState())
   host.signature = JSON.stringify([
     selected.complete,
     selected.complete ? selected.workspaceIds : []
@@ -192,13 +205,15 @@ export function ensureWorkspaceSelectionCustody(target: RuntimeClientTarget): vo
   }, disconnect)
 }
 
-export function startWorkspaceSelectionCustody(): () => void {
+export function startWorkspaceSelectionCustody(
+  store: Pick<StoreApi<AppState>, 'getState' | 'subscribe'>
+): () => void {
   let stopped = false
   const reconnect = (target: RuntimeClientTarget, connection: string) => {
     if (stopped) {
       return
     }
-    const host = hostFor(target)
+    const host = hostFor(target, store.getState)
     if (host.connection === connection) {
       return
     }
@@ -210,11 +225,11 @@ export function startWorkspaceSelectionCustody(): () => void {
     host.client.disconnect()
     stop?.()
     host.failed = false
-    ensureWorkspaceSelectionCustody(target)
+    ensureWorkspaceSelectionCustody(target, store.getState)
   }
   const browserConnections = new Map<string, { identity: string; ready: boolean; epoch: number }>()
   const refresh = () => {
-    const state = useAppStore.getState()
+    const state = store.getState()
     const ids = new Set(state.activeWorktreeId ? [state.activeWorktreeId] : [])
     for (const id of mountedWorkspaceIds() ?? []) {
       ids.add(id)
@@ -222,7 +237,7 @@ export function startWorkspaceSelectionCustody(): () => void {
     for (const id of ids) {
       const target = tryRuntimeTargetForWorktreeOwner(state, id)
       if (target) {
-        ensureWorkspaceSelectionCustody(target)
+        ensureWorkspaceSelectionCustody(target, store.getState)
       }
     }
     for (const host of hosts.values()) {
@@ -234,20 +249,20 @@ export function startWorkspaceSelectionCustody(): () => void {
       (environments) => {
         if (!stopped && environments.length === 1 && !hasCustodyBrowserEnvironment()) {
           setCustodyBrowserEnvironment(environments[0].id)
-          ensureWorkspaceSelectionCustody({
-            kind: 'environment',
-            environmentId: environments[0].id
-          })
+          ensureWorkspaceSelectionCustody(
+            { kind: 'environment', environmentId: environments[0].id },
+            store.getState
+          )
           refresh()
         }
       },
       () => {}
     )
   } else {
-    ensureWorkspaceSelectionCustody({ kind: 'local' })
+    ensureWorkspaceSelectionCustody({ kind: 'local' }, store.getState)
   }
   refresh()
-  const unsubscribeState = useAppStore.subscribe(refresh)
+  const unsubscribeState = store.subscribe(refresh)
   const unsubscribeStatus = isWebClientLocation()
     ? window.api.runtimeEnvironments.onStatusChanged((event) => {
         const previous = browserConnections.get(event.environmentId)

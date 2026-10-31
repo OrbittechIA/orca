@@ -147,7 +147,7 @@ export function useTerminalWorktreePrewarm(controller: TerminalColdActivationCon
       if (
         // Without hidden-view parking nothing unmounts a released lease, so prewarm would pin every target.
         !c.terminalParkingEnabled ||
-        !canMountWorkspace(worktreeId) ||
+        !canMountWorkspace(worktreeId, useAppStore.getState) ||
         worktreeId === c.renderedActiveWorktreeId ||
         !c.workspaceSurfaceIdSet.has(worktreeId) ||
         // Until startup publishes PTY ownership, a hidden mount could duplicate shells.

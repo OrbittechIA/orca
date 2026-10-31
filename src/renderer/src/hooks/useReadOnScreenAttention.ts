@@ -12,7 +12,7 @@ import {
 } from './client-workspace-view-report'
 
 export function useReadOnScreenAttention(): void {
-  useEffect(startWorkspaceSelectionCustody, [])
+  useEffect(() => startWorkspaceSelectionCustody(useAppStore), [])
   useEffect(
     () =>
       startOnScreenAttentionScan(useAppStore, {
