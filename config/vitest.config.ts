@@ -5,6 +5,7 @@ import { normalizePath, transformWithOxc, type Plugin } from 'vite'
 import { configDefaults, defaultExclude, defineConfig } from 'vitest/config'
 import { UNIT_INCLUDE, UNIT_EXCLUDE, UNIT_SETUP_FILES } from './scripts/ci-unit-files.mjs'
 import TimingSequencer from './scripts/ci-unit-sequencer.mjs'
+import { UNIT_FAILURE_REPORT_DIR_ENV } from './scripts/ci-unit-failure-reporter.mjs'
 import RuntimeSequencer from './scripts/vitest-runtime-sequencer.mjs'
 import { getNodeRuntimeInclude } from './scripts/vitest-node-runtime-files.mjs'
 import { nodeRuntimePool } from './scripts/vitest-node-runtime-pool'
@@ -17,6 +18,7 @@ const nodeRuntimeInclude = process.versions.bun
   : []
 const balancedShards = process.env.ORCA_BALANCE_UNIT_SHARDS === '1'
 const moduleCachePath = process.env.ORCA_UNIT_MODULE_CACHE_PATH
+const failureReportDirectory = process.env[UNIT_FAILURE_REPORT_DIR_ENV]
 const measurementFile = 'src/main/foreign-sqlite-readers/foreign-sqlite-reader-event-loop.test.ts'
 const paletteMeasurementFile =
   'src/renderer/src/lib/palette-match/palette-match-performance.test.ts'
@@ -163,9 +165,17 @@ export default defineConfig({
       '**/src/packages/**'
     ],
     sequence: { sequencer: balancedShards ? TimingSequencer : RuntimeSequencer },
-    ...(balancedShards
+    ...(balancedShards || failureReportDirectory
       ? {
-          reporters: ['default', resolve('config/scripts/ci-unit-timing-reporter.mjs')]
+          reporters: [
+            ...(balancedShards
+              ? ['default', resolve('config/scripts/ci-unit-timing-reporter.mjs')]
+              : configDefaults.reporters),
+            // Optional failure evidence keeps the reporters Vitest or the shard plan already chose.
+            ...(failureReportDirectory
+              ? [resolve('config/scripts/ci-unit-failure-reporter.mjs')]
+              : [])
+          ]
         }
       : {}),
     projects,
