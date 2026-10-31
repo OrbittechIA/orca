@@ -20,7 +20,10 @@ import type { StructuredAgentSessionCreateParams } from '../../../shared/structu
 import { withFrameDrawnChatTabPlacement } from './frame-drawn-chat-tab-placement'
 import { publishStructuredAgentSessionCreateHydration } from './structured-agent-session-create-hydration'
 import { askHostCreateSupport } from './structured-agent-session-host-admission'
-import { settleStructuredLaunchSourceJoiners } from './structured-agent-session-launch-source-handoff'
+import {
+  hasPendingStructuredLaunchSourceJoiners,
+  settleStructuredLaunchSourceJoiners
+} from './structured-agent-session-launch-source-handoff'
 import { readStructuredChatHostPermissionVerdict } from '@/runtime/structured-chat-host-permission'
 import {
   abandonStructuredAgentSessionLaunchIntent,
@@ -142,8 +145,8 @@ export async function launchStructuredAgentSession(
     }
   }
   let result: AgentSessionMutationResult<AgentSessionAttachResult>
-  // A retired source's create may still be taken over by a joiner its host is admitting.
-  if (!isCancelled() && intent.beforeCreate?.() === false) {
+  // A joiner its host is still admitting may take over a retired source; waits at most that admission.
+  if (!isCancelled() && hasPendingStructuredLaunchSourceJoiners(intent)) {
     await settleStructuredLaunchSourceJoiners(intent)
   }
   // Typed so an async placement fails to compile: a tick here drops an eager joiner's create.

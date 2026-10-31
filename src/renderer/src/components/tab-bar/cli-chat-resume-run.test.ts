@@ -459,6 +459,27 @@ describe('CLI identity resume through the existing launch owner', () => {
     }
   )
 
+  it('consults a source once, at create, when no History joiner is pending', async () => {
+    const beforeCreate = vi.fn(() => true)
+    const launch = beginStructuredAgentSessionProvisionalLaunch({
+      hooks: { beforeCreate },
+      plan: adoptAgentSessionLaunchVerdict({
+        route: 'structured-native-chat',
+        requestId: newAgentLaunchRequestId(),
+        agent: 'claude',
+        worktreeId: 'wt-1',
+        executionHostId: 'local',
+        resumeFrom: {
+          providerSessionId: 'provider-1',
+          cliSource: { workspaceId: 'wt-1', paneKey: 'tab-1:leaf' }
+        }
+      })
+    })
+    await launch?.settlement
+    expect(beforeCreate).toHaveBeenCalledOnce()
+    expect(mocks.call).toHaveBeenCalledOnce()
+  })
+
   it('creates nothing for a closed terminal when its History joiner is cancelled before admission', async () => {
     const capability = deferred<boolean>()
     mocks.createCapability.mockReturnValue(capability.promise)

@@ -74,13 +74,17 @@ export function holdStructuredLaunchSourceForJoiner(args: {
   }
 }
 
-/** Waits until no admitted-pending joiner can still take over this intent's source-bound create. */
+export function hasPendingStructuredLaunchSourceJoiners(
+  intent: StructuredAgentSessionLaunchIntent
+): boolean {
+  return !!intent.beforeCreate && !!pendingSourceJoiners.get(intent)?.size
+}
+
+/** Waits until no joiner awaiting host admission can still take over this intent's source-bound create. */
 export async function settleStructuredLaunchSourceJoiners(
   intent: StructuredAgentSessionLaunchIntent
 ): Promise<void> {
-  let holds = pendingSourceJoiners.get(intent)
-  while (intent.beforeCreate && holds?.size) {
-    await Promise.all(holds)
-    holds = pendingSourceJoiners.get(intent)
+  while (hasPendingStructuredLaunchSourceJoiners(intent)) {
+    await Promise.all(pendingSourceJoiners.get(intent) ?? [])
   }
 }
