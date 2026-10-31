@@ -165,22 +165,41 @@ it('keeps unknown history and streams refused even when the store proves absence
   const subscribe = vi.spyOn(rig.host, 'subscribe')
   expect(rig.store.selectWritableRecord(SESSION)).toEqual({ kind: 'missing' })
   for (const method of ['agentSession.history', 'agentSession.subscribe']) {
-    expect(
-      await call(
-        method,
-        {
-          sessionId: SESSION,
-          ...(method === 'agentSession.history' ? { direction: 'tail' } : {})
-        },
-        owner
-      )
-    ).toMatchObject({
-      ok: false,
-      error: { message: 'structured_agent_session_unsupported' }
-    })
+    for (const client of [owner, desktop]) {
+      expect(
+        await call(
+          method,
+          {
+            sessionId: SESSION,
+            ...(method === 'agentSession.history' ? { direction: 'tail' } : {})
+          },
+          client
+        )
+      ).toMatchObject({
+        ok: false,
+        error: { message: 'structured_agent_session_unsupported' }
+      })
+    }
   }
   expect(history).not.toHaveBeenCalled()
   expect(subscribe).not.toHaveBeenCalled()
+})
+
+it('answers a proven-missing read as missing only to a caller that can own no launch', async () => {
+  const legacy = { clientKind: owner.clientKind, clientCapabilities: owner.clientCapabilities }
+  const history = vi.spyOn(rig.host, 'history')
+  expect(
+    await call('agentSession.history', { sessionId: SESSION, direction: 'tail' }, legacy)
+  ).toMatchObject({ ok: false, error: { message: 'agent_session_identity_required' } })
+  expect(history).not.toHaveBeenCalled()
+
+  const older = hostStub()
+  Reflect.deleteProperty(older.deps.store, 'selectWritableRecord')
+  setStructuredAgentSessionHost(older)
+  expect(
+    await call('agentSession.history', { sessionId: 'codex_missing', direction: 'tail' }, legacy)
+  ).toMatchObject({ ok: false, error: { message: 'structured_agent_session_unsupported' } })
+  expect(older.history).not.toHaveBeenCalled()
 })
 
 it('refuses fresh create on an older store that cannot prove absence', async () => {

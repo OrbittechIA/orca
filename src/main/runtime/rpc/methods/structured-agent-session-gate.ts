@@ -9,7 +9,8 @@ import type { RpcContext } from '../core'
 import { rpcCallerOperationKey } from '../rpc-caller-identity'
 import {
   canReadStructuredSessionRecord,
-  structuredSessionAdmissionRecord
+  structuredSessionAdmissionRecord,
+  structuredWorkItemStartCallerAuthority
 } from './structured-agent-session-launch-authority'
 export {
   structuredWorkItemStartCallerAuthority,
@@ -177,8 +178,11 @@ export async function requireInstalledStructuredHost(
   if (!sessionId) {
     return requireStructuredHost(ctx)
   }
-  // An authoritative missing record answers as the host's own read would; unreadable or unknown stays refused.
-  if (structuredSessionProvablyAbsent(requireStructuredHost(ctx), sessionId)) {
+  // Only a caller that can own no scoped launch hears a proven absence; launch owners, unreadable and unknown stay refused.
+  if (
+    structuredWorkItemStartCallerAuthority(ctx) === null &&
+    structuredSessionProvablyAbsent(requireStructuredHost(ctx), sessionId)
+  ) {
     throw agentSessionRefusalError('agent_session_identity_required', { reason: 'recordMissing' })
   }
   return requireStructuredSessionHost(ctx, sessionId)
