@@ -9,6 +9,7 @@ import { readCodexSandboxPolicy, type CodexSandboxPolicy } from './codex-structu
 import type { BoundOrchestrationFilesystemScope } from '../../shared/orchestration-filesystem-scope'
 import {
   codexFilesystemScopeThreadSettings,
+  codexScopedMcpDisableConfig,
   codexScopedToolSurfaceViolation,
   codexScopeReplyViolation
 } from './codex-structured-filesystem-scope'
@@ -71,10 +72,14 @@ export async function openCodexThread(
   const scoped = launch.filesystemScope
     ? codexFilesystemScopeThreadSettings(launch.filesystemScope)
     : undefined
+  const scopedMcp = scoped
+    ? await codexScopedMcpDisableConfig(connection, scoped.cwd, timeoutMs)
+    : {}
   const config = {
     ...launch.threadConfig,
     ...shellEnvironmentSetConfig(launch.commandEnv),
-    ...scoped?.config
+    ...scoped?.config,
+    ...scopedMcp
   }
   const threadSettings = {
     cwd: scoped?.cwd ?? launch.cwd,

@@ -8,7 +8,6 @@ import type { CodexSandboxPolicy } from './codex-structured-sandbox-policy'
 // Temp dirs and network are closed; `never` leaves no escalation for a reviewer to grant.
 // MCP servers, plugins and apps run outside the sandbox, so a scoped thread may expose none.
 const UNSANDBOXED_TOOL_CONFIG = {
-  mcp_servers: {},
   'features.plugins': false,
   'apps._default.enabled': false
 } as const
@@ -118,9 +117,43 @@ export async function codexScopeLaunchViolation(
 }
 
 const mcpStatusPage = z.object({
-  data: z.array(z.looseObject({ name: z.string() })),
+  data: z.array(
+    z.looseObject({
+      name: z.string(),
+      runtimeStatus: z.unknown(),
+      tools: z.record(z.string(), z.unknown()).optional(),
+      resources: z.array(z.unknown()).optional(),
+      resourceTemplates: z.array(z.unknown()).optional()
+    })
+  ),
   nextCursor: z.string().nullish()
 })
+const configuredMcpServers = z.object({
+  config: z.looseObject({ mcp_servers: z.record(z.string(), z.unknown()).nullish() })
+})
+
+/** Disable each configured server for this thread; an empty table override is not honored. */
+export async function codexScopedMcpDisableConfig(
+  connection: Pick<CodexAppServerConnection, 'request'>,
+  cwd: string,
+  timeoutMs: number | null | undefined
+): Promise<Record<string, false>> {
+  const read = configuredMcpServers.safeParse(
+    await connection.request('config/read', { cwd }, { timeoutMs })
+  )
+  if (!read.success) {
+    throw new Error('Filesystem scope not applied: codex did not report its configured MCP servers')
+  }
+  const { config } = read.data
+  const names = Object.keys(config.mcp_servers ?? {})
+  const unaddressable = names.filter((name) => !/^[A-Za-z0-9_-]+$/.test(name))
+  if (unaddressable.length > 0) {
+    throw new Error(
+      `Filesystem scope not applied: MCP servers ${unaddressable.join(', ')} cannot be disabled by name`
+    )
+  }
+  return Object.fromEntries(names.map((name) => [`mcp_servers.${name}.enabled`, false]))
+}
 const installedApps = z.object({
   apps: z.array(z.looseObject({ id: z.string(), callable: z.boolean() }))
 })
@@ -139,8 +172,16 @@ export async function codexScopedToolSurfaceViolation(
         { timeoutMs }
       )
     )
-    if (servers.data.length > 0 || servers.nextCursor) {
-      const names = servers.data.map((server) => server.name).join(', ')
+    // Only positively disabled, empty entries are inert; failed or unknown status proves nothing.
+    const live = servers.data.filter(
+      (server) =>
+        server.runtimeStatus !== 'disabled' ||
+        Object.keys(server.tools ?? {}).length > 0 ||
+        (server.resources?.length ?? 0) > 0 ||
+        (server.resourceTemplates?.length ?? 0) > 0
+    )
+    if (live.length > 0 || servers.nextCursor) {
+      const names = live.map((server) => server.name).join(', ')
       return `the thread exposes MCP servers that run outside the sandbox: ${names || 'more pages'}`
     }
     const apps = installedApps.parse(

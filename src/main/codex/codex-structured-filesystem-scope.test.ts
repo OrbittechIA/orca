@@ -39,6 +39,13 @@ const analyst: BoundOrchestrationFilesystemScope = {
   roots: [],
   cwd: '/wt'
 }
+const disabledServer = {
+  name: 'seeded',
+  runtimeStatus: 'disabled',
+  tools: {},
+  resources: [],
+  resourceTemplates: []
+}
 const writerSandbox = {
   type: 'workspaceWrite',
   writableRoots: ['/wt/src', '/wt/docs'],
@@ -55,8 +62,10 @@ function scopedCodex(sandbox: unknown, surface: Partial<Record<string, () => unk
       approvalsReviewer: 'user',
       sandbox
     }),
+    'config/read':
+      surface['config/read'] ?? (() => ({ config: { mcp_servers: { seeded: { command: 'x' } } } })),
     'mcpServerStatus/list':
-      surface['mcpServerStatus/list'] ?? (() => ({ data: [], nextCursor: null })),
+      surface['mcpServerStatus/list'] ?? (() => ({ data: [disabledServer], nextCursor: null })),
     'app/installed':
       surface['app/installed'] ?? (() => ({ apps: [{ id: 'x', enabled: false, callable: false }] }))
   })
@@ -100,7 +109,7 @@ describe('Codex filesystem scope on the structured provider', () => {
       approvalsReviewer: 'user',
       sandbox: 'workspace-write',
       config: {
-        mcp_servers: {},
+        'mcp_servers.seeded.enabled': false,
         'features.plugins': false,
         'apps._default.enabled': false,
         'sandbox_workspace_write.writable_roots': ['/wt/src', '/wt/docs'],
@@ -129,6 +138,13 @@ describe('Codex filesystem scope on the structured provider', () => {
     }
   })
 
+  it('starts the scoped app-server inside the scope while the worktree stays the launch identity', async () => {
+    const codex = scopedCodex(writerSandbox)
+    await acquireScoped(codex, writer)
+    expect(codex.connections[0].launch.cwd).toBe('/wt/src')
+    expect(callsFor(codex, 'config/read')[0]?.params).toMatchObject({ cwd: '/wt/src' })
+  })
+
   it('reads the thread tool surface back before any turn', async () => {
     const codex = scopedCodex(writerSandbox)
     await acquireScoped(codex, writer)
@@ -143,6 +159,35 @@ describe('Codex filesystem scope on the structured provider', () => {
       'an MCP server',
       { 'mcpServerStatus/list': () => ({ data: [{ name: 'shell' }], nextCursor: null }) },
       /MCP servers.*shell/
+    ],
+    ...(['ready', 'failed', undefined] as const).map(
+      (runtimeStatus) =>
+        [
+          `an MCP server whose status is ${runtimeStatus}`,
+          {
+            'mcpServerStatus/list': () => ({
+              data: [{ ...disabledServer, runtimeStatus }],
+              nextCursor: null
+            })
+          },
+          /MCP servers.*seeded/
+        ] as const
+    ),
+    [
+      'a disabled MCP server that still lists tools',
+      {
+        'mcpServerStatus/list': () => ({
+          data: [{ ...disabledServer, tools: { run: {} } }],
+          nextCursor: null
+        })
+      },
+      /MCP servers.*seeded/
+    ],
+    ['no configured-server readback', { 'config/read': () => ({}) }, /configured MCP servers/],
+    [
+      'an MCP server that cannot be disabled by name',
+      { 'config/read': () => ({ config: { mcp_servers: { 'a.b': {} } } }) },
+      /cannot be disabled by name/
     ],
     [
       'an unread MCP page',

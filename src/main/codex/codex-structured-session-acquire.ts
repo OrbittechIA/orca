@@ -128,7 +128,8 @@ export async function acquireCodexStructuredSession(input: {
       {
         command: launch.command,
         args: launch.args,
-        cwd: launch.cwd,
+        // Codex treats the app-server's startup cwd as writable; scoped servers start inside the scope.
+        cwd: launch.filesystemScope?.cwd ?? launch.cwd,
         ...(launch.env ? { env: launch.env } : {}),
         ...(launch.envToDelete ? { envToDelete: launch.envToDelete } : {})
       },
