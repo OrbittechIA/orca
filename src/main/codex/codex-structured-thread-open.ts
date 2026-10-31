@@ -9,6 +9,7 @@ import { readCodexSandboxPolicy, type CodexSandboxPolicy } from './codex-structu
 import type { BoundOrchestrationFilesystemScope } from '../../shared/orchestration-filesystem-scope'
 import {
   codexFilesystemScopeThreadSettings,
+  codexScopedToolSurfaceViolation,
   codexScopeReplyViolation
 } from './codex-structured-filesystem-scope'
 
@@ -158,8 +159,12 @@ export async function openCodexThread(
         ...(sandbox ? { sandbox } : {})
       })
     : null
-  if (scopeViolation) {
-    throw new Error(`Filesystem scope not applied: ${scopeViolation}`)
+  const toolViolation =
+    launch.filesystemScope && !scopeViolation
+      ? await codexScopedToolSurfaceViolation(connection, threadId, timeoutMs)
+      : null
+  if (scopeViolation || toolViolation) {
+    throw new Error(`Filesystem scope not applied: ${scopeViolation ?? toolViolation}`)
   }
   return {
     threadId,

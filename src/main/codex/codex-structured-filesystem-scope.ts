@@ -1,9 +1,17 @@
 import { realpath } from 'node:fs/promises'
+import { z } from 'zod'
+import type { CodexAppServerConnection } from './app-server/codex-app-server-connection-types'
 import type { BoundOrchestrationFilesystemScope } from '../../shared/orchestration-filesystem-scope'
 import type { CodexSandboxPolicy } from './codex-structured-sandbox-policy'
 
 // Codex always lets the thread cwd write under workspaceWrite, so the cwd is a scope root.
 // Temp dirs and network are closed; `never` leaves no escalation for a reviewer to grant.
+// MCP servers, plugins and apps run outside the sandbox, so a scoped thread may expose none.
+const UNSANDBOXED_TOOL_CONFIG = {
+  mcp_servers: {},
+  'features.plugins': false,
+  'apps._default.enabled': false
+} as const
 
 export function codexFilesystemScopeSandboxPolicy(
   scope: BoundOrchestrationFilesystemScope
@@ -29,11 +37,12 @@ export function codexFilesystemScopeThreadSettings(scope: BoundOrchestrationFile
 } {
   const base = { cwd: scope.cwd, approvalPolicy: 'never', approvalsReviewer: 'user' } as const
   return scope.kind === 'read-only'
-    ? { ...base, sandbox: 'read-only', config: {} }
+    ? { ...base, sandbox: 'read-only', config: { ...UNSANDBOXED_TOOL_CONFIG } }
     : {
         ...base,
         sandbox: 'workspace-write',
         config: {
+          ...UNSANDBOXED_TOOL_CONFIG,
           'sandbox_workspace_write.writable_roots': [...scope.roots],
           'sandbox_workspace_write.network_access': false,
           'sandbox_workspace_write.exclude_tmpdir_env_var': true,
@@ -106,4 +115,43 @@ export async function codexScopeLaunchViolation(
     }
   }
   return null
+}
+
+const mcpStatusPage = z.object({
+  data: z.array(z.looseObject({ name: z.string() })),
+  nextCursor: z.string().nullish()
+})
+const installedApps = z.object({
+  apps: z.array(z.looseObject({ id: z.string(), callable: z.boolean() }))
+})
+
+/** Positive readback from the opened thread; a failed or partial answer refuses rather than assumes. */
+export async function codexScopedToolSurfaceViolation(
+  connection: Pick<CodexAppServerConnection, 'request'>,
+  threadId: string,
+  timeoutMs: number | null | undefined
+): Promise<string | null> {
+  try {
+    const servers = mcpStatusPage.parse(
+      await connection.request(
+        'mcpServerStatus/list',
+        { threadId, detail: 'toolsAndAuthOnly' },
+        { timeoutMs }
+      )
+    )
+    if (servers.data.length > 0 || servers.nextCursor) {
+      const names = servers.data.map((server) => server.name).join(', ')
+      return `the thread exposes MCP servers that run outside the sandbox: ${names || 'more pages'}`
+    }
+    const apps = installedApps.parse(
+      await connection.request('app/installed', { threadId }, { timeoutMs })
+    )
+    const callable = apps.apps.filter((app) => app.callable).map((app) => app.id)
+    if (callable.length > 0) {
+      return `the thread exposes app connectors that run outside the sandbox: ${callable.join(', ')}`
+    }
+    return null
+  } catch (error) {
+    return `codex could not prove the thread has no unsandboxed tools (${error instanceof Error ? error.message : String(error)})`
+  }
 }

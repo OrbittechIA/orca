@@ -47,14 +47,18 @@ const writerSandbox = {
   excludeSlashTmp: true
 }
 
-function scopedCodex(sandbox: unknown) {
+function scopedCodex(sandbox: unknown, surface: Partial<Record<string, () => unknown>> = {}) {
   const codex = fakeCodex({
     'thread/start': () => ({
       thread: { id: 'thread-abc' },
       approvalPolicy: 'never',
       approvalsReviewer: 'user',
       sandbox
-    })
+    }),
+    'mcpServerStatus/list':
+      surface['mcpServerStatus/list'] ?? (() => ({ data: [], nextCursor: null })),
+    'app/installed':
+      surface['app/installed'] ?? (() => ({ apps: [{ id: 'x', enabled: false, callable: false }] }))
   })
   let turns = 0
   codex.routes['turn/start'] = (params) => answerWithOpenedTurn(codex, `turn-${++turns}`)(params)
@@ -96,6 +100,9 @@ describe('Codex filesystem scope on the structured provider', () => {
       approvalsReviewer: 'user',
       sandbox: 'workspace-write',
       config: {
+        mcp_servers: {},
+        'features.plugins': false,
+        'apps._default.enabled': false,
         'sandbox_workspace_write.writable_roots': ['/wt/src', '/wt/docs'],
         'sandbox_workspace_write.network_access': false,
         'sandbox_workspace_write.exclude_tmpdir_env_var': true,
@@ -120,6 +127,47 @@ describe('Codex filesystem scope on the structured provider', () => {
       })
       expect(call.params).not.toHaveProperty('cwd')
     }
+  })
+
+  it('reads the thread tool surface back before any turn', async () => {
+    const codex = scopedCodex(writerSandbox)
+    await acquireScoped(codex, writer)
+    expect(callsFor(codex, 'mcpServerStatus/list')[0]?.params).toMatchObject({
+      threadId: 'thread-abc'
+    })
+    expect(callsFor(codex, 'app/installed')[0]?.params).toMatchObject({ threadId: 'thread-abc' })
+  })
+
+  it.each([
+    [
+      'an MCP server',
+      { 'mcpServerStatus/list': () => ({ data: [{ name: 'shell' }], nextCursor: null }) },
+      /MCP servers.*shell/
+    ],
+    [
+      'an unread MCP page',
+      { 'mcpServerStatus/list': () => ({ data: [], nextCursor: 'next' }) },
+      /MCP servers/
+    ],
+    [
+      'a callable app',
+      { 'app/installed': () => ({ apps: [{ id: 'drive', enabled: true, callable: true }] }) },
+      /app connectors.*drive/
+    ],
+    [
+      'no MCP readback',
+      {
+        'mcpServerStatus/list': () => {
+          throw new Error('method not found')
+        }
+      },
+      /could not prove/
+    ],
+    ['a malformed app readback', { 'app/installed': () => ({}) }, /could not prove/]
+  ])('refuses a scoped thread with %s', async (_name, surface, message) => {
+    await expect(acquireScoped(scopedCodex(writerSandbox, surface), writer)).rejects.toThrow(
+      message
+    )
   })
 
   it('opens an analyst thread read-only at the worktree', async () => {
