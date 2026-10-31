@@ -191,7 +191,7 @@ export class WorkspaceSelectionViews {
           return Promise.resolve('unknown' as const)
         }
         const local = {
-          ...round,
+          fence: round.fence,
           nonce: createUuidV4(),
           clientIncarnation: channel.incarnation,
           channelNonce: channel.nonce,
