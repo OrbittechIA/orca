@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import UnitFailureReporter, {
   clipText,
   describeInvocationArgs,
@@ -17,10 +17,13 @@ const runArgs = process.env.ORCA_VITEST_RUN_ARGS
 
 // Byte budgets below depend on record sizes, so the reporter must not echo this run's own arguments.
 beforeEach(() => {
+  vi.useFakeTimers()
   process.env.ORCA_VITEST_RUN_ARGS = '["run"]'
 })
 
 afterEach(() => {
+  vi.clearAllTimers()
+  vi.useRealTimers()
   if (runArgs === undefined) {
     delete process.env.ORCA_VITEST_RUN_ARGS
   } else {
@@ -45,6 +48,8 @@ const testCase = (fullName, state, errors) => ({
 
 function testModule(file, { state = 'passed', errors = [], suites = [], tests = [] } = {}) {
   return {
+    id: `node:${file}`,
+    type: 'module',
     moduleId: `${ROOT}/${file}`,
     project: { name: 'node' },
     state: () => state,
@@ -79,6 +84,10 @@ function reports(directory) {
   return readdirSync(directory)
     .sort()
     .map((name) => ({ name, report: JSON.parse(readFileSync(join(directory, name), 'utf8')) }))
+}
+
+function progressReport(directory, reporter) {
+  return JSON.parse(readFileSync(join(directory, `${reporter.id}.progress.json`), 'utf8'))
 }
 
 describe('unit failure evidence', () => {
@@ -183,6 +192,103 @@ describe('unit failure evidence', () => {
     )
 
     expect(reports(directory)[0].report.executionComplete).toBe(false)
+  })
+
+  it('persists failures and the active hook without waiting for a run-end callback', () => {
+    const directory = reportDirectory()
+    const reporter = new UnitFailureReporter({ directory })
+    const unhandled = []
+    reporter.onInit({ config: { root: ROOT }, state: { getUnhandledErrors: () => unhandled } })
+    reporter.onTestRunStart([{}, {}, {}, {}])
+    const failed = failingModule('cases.test.ts')
+    const [test] = failed.children.allTests()
+    Object.assign(test, { id: 'case-1', type: 'test', module: failed })
+    reporter.onTestModuleQueued(failed)
+    reporter.onTestCaseReady(test)
+    reporter.onTestCaseResult(test)
+    expect(progressReport(directory, reporter).failures).toMatchObject([
+      { file: 'cases.test.ts', test: 'fails' }
+    ])
+    reporter.onTestModuleEnd(failed)
+    const broken = testModule('import.test.ts', {
+      state: 'failed',
+      errors: [{ message: 'import failed' }]
+    })
+    reporter.onTestModuleQueued(broken)
+    reporter.onTestModuleEnd(broken)
+    const suite = { id: 'suite-1', type: 'suite', fullName: 'outer', errors: () => [] }
+    const stuck = testModule('stuck.test.ts', { state: 'pending', suites: [suite] })
+    suite.module = stuck
+    reporter.onTestModuleQueued(stuck)
+    reporter.onTestModuleCollected(stuck)
+    reporter.onTestModuleStart(stuck)
+    reporter.onTestSuiteReady(suite)
+    reporter.onHookStart({ entity: suite, name: 'beforeAll' })
+    unhandled.push({ message: 'worker exited unexpectedly' })
+    vi.advanceTimersByTime(5_000)
+
+    const progress = progressReport(directory, reporter)
+    expect(progress).toMatchObject({
+      status: 'running',
+      executionComplete: false,
+      inventoryComplete: false,
+      snapshotOnly: true,
+      plannedModules: 4,
+      failures: [{ file: 'cases.test.ts', test: 'fails' }],
+      moduleErrors: [{ file: 'import.test.ts', error: { message: 'import failed' } }],
+      unhandledErrors: [{ message: 'worker exited unexpectedly' }],
+      activeModules: [{ file: 'stuck.test.ts', phase: 'running' }],
+      activeTasks: [
+        { file: 'stuck.test.ts', type: 'suite', name: 'outer' },
+        { file: 'stuck.test.ts', type: 'hook', name: 'outer', hook: 'beforeAll' }
+      ]
+    })
+    expect(readdirSync(directory)).toHaveLength(2)
+    reporter.onHookEnd({ entity: suite })
+    suite.errors = () => [{ message: 'beforeAll failed' }]
+    reporter.onTestSuiteResult(suite)
+    const afterHook = progressReport(directory, reporter)
+    expect(afterHook.suiteErrors).toMatchObject([{ file: 'stuck.test.ts', suite: 'outer' }])
+    expect(afterHook.activeTasks).toEqual([])
+  })
+
+  it('replaces bounded progress snapshots and supersedes them only after publishing the final report', () => {
+    const directory = reportDirectory()
+    const budgetBytes = 256 * 1024
+    const reporter = new UnitFailureReporter({ directory, budgetBytes })
+    reporter.onInit({ config: { root: ROOT } })
+    reporter.onTestRunStart([{}])
+    const module = testModule('large.test.ts', {
+      state: 'failed',
+      tests: Array.from({ length: 200 }, (_, index) =>
+        testCase(`case ${index}`, 'failed', [{ message: 'x'.repeat(2000) }])
+      )
+    })
+    reporter.onTestModuleQueued(module)
+    reporter.onTestModuleStart(module)
+    vi.advanceTimersByTime(5_000)
+    const progress = progressReport(directory, reporter)
+    expect(progress).toMatchObject({
+      executionComplete: false,
+      truncated: true,
+      counts: { tests: { failed: 200 } }
+    })
+    expect(progress.failures.length + progress.omitted.failures).toBe(200)
+    expect(progress.omitted.moduleInventory).toBe(1)
+    expect(progress.activeModules).toMatchObject([{ file: 'large.test.ts', phase: 'running' }])
+    expect(statSync(join(directory, `${reporter.id}.progress.json`)).size).toBeLessThanOrEqual(
+      Math.floor(budgetBytes / 3)
+    )
+    expect(directoryBytes(directory)).toBeLessThanOrEqual(budgetBytes)
+    reporter.onTestModuleEnd(module)
+    reporter.onTestRunEnd([module], [], 'failed')
+    expect(reports(directory)).toHaveLength(1)
+    expect(reports(directory)[0]).toMatchObject({
+      name: `${reporter.id}.json`,
+      report: { status: 'failed', executionComplete: true }
+    })
+    expect(vi.getTimerCount()).toBe(0)
+    expect(directoryBytes(directory)).toBeLessThanOrEqual(budgetBytes)
   })
 
   it('records each executed file and project without substituting aggregate test counts', () => {

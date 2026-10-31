@@ -355,12 +355,12 @@ describe('orchestration RPC methods', () => {
       )
       const task = db.createTask({ spec: 'work' })
 
-      const result = (await call('orchestration.dispatch', {
+      const result = await call('orchestration.dispatch', {
         task: task.id,
         to: 'term_a'
-      })) as { dispatch: { status: string } }
+      })
 
-      expect(result.dispatch.status).toBe('dispatched')
+      expect(result).toMatchObject({ dispatch: { status: 'dispatched' } })
     })
 
     it('does not infer manual process authority from an unauthenticated handle', async () => {

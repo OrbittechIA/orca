@@ -1,4 +1,4 @@
-// Pre-handoff gate: runs the checks a change's paths need, in parallel, printing failures in full.
+// Pre-handoff gate: runs the checks a change's paths need, in parallel, retaining both diagnostic streams.
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, readdirSync } from 'node:fs'
 import { availableParallelism } from 'node:os'
@@ -226,11 +226,21 @@ async function runTask(task, { root, env, runProcess, stepTimeoutMs }) {
         { program, args, cwd: root, env, timeoutMs: stepTimeoutMs || null },
         'tail'
       )
-      output += result.stdout + result.stderr
+      for (const stream of ['stdout', 'stderr']) {
+        if (result[stream]) {
+          output += `\n[${stream}]\n${tail(result[stream])}\n`
+        }
+      }
+      if (result.outputTruncated) {
+        output += '\nProcess capture limit reached; the retained streams are tails.\n'
+      }
       if (result.timedOut) {
-        output += `\nTimed out after ${stepTimeoutMs / 60_000} min; pass --timeout=<minutes> to extend.`
+        output += `\nTimed out after ${stepTimeoutMs / 60_000} min.`
       }
       if (result.code !== 0 || result.timedOut) {
+        if (task.name === 'unit tests' && env.ORCA_UNIT_FAILURE_REPORT_DIR) {
+          output += `\nUnit evidence: ${env.ORCA_UNIT_FAILURE_REPORT_DIR} (a progress snapshot is incomplete).`
+        }
         return { task, ok: false, output, elapsed: seconds(startedAt) }
       }
     } catch (error) {
@@ -352,7 +362,7 @@ export async function main(root, argv) {
     if (result.ok) {
       console.log(`✓ ${task.name} (${result.elapsed})`)
     } else {
-      console.error(`\n✗ ${task.name} (${result.elapsed})\n${tail(result.output)}`)
+      console.error(`\n✗ ${task.name} (${result.elapsed})\n${result.output}`)
     }
     return result
   }).finally(() => clearInterval(heartbeat))

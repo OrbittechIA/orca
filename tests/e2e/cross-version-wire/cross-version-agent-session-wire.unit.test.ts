@@ -191,7 +191,9 @@ describe('cross-version structured agent sessions', () => {
 
     beforeEach(async () => {
       for (const build of [current, baseline]) {
-        await build.installStructuredHost(installableHost(structuredHostStub(SESSION, WORKSPACE), [SESSION]))
+        await build.installStructuredHost(
+          installableHost(structuredHostStub(SESSION, WORKSPACE), [SESSION])
+        )
       }
     })
 

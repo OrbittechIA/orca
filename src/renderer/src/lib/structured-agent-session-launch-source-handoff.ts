@@ -65,7 +65,7 @@ export function holdStructuredLaunchSourceForJoiner(args: {
   const held = new Promise<void>((resolve) => {
     settle = resolve
   })
-  const holds = pendingSourceJoiners.get(intent) ?? new Set()
+  const holds = pendingSourceJoiners.get(intent) ?? new Set<Promise<void>>()
   holds.add(held)
   pendingSourceJoiners.set(intent, holds)
   return () => {
@@ -85,6 +85,9 @@ export async function settleStructuredLaunchSourceJoiners(
   intent: StructuredAgentSessionLaunchIntent
 ): Promise<void> {
   while (hasPendingStructuredLaunchSourceJoiners(intent)) {
-    await Promise.all(pendingSourceJoiners.get(intent) ?? [])
+    const holds = pendingSourceJoiners.get(intent)
+    if (holds) {
+      await Promise.all(holds)
+    }
   }
 }

@@ -1,4 +1,4 @@
-// Failures-only unit evidence for hosted runs whose console keeps only a tail; it never changes the test verdict.
+// Bounded unit evidence for hosted runs whose console keeps only a tail; it never changes the test verdict.
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
@@ -11,6 +11,7 @@ export const UNIT_FAILURE_REPORT_PREFIX = 'unit-failures-'
 const TEXT_LIMIT_BYTES = 16 * 1024
 // Room kept for the small records that must always be writable: a run's start and an over-budget marker.
 const MARKER_RESERVE_BYTES = 64 * 1024
+const PROGRESS_INTERVAL_MS = 5_000
 
 /** Cut at a code point boundary so a byte limit never splits a character. */
 export function clipText(value, limitBytes = TEXT_LIMIT_BYTES) {
@@ -78,13 +79,14 @@ export function describeInvocationArgs(value) {
 
 function describeError(error, depth = 0) {
   const source = error !== null && typeof error === 'object' ? error : { message: String(error) }
+  const name = typeof source.name === 'string' ? clipText(source.name) : null
   const message = clipText(source.message)
   const stack = clipText(source.stack ?? '')
   return {
-    name: typeof source.name === 'string' ? source.name : null,
+    name: name?.text ?? null,
     message: message.text,
     stack: stack.text,
-    truncated: message.truncated || stack.truncated,
+    truncated: !!name?.truncated || message.truncated || stack.truncated,
     ...(source.cause !== undefined && depth < 3
       ? { cause: describeError(source.cause, depth + 1) }
       : {})
@@ -94,7 +96,14 @@ function describeError(error, depth = 0) {
 const emptyCounts = () => ({ passed: 0, failed: 0, skipped: 0, pending: 0, queued: 0 })
 
 /** Read states from tasks, not suite labels: a crashed worker leaves its suite unfinished, never passed. */
-export function buildUnitFailureReport({ root, modules, unhandledErrors, reason, invocation }) {
+export function buildUnitFailureReport({
+  root,
+  modules,
+  unhandledErrors,
+  reason,
+  invocation,
+  diagnosticBudgetBytes = Infinity
+}) {
   const file = (module) => relative(root, module.moduleId).replaceAll('\\', '/')
   const counts = { modules: emptyCounts(), tests: emptyCounts() }
   const unfinishedModules = []
@@ -102,6 +111,31 @@ export function buildUnitFailureReport({ root, modules, unhandledErrors, reason,
   const failures = []
   const moduleErrors = []
   const suiteErrors = []
+  const unhandled = []
+  const lists = { failures, moduleErrors, suiteErrors, unhandledErrors: unhandled }
+  const omitted = {
+    failures: 0,
+    moduleErrors: 0,
+    suiteErrors: 0,
+    unhandledErrors: 0,
+    moduleInventory: 0
+  }
+  let diagnosticBytes = 0
+  const append = (field, create) => {
+    if (diagnosticBytes >= diagnosticBudgetBytes) {
+      omitted[field] += 1
+      return
+    }
+    const entry = create()
+    if (Number.isFinite(diagnosticBudgetBytes)) {
+      diagnosticBytes += Buffer.byteLength(JSON.stringify(entry))
+    }
+    if (diagnosticBytes > diagnosticBudgetBytes) {
+      omitted[field] += 1
+    } else {
+      lists[field].push(entry)
+    }
+  }
   for (const module of modules) {
     const state = module.state()
     counts.modules[state] = (counts.modules[state] ?? 0) + 1
@@ -111,16 +145,17 @@ export function buildUnitFailureReport({ root, modules, unhandledErrors, reason,
     const project = module.project?.name ?? null
     const moduleTests = emptyCounts()
     for (const error of module.errors()) {
-      moduleErrors.push({ file: file(module), project, error: describeError(error) })
+      append('moduleErrors', () => ({ file: file(module), project, error: describeError(error) }))
     }
     for (const suite of module.children.allSuites()) {
       for (const error of suite.errors()) {
-        suiteErrors.push({
+        append('suiteErrors', () => ({
           file: file(module),
           project,
-          suite: suite.fullName,
+          suite:
+            Number.isFinite(diagnosticBudgetBytes) ? clipText(suite.fullName).text : suite.fullName,
           error: describeError(error)
-        })
+        }))
       }
     }
     for (const test of module.children.allTests()) {
@@ -128,37 +163,67 @@ export function buildUnitFailureReport({ root, modules, unhandledErrors, reason,
       counts.tests[result.state] = (counts.tests[result.state] ?? 0) + 1
       moduleTests[result.state] = (moduleTests[result.state] ?? 0) + 1
       if (result.state === 'failed') {
-        failures.push({
-          file: file(module),
-          project,
-          test: test.fullName,
-          line: test.location?.line ?? null,
-          errors: (result.errors ?? []).map((error) => describeError(error))
+        append('failures', () => {
+          const failure = {
+            file: file(module),
+            project,
+            test:
+              Number.isFinite(diagnosticBudgetBytes) ? clipText(test.fullName).text : test.fullName,
+            line: test.location?.line ?? null,
+            errors: []
+          }
+          if (!Number.isFinite(diagnosticBudgetBytes)) {
+            return {
+              ...failure,
+              errors: (result.errors ?? []).map((error) => describeError(error))
+            }
+          }
+          let bytes = Buffer.byteLength(JSON.stringify(failure))
+          for (const error of result.errors ?? []) {
+            const described = describeError(error)
+            bytes += Buffer.byteLength(JSON.stringify(described)) + 1
+            if (diagnosticBytes + bytes > diagnosticBudgetBytes) {
+              failure.errorsOmitted = (result.errors ?? []).length - failure.errors.length
+              break
+            }
+            failure.errors.push(described)
+          }
+          return failure
         })
       }
     }
-    moduleInventory.push({ file: file(module), project, state, tests: moduleTests })
+    if (Number.isFinite(diagnosticBudgetBytes)) {
+      omitted.moduleInventory += 1
+    } else {
+      moduleInventory.push({ file: file(module), project, state, tests: moduleTests })
+    }
   }
-  const unhandled = unhandledErrors.map((error) => describeError(error))
+  for (const error of unhandledErrors) {
+    append('unhandledErrors', () => describeError(error))
+  }
   const clipped = (error) => error.truncated || (error.cause !== undefined && clipped(error.cause))
   return {
     metric: 'unit-failures-v1',
     invocation,
     status: reason,
     executionComplete:
-      reason !== 'interrupted' &&
+      (reason === 'passed' || reason === 'failed') &&
       unfinishedModules.length === 0 &&
       counts.tests.pending === 0 &&
       counts.tests.queued === 0,
-    inventoryComplete: true,
-    // Every entry is present, but a clipped message or stack is still not the whole evidence.
-    truncated: [
-      ...unhandled,
-      ...moduleErrors.map((entry) => entry.error),
-      ...suiteErrors.map((entry) => entry.error),
-      ...failures.flatMap((entry) => entry.errors)
-    ].some(clipped),
+    inventoryComplete: !Number.isFinite(diagnosticBudgetBytes),
+    // Missing entries and clipped diagnostics both make the evidence incomplete.
+    truncated:
+      Object.values(omitted).some(Boolean) ||
+      failures.some((failure) => failure.errorsOmitted) ||
+      [
+        ...unhandled,
+        ...moduleErrors.map((entry) => entry.error),
+        ...suiteErrors.map((entry) => entry.error),
+        ...failures.flatMap((entry) => entry.errors)
+      ].some(clipped),
     counts: { ...counts, unhandledErrors: unhandledErrors.length },
+    ...(Number.isFinite(diagnosticBudgetBytes) ? { omitted } : {}),
     unfinishedModules,
     moduleInventory,
     unhandledErrors: unhandled,
@@ -169,6 +234,8 @@ export function buildUnitFailureReport({ root, modules, unhandledErrors, reason,
 }
 
 const LIST_FIELDS = [
+  'activeModules',
+  'activeTasks',
   'unhandledErrors',
   'moduleErrors',
   'suiteErrors',
@@ -179,17 +246,25 @@ const LIST_FIELDS = [
 
 /** Keep whole entries in a fixed order until the limit; anything left out is counted and flagged. */
 export function fitUnitFailureReport(report, limitBytes) {
-  const serialized = JSON.stringify(report)
-  if (Buffer.byteLength(serialized) <= limitBytes) {
-    return serialized
+  if (!report.snapshotOnly) {
+    const serialized = JSON.stringify(report)
+    if (Buffer.byteLength(serialized) <= limitBytes) {
+      return serialized
+    }
   }
-  const kept = { ...report, inventoryComplete: false, truncated: true, omitted: {} }
-  for (const field of LIST_FIELDS) {
+  const kept = {
+    ...report,
+    inventoryComplete: false,
+    truncated: true,
+    omitted: { ...report.omitted }
+  }
+  const fields = LIST_FIELDS.filter((field) => Array.isArray(report[field]))
+  for (const field of fields) {
     kept[field] = []
-    kept.omitted[field] = report[field].length
+    kept.omitted[field] = (report.omitted?.[field] ?? 0) + report[field].length
   }
   let size = Buffer.byteLength(JSON.stringify(kept))
-  for (const field of LIST_FIELDS) {
+  for (const field of fields) {
     for (const entry of report[field]) {
       const entrySize = Buffer.byteLength(JSON.stringify(entry)) + 1
       if (size + entrySize > limitBytes) {
@@ -249,7 +324,7 @@ export default class UnitFailureReporter {
     this.ctx = ctx
   }
 
-  onTestRunStart() {
+  onTestRunStart(specifications = []) {
     if (!this.directory) {
       return
     }
@@ -271,9 +346,157 @@ export default class UnitFailureReporter {
     this.write(`${this.id}.started.json`, () =>
       JSON.stringify({ metric: 'unit-failures-v1', invocation: this.invocation, started: true })
     )
+    this.modules = new Map()
+    this.activeModules = new Map()
+    this.activeTasks = new Map()
+    this.plannedModules = specifications.length
+    this.unhandledCount = 0
+    this.dirty = true
+    this.progressTimer = setInterval(() => this.checkpoint(), PROGRESS_INTERVAL_MS)
+    this.progressTimer.unref()
+  }
+
+  moduleActivity(module, phase) {
+    if (!this.modules) {
+      return
+    }
+    this.modules.set(module.id, module)
+    const now = new Date().toISOString()
+    const root = this.ctx?.config?.root ?? process.cwd()
+    this.activeModules.set(module.id, {
+      file: relative(root, module.moduleId).replaceAll('\\', '/'),
+      project: module.project?.name ?? null,
+      phase,
+      startedAt: this.activeModules.get(module.id)?.startedAt ?? now,
+      updatedAt: now
+    })
+    this.dirty = true
+  }
+
+  onTestModuleQueued(module) {
+    this.moduleActivity(module, 'loading')
+  }
+
+  onTestModuleCollected(module) {
+    this.moduleActivity(module, 'collected')
+  }
+
+  onTestModuleStart(module) {
+    this.moduleActivity(module, 'running')
+  }
+
+  taskActivity(entity, hook) {
+    if (!this.modules) {
+      return
+    }
+    const module = entity.module ?? entity
+    const name = clipText(entity.fullName ?? module.moduleId)
+    this.moduleActivity(module, 'running')
+    this.activeTasks.set(`${hook ? 'hook' : 'task'}:${entity.id}`, {
+      moduleId: module.id,
+      file: this.activeModules.get(module.id).file,
+      project: module.project?.name ?? null,
+      type: hook ? 'hook' : entity.type,
+      name: name.text,
+      nameTruncated: name.truncated,
+      ...(hook ? { hook } : {}),
+      startedAt: new Date().toISOString()
+    })
+  }
+
+  onTestCaseReady(test) {
+    this.taskActivity(test)
+  }
+
+  onTestCaseResult(test) {
+    this.activeTasks?.delete(`task:${test.id}`)
+    this.dirty = true
+    if (test.result().state === 'failed') {
+      this.checkpoint()
+    }
+  }
+
+  onTestSuiteReady(suite) {
+    this.taskActivity(suite)
+  }
+
+  onTestSuiteResult(suite) {
+    this.activeTasks?.delete(`task:${suite.id}`)
+    this.dirty = true
+    if (suite.errors().length > 0) {
+      this.checkpoint()
+    }
+  }
+
+  onHookStart({ entity, name }) {
+    this.taskActivity(entity, name)
+  }
+
+  onHookEnd({ entity }) {
+    this.activeTasks?.delete(`hook:${entity.id}`)
+    this.dirty = true
+  }
+
+  onTestModuleEnd(module) {
+    if (!this.modules) {
+      return
+    }
+    this.modules.set(module.id, module)
+    this.activeModules.delete(module.id)
+    for (const [key, task] of this.activeTasks) {
+      if (task.moduleId === module.id) {
+        this.activeTasks.delete(key)
+      }
+    }
+    this.dirty = true
+    if (module.state() === 'failed' || module.errors().length > 0) {
+      this.checkpoint()
+    }
+  }
+
+  checkpoint() {
+    if (!this.modules) {
+      return
+    }
+    try {
+      const unhandledErrors = this.ctx?.state?.getUnhandledErrors() ?? []
+      if (!this.dirty && unhandledErrors.length === this.unhandledCount) {
+        return
+      }
+      this.dirty = false
+      this.unhandledCount = unhandledErrors.length
+      const diagnosticBudgetBytes = Math.floor(this.budgetBytes / 3)
+      const report = {
+        ...buildUnitFailureReport({
+          root: this.ctx?.config?.root ?? process.cwd(),
+          modules: [...this.modules.values()],
+          unhandledErrors,
+          reason: 'running',
+          invocation: this.invocation,
+          diagnosticBudgetBytes
+        }),
+        inventoryComplete: false,
+        snapshotOnly: true,
+        observedAt: new Date().toISOString(),
+        plannedModules: this.plannedModules,
+        activeModules: [...this.activeModules.values()],
+        activeTasks: [...this.activeTasks.values()]
+      }
+      report.truncated ||= report.activeTasks.some((task) => task.nameTruncated)
+      // Leave room for both the previous atomic snapshot and the final report.
+      this.write(`${this.id}.progress.json`, (limit) =>
+        fitUnitFailureReport(
+          report,
+          Math.max(0, Math.min(diagnosticBudgetBytes, limit - MARKER_RESERVE_BYTES))
+        )
+      )
+    } catch (error) {
+      console.warn(`[unit-failures] progress was not written: ${String(error)}`)
+    }
   }
 
   onTestRunEnd(modules, unhandledErrors = [], reason) {
+    clearInterval(this.progressTimer)
     if (!this.directory || !this.id) {
       return
     }
@@ -294,6 +517,7 @@ export default class UnitFailureReporter {
         return
       }
       this.remove(`${this.id}.started.json`)
+      this.remove(`${this.id}.progress.json`)
       const total = reportBytes(this.directory)
       if (total > this.budgetBytes) {
         // A concurrent invocation spent the budget meanwhile: shrink to a marker if it fits, else withdraw.

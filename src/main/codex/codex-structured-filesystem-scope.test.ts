@@ -297,9 +297,7 @@ describe('codexScopeLaunchViolation', () => {
       await mkdir(join(base, 'outside'))
       const scope = { ...writer, worktreePath: wt, roots: [join(wt, 'src')], cwd: join(wt, 'src') }
       await expect(codexScopeLaunchViolation(scope, wt)).resolves.toBeNull()
-      await expect(codexScopeLaunchViolation(scope, base)).resolves.toMatch(
-        /not the scoped worktree/
-      )
+      await expect(codexScopeLaunchViolation(scope, base)).resolves.toMatch(/not the scoped worktree/)
       await rename(join(wt, 'src'), join(base, 'old-src'))
       await symlink(join(base, 'outside'), join(wt, 'src'))
       await expect(codexScopeLaunchViolation(scope, wt)).resolves.toMatch(/symlink/)

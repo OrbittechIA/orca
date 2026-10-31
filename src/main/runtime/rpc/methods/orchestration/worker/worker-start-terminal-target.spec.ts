@@ -57,13 +57,12 @@ export function registerWorkerStartTerminalTargetTests(): void {
     afterEach(() => harness.cleanup())
 
     it('refuses an injected dispatch aimed at the coordinator handle', async () => {
-      vi.spyOn(harness.runtime, 'getOrchestrationDispatchAuthority').mockImplementation(
-        (handle) =>
-          localDispatchAuthority({
-            terminalHandle: handle,
-            paneKey: harness.coordinatorPaneKey,
-            processIncarnation: 'runtime_test:term_coord:1'
-          })
+      vi.spyOn(harness.runtime, 'getOrchestrationDispatchAuthority').mockImplementation((handle) =>
+        localDispatchAuthority({
+          terminalHandle: handle,
+          paneKey: harness.coordinatorPaneKey,
+          processIncarnation: 'runtime_test:term_coord:1'
+        })
       )
       const task = harness.db.createTask({ spec: 'self dispatch', runId: harness.activeRunId })
 
@@ -83,13 +82,12 @@ export function registerWorkerStartTerminalTargetTests(): void {
       vi.spyOn(harness.runtime, 'getTerminalPaneKey').mockImplementation((handle) =>
         handle === 'term_coord' || handle === 'term_coord_alias' ? harness.coordinatorPaneKey : null
       )
-      vi.spyOn(harness.runtime, 'getOrchestrationDispatchAuthority').mockImplementation(
-        (handle) =>
-          localDispatchAuthority({
-            terminalHandle: handle,
-            paneKey: harness.coordinatorPaneKey,
-            processIncarnation: 'runtime_test:term_coord:1'
-          })
+      vi.spyOn(harness.runtime, 'getOrchestrationDispatchAuthority').mockImplementation((handle) =>
+        localDispatchAuthority({
+          terminalHandle: handle,
+          paneKey: harness.coordinatorPaneKey,
+          processIncarnation: 'runtime_test:term_coord:1'
+        })
       )
       const task = harness.db.createTask({
         spec: 'self dispatch alias',
