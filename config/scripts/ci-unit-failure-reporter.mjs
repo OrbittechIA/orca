@@ -487,7 +487,6 @@ export default class UnitFailureReporter {
       }
       clearTimeout(this.failureTimer)
       this.failureTimer = undefined
-      this.lastCheckpointAt = Date.now()
       this.dirty = false
       this.unhandledCount = unhandledErrors.length
       const diagnosticBudgetBytes = Math.floor(this.budgetBytes / 3)
@@ -518,6 +517,7 @@ export default class UnitFailureReporter {
     } catch (error) {
       console.warn(`[unit-failures] progress was not written: ${String(error)}`)
     }
+    this.lastCheckpointAt = Date.now()
   }
 
   onTestRunEnd(modules, unhandledErrors = [], reason) {

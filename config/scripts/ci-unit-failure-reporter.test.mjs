@@ -200,7 +200,12 @@ describe('unit failure evidence', () => {
     const unhandled = []
     reporter.onInit({ config: { root: ROOT }, state: { getUnhandledErrors: () => unhandled } })
     reporter.onTestRunStart([{}, {}, {}, {}])
-    const publications = vi.spyOn(reporter, 'write')
+    const realWrite = reporter.write.bind(reporter)
+    const publications = vi.spyOn(reporter, 'write').mockImplementationOnce((...args) => {
+      const published = realWrite(...args)
+      vi.setSystemTime(Date.now() + 500)
+      return published
+    })
     const failed = failingModule('cases.test.ts')
     const tests = failed.children.allTests()
     const [test] = tests
