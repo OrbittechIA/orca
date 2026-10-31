@@ -14,7 +14,12 @@ import {
 } from 'node:fs'
 import { dirname, join, parse, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import type { CustodyJournal, CustodyRecord } from './worktree-custody-authority'
+import type {
+  CustodyJournal,
+  CustodyReceipt,
+  CustodyState,
+  CustodyRecord
+} from './worktree-custody-authority'
 import type {
   WorktreeCustodyFence,
   WorktreeCustodyOutcome,
@@ -75,13 +80,34 @@ function record(value: unknown): value is CustodyRecord {
     !(value.releaseProof === null || typeof value.releaseProof === 'string') ||
     typeof value.revoked !== 'boolean' ||
     !(value.fence === null || fence(value.fence)) ||
-    !(value.outcome === null || outcome(value.outcome))
+    !(value.outcome === null || outcome(value.outcome)) ||
+    !(
+      value.recovery === undefined ||
+      (object(value.recovery) &&
+        typeof value.recovery.token === 'string' &&
+        typeof value.recovery.authorityId === 'string' &&
+        typeof value.recovery.proof === 'string' &&
+        value.recovery.proof.length > 0)
+    )
   )
     return false
   const key = custodyResourceKey(value.resource)
   return (
     (value.fence === null || custodyResourceKey(value.fence.resource) === key) &&
     (value.outcome === null || custodyResourceKey(value.outcome.resource) === key)
+  )
+}
+
+function receipt(value: unknown): value is CustodyReceipt {
+  return (
+    object(value) &&
+    ['resourceHash', 'materialHash', 'claimHash', 'keyHash'].every(
+      (key) => typeof value[key] === 'string' && /^[a-f0-9]{64}$/.test(value[key])
+    ) &&
+    typeof value.recordedAt === 'number' &&
+    Number.isFinite(value.recordedAt) &&
+    (value.reason === null || typeof value.reason === 'string') &&
+    (value.proof === null || (typeof value.proof === 'string' && value.proof.length > 0))
   )
 }
 
@@ -112,11 +138,12 @@ export class WorktreeCustodyFileJournal implements CustodyJournal {
 
   constructor(private readonly directory: string) {}
 
-  read(): CustodyRecord[] {
-    if (!existsSync(this.directory)) return []
+  read(): CustodyState {
+    const empty = { records: [], receipts: [] }
+    if (!lstatSync(this.directory, { throwIfNoEntry: false })) return empty
     this.checkDirectory()
     const path = join(this.directory, 'custody.json')
-    if (!existsSync(path)) return []
+    if (!lstatSync(path, { throwIfNoEntry: false })) return empty
     const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW)
     try {
       const info = fstatSync(fd)
@@ -131,7 +158,7 @@ export class WorktreeCustodyFileJournal implements CustodyJournal {
       const parsed: unknown = JSON.parse(readFileSync(fd, 'utf8'))
       if (
         !object(parsed) ||
-        parsed.version !== 1 ||
+        (parsed.version !== 1 && parsed.version !== 2) ||
         typeof parsed.revision !== 'string' ||
         !Array.isArray(parsed.records) ||
         parsed.records.length > 2048 ||
@@ -139,24 +166,38 @@ export class WorktreeCustodyFileJournal implements CustodyJournal {
       ) {
         throw new Error('custody_journal_invalid')
       }
+      const receipts = parsed.version === 1 ? [] : parsed.receipts
+      if (!Array.isArray(receipts) || receipts.length > 16384 || !receipts.every(receipt))
+        throw new Error('custody_journal_invalid')
       const claims = new Set(parsed.records.map((entry) => entry.claim))
       const keys = new Set(parsed.records.map((entry) => custodyResourceKey(entry.resource)))
       const outcomes = parsed.records.flatMap((entry) => (entry.outcome ? [entry.outcome.key] : []))
       if (
         claims.size !== parsed.records.length ||
         keys.size !== parsed.records.length ||
-        new Set(outcomes).size !== outcomes.length
+        new Set(outcomes).size !== outcomes.length ||
+        new Set(receipts.map((entry) => entry.resourceHash)).size !== receipts.length ||
+        new Set(receipts.map((entry) => entry.claimHash)).size !== receipts.length ||
+        new Set(receipts.map((entry) => entry.keyHash)).size !== receipts.length
       )
         throw new Error('custody_journal_duplicate')
       this.revision = parsed.revision
-      return parsed.records
+      return { records: parsed.records, receipts }
     } finally {
       closeSync(fd)
     }
   }
 
-  write(records: readonly CustodyRecord[]): void {
+  write(state: CustodyState): void {
     if (process.platform === 'win32') throw new Error('custody_durability_unsupported')
+    const revision = randomUUID()
+    const body = JSON.stringify({ version: 2, revision, ...state })
+    if (
+      state.records.length > 2048 ||
+      state.receipts.length > 16384 ||
+      Buffer.byteLength(body) > MAX_JOURNAL_BYTES
+    )
+      throw new Error('custody_journal_full')
     if (!existsSync(this.directory)) {
       noSymlinkAncestors(dirname(this.directory))
       mkdirSync(this.directory, { mode: 0o700 })
@@ -174,9 +215,6 @@ export class WorktreeCustodyFileJournal implements CustodyJournal {
     try {
       this.read()
       if (this.revision !== expectedRevision) throw new Error('custody_journal_writer_changed')
-      const revision = randomUUID()
-      const body = JSON.stringify({ version: 1, revision, records })
-      if (Buffer.byteLength(body) > MAX_JOURNAL_BYTES) throw new Error('custody_journal_full')
       temporary = join(this.directory, `${revision}.tmp`)
       const fd = openSync(
         temporary,

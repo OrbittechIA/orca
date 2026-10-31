@@ -1,5 +1,5 @@
 import { getRepoRegistrationHostIds } from '../../shared/repo-host-identity'
-import { assertWorktreeCustodyAdmission } from './worktree-custody-runtime'
+import { admitWorktreeCustody } from './worktree-custody-runtime'
 import type { GitPushTarget, Worktree } from '../../shared/worktree/types'
 import type { WorktreeMeta } from '../../shared/worktree/meta-types'
 import { worktreeWorkspaceKey } from '../../shared/workspace-scope'
@@ -43,110 +43,115 @@ export async function updateRuntimeManagedWorktreeMetadata(args: {
   ports: Ports
 }): Promise<Worktree> {
   const worktree = await args.ports.resolveWorktree(args.selector)
-  assertWorktreeCustodyAdmission(worktree.id, worktree.path, worktree.hostId)
-  const { lineage, ...metaUpdates } = args.updates
-  const previousParentRepoId = lineage
-    ? splitWorktreeId(args.store.getWorktreeLineage?.(worktree.id)?.parentWorktreeId ?? '')?.repoId
-    : undefined
-  let nextParentRepoId: string | undefined
-  const executionHostId = worktree.identity?.executionHostId ?? worktree.hostId
-  if (
-    isWslMoveSourceHost(executionHostId) &&
-    shouldDropWslMoveProjectUpdate(
-      args.store,
-      wslMoveProjectRefForWorkspace(worktree.id),
-      lineage ? args.updates : metaUpdates
+  const releases = [admitWorktreeCustody(worktree.id, worktree.path, worktree.hostId, false)]
+  try {
+    const { lineage, ...metaUpdates } = args.updates
+    const previousParentRepoId = lineage
+      ? splitWorktreeId(args.store.getWorktreeLineage?.(worktree.id)?.parentWorktreeId ?? '')
+          ?.repoId
+      : undefined
+    let nextParentRepoId: string | undefined
+    const executionHostId = worktree.identity?.executionHostId ?? worktree.hostId
+    if (
+      isWslMoveSourceHost(executionHostId) &&
+      shouldDropWslMoveProjectUpdate(
+        args.store,
+        wslMoveProjectRefForWorkspace(worktree.id),
+        lineage ? args.updates : metaUpdates
+      )
+    ) {
+      return worktree
+    }
+    const target = worktreeRowTarget(args.store, { id: worktree.id, hostId: executionHostId })
+    if (!target) {
+      throw new Error('selector_ambiguous')
+    }
+    if (lineage?.parentWorktree) {
+      args.ports.invalidateResolved()
+      args.ports.invalidateScan(worktree.repoId)
+    }
+    const clearPushTarget =
+      Object.hasOwn(metaUpdates, 'pushTarget') && metaUpdates.pushTarget === null
+    const normalized: Partial<WorktreeMeta> = clearPushTarget
+      ? { ...metaUpdates, pushTarget: undefined }
+      : (metaUpdates as Partial<WorktreeMeta>)
+    const persisted: Partial<WorktreeMeta> = omitUndefinedProperties(
+      normalized.displayName !== undefined
+        ? {
+            ...normalized,
+            pendingFirstAgentMessageRename: false,
+            firstAgentMessageRenameError: null
+          }
+        : normalized
     )
-  ) {
-    return worktree
-  }
-  const target = worktreeRowTarget(args.store, { id: worktree.id, hostId: executionHostId })
-  if (!target) {
-    throw new Error('selector_ambiguous')
-  }
-  if (lineage?.parentWorktree) {
+    if (clearPushTarget) {
+      persisted.pushTarget = undefined
+    }
+    if (lineage?.noParent === true) {
+      args.store.removeWorktreeLineage?.(target)
+    } else if (lineage?.parentWorktree) {
+      const parent = await args.ports.resolveWorktree(lineage.parentWorktree)
+      releases.push(admitWorktreeCustody(parent.id, parent.path, parent.hostId, false))
+      args.ports.validateParent(worktree, parent)
+      nextParentRepoId = parent.repoId
+      if (!worktree.instanceId || !parent.instanceId) {
+        throw new RuntimeLineageError(
+          'LINEAGE_PARENT_CONTEXT_MISSING',
+          'Worktree instance identity was unavailable.'
+        )
+      }
+      if (!args.store.setWorktreeLineage) {
+        throw new RuntimeLineageError(
+          'LINEAGE_PARENT_CONTEXT_MISSING',
+          'Worktree lineage storage was unavailable.'
+        )
+      }
+      const createdAt = Date.now()
+      const recorded = args.store.setWorktreeLineage(target, {
+        worktreeId: worktree.id,
+        worktreeInstanceId: worktree.instanceId,
+        parentWorktreeId: parent.id,
+        parentWorktreeInstanceId: parent.instanceId,
+        origin: 'manual',
+        capture: { source: 'manual-action', confidence: 'explicit' },
+        createdAt
+      })
+      if (!recorded) {
+        throw new RuntimeLineageError(
+          'LINEAGE_PARENT_CONTEXT_CONFLICT',
+          'A same-id workspace on another host owns this lineage.'
+        )
+      }
+      args.store.setWorkspaceLineage?.({
+        childWorkspaceKey: worktreeWorkspaceKey(worktree.id),
+        childInstanceId: worktree.instanceId,
+        parentWorkspaceKey: worktreeWorkspaceKey(parent.id),
+        parentInstanceId: parent.instanceId,
+        origin: 'manual',
+        capture: { source: 'manual-action', confidence: 'explicit' },
+        createdAt
+      })
+    }
+    const metadataUpdates = stripOrcaProvenanceMetaUpdates(persisted)
+    // Recheck removal: an earlier resolution snapshot may still contain this workspace (#22712).
+    if (isRemovedFolderWorkspaceInstance(args.store, worktree.id, executionHostId)) {
+      throw new Error('selector_not_found')
+    }
+    args.store.setWorktreeMeta(target, metadataUpdates)
+    // Push explicitly for CLI mutations outside renderer optimistic updates.
     args.ports.invalidateResolved()
-    args.ports.invalidateScan(worktree.repoId)
-  }
-  const clearPushTarget =
-    Object.hasOwn(metaUpdates, 'pushTarget') && metaUpdates.pushTarget === null
-  const normalized: Partial<WorktreeMeta> = clearPushTarget
-    ? { ...metaUpdates, pushTarget: undefined }
-    : (metaUpdates as Partial<WorktreeMeta>)
-  const persisted: Partial<WorktreeMeta> = omitUndefinedProperties(
-    normalized.displayName !== undefined
-      ? {
-          ...normalized,
-          pendingFirstAgentMessageRename: false,
-          firstAgentMessageRenameError: null
+    args.ports.notifyChanged(worktree.repoId)
+    if (lineage) {
+      for (const repoId of new Set([previousParentRepoId, nextParentRepoId])) {
+        if (repoId && repoId !== worktree.repoId) {
+          args.ports.notifyChanged(repoId)
         }
-      : normalized
-  )
-  if (clearPushTarget) {
-    persisted.pushTarget = undefined
-  }
-  if (lineage?.noParent === true) {
-    args.store.removeWorktreeLineage?.(target)
-  } else if (lineage?.parentWorktree) {
-    const parent = await args.ports.resolveWorktree(lineage.parentWorktree)
-    assertWorktreeCustodyAdmission(parent.id, parent.path, parent.hostId)
-    args.ports.validateParent(worktree, parent)
-    nextParentRepoId = parent.repoId
-    if (!worktree.instanceId || !parent.instanceId) {
-      throw new RuntimeLineageError(
-        'LINEAGE_PARENT_CONTEXT_MISSING',
-        'Worktree instance identity was unavailable.'
-      )
-    }
-    if (!args.store.setWorktreeLineage) {
-      throw new RuntimeLineageError(
-        'LINEAGE_PARENT_CONTEXT_MISSING',
-        'Worktree lineage storage was unavailable.'
-      )
-    }
-    const createdAt = Date.now()
-    const recorded = args.store.setWorktreeLineage(target, {
-      worktreeId: worktree.id,
-      worktreeInstanceId: worktree.instanceId,
-      parentWorktreeId: parent.id,
-      parentWorktreeInstanceId: parent.instanceId,
-      origin: 'manual',
-      capture: { source: 'manual-action', confidence: 'explicit' },
-      createdAt
-    })
-    if (!recorded) {
-      throw new RuntimeLineageError(
-        'LINEAGE_PARENT_CONTEXT_CONFLICT',
-        'A same-id workspace on another host owns this lineage.'
-      )
-    }
-    args.store.setWorkspaceLineage?.({
-      childWorkspaceKey: worktreeWorkspaceKey(worktree.id),
-      childInstanceId: worktree.instanceId,
-      parentWorkspaceKey: worktreeWorkspaceKey(parent.id),
-      parentInstanceId: parent.instanceId,
-      origin: 'manual',
-      capture: { source: 'manual-action', confidence: 'explicit' },
-      createdAt
-    })
-  }
-  const metadataUpdates = stripOrcaProvenanceMetaUpdates(persisted)
-  // Recheck removal: an earlier resolution snapshot may still contain this workspace (#22712).
-  if (isRemovedFolderWorkspaceInstance(args.store, worktree.id, executionHostId)) {
-    throw new Error('selector_not_found')
-  }
-  args.store.setWorktreeMeta(target, metadataUpdates)
-  // Push explicitly for CLI mutations outside renderer optimistic updates.
-  args.ports.invalidateResolved()
-  args.ports.notifyChanged(worktree.repoId)
-  if (lineage) {
-    for (const repoId of new Set([previousParentRepoId, nextParentRepoId])) {
-      if (repoId && repoId !== worktree.repoId) {
-        args.ports.notifyChanged(repoId)
       }
     }
+    return await args.ports.showWorktree(`id:${worktree.id}`)
+  } finally {
+    for (const release of releases.reverse()) release()
   }
-  return args.ports.showWorktree(`id:${worktree.id}`)
 }
 
 export function persistRuntimeManagedWorktreeSortOrder(args: {

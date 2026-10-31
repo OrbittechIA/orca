@@ -17,6 +17,7 @@ export type NativeWorktreeCustodyProvider = {
   observe: CustodyCoverage['observe']
   acquire: CustodyCoverage['acquire']
   reconcile: CustodyCoverage['reconcile']
+  recoverFence: CustodyCoverage['recoverFence']
 }
 
 async function boundedCheckout(
@@ -91,6 +92,7 @@ export function installNativeWorktreeCustodyRetirement(
     {
       acquire: producer.acquire,
       reconcile: producer.reconcile,
+      recoverFence: producer.recoverFence,
       observe: async (resource) => {
         const native = await observeNativeWorktreeCustody(runtime, resource)
         const supplied = await producer.observe(resource)

@@ -1,4 +1,4 @@
-import { releaseWorkerWorktreeCustody } from '../../../worktree-custody-runtime'
+import { queueWorkerWorktreeCustodyRelease } from '../../../worktree-custody-runtime'
 import type {
   WorkerTerminalArchiveKind,
   WorkerTerminalResourceRow,
@@ -111,12 +111,8 @@ export function settleWorkerTerminalRelease(
     .run(resourceId)
   const resource = this.getWorkerTerminalResource(resourceId)
   if (!resource) throw new Error('worker_terminal_resource_missing_after_release')
-  if (
-    !this.db.inTransaction &&
-    resource.release_state === 'released' &&
-    resource.ownership_state === 'released'
-  ) {
-    releaseWorkerWorktreeCustody(resource.owner_dispatch_id, resource.id)
+  if (resource.release_state === 'released' && resource.ownership_state === 'released') {
+    queueWorkerWorktreeCustodyRelease(this, resource.owner_dispatch_id)
   }
   return resource
 }

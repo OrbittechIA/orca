@@ -53,7 +53,13 @@ RPC `_meta.runtimeId`. Capture lasts at most 30 seconds. The host uses its store
 deadline; client edits cannot extend it. Check is a synchronous local grant
 validation, not a process scan or a new CLI inventory per file.
 
-`observation` is exactly `{resource,observedAt,disposition,releaseProof,domains}`.
+`observation` is `{resource,claim,observedAt,disposition,releaseProof,domains}`.
+`claim` is the authority's stored `dispatch:<dispatchId>` for orchestration-owned
+resources, otherwise null. A coverage provider cannot supply or replace it. Earlier
+hosts omit this additive field: consumers must keep an unbound completion unknown,
+never infer a Dispatch from a task, path or random generation. Core requires its
+canonical completion's succeeded Run and fleet binding to match the native task,
+worktree and enrolling Dispatch before binding instance/product/generation.
 Disposition is held/released/unknown. releaseProof is a native producer receipt
 identifier or null. Each domain entry is
 `{domain,observedAt,complete,active,held,proof}`; active and held can be null and
@@ -81,8 +87,12 @@ orca worktree custody --operation cancel --fence '<undispatched fence JSON>' --j
 ```
 
 The list is **native-enrolled-only**, never an inventory of all native or external
-worktrees. It exposes the latest claim generation for each exact host/path and
-omits confirmed retired tombstones. Earlier receipts remain available by exact
+worktrees. It exposes one current claim generation per exact host/path and omits confirmed
+retired tombstones. Observation aggregates every unsettled overlapping generation:
+any held or revoked generation prevents a released disposition. Capture and retire
+also refuse every competing fence/outcome or active admission on overlapping paths.
+A completed material instance cannot dispatch again through a sibling generation;
+fresh path reuse requires a different native instance. Earlier receipts remain available by exact
 resource/key for reconciliation. A trusted adapter must separately verify the
 complete native inventory, reject overlaps and identity substitutions, and
 retain unknown resources. Empty enrollment conveys no unused-resource proof.
@@ -100,8 +110,15 @@ durable released ownership row commits; `settleDeadWorkerTerminalRelease` does
 the same after its transaction commits and its incarnation-fenced settlement.
 The custody command never triggers these release operations. A worker report,
 completed card, missing terminal or lease expiry does not publish release.
-Publication failure is pending proof and does not undo native worker settlement.
-A later start/reopen invalidates an already released generation durably.
+Release publication requires the Dispatch's settled native worker and every
+current, original or prior-owned resource to be durably released. It uses one stable
+Dispatch proof, rather than a per-terminal proof. A microtask rechecks actual committed
+rows after the outer synchronous transaction; a rolled-back or still-open transaction
+cannot publish. Native observation retries the same durable rows after a missed
+callback or restart. Publication failure is pending proof and does not undo native
+worker settlement. A later producer/consumer start revokes released eligibility;
+a failed optional metadata write disables capture, without blocking the Start.
+Pure file-target lookups only check fences and perform no journal write.
 
 Actual admission guards cover the shared renderer/runtime PTY spawn operation
 (including restore/recovery/reattach), high-level runtime terminal/agent creation,
@@ -110,7 +127,8 @@ journal changes, explicit workspace resume, workspace wake/reopen, activation,
 interactive removal, metadata/parent-lineage writes,
 automatic coordinator dispatch, direct terminal/chat dispatch, local worker-start
 reservation/placement, and runtime known-file/worktree-file target resolution.
-PTY spawn and structured acquisition hold admissions across their awaits; capture
+Every async guarded operation holds its admission until settlement; background
+legacy removal keeps it until the native pending-removal promise settles. Capture
 closes the exact resource and overlapping paths before acquiring external grants.
 Interactive rm otherwise retains its existing semantics.
 
@@ -126,7 +144,7 @@ external clients have stopped using a checkout.
 
 Trusted native host code may install an owning producer with
 `installNativeWorktreeCustodyRetirement(runtime, provider)`. Its observe/acquire/
-check/release/reconcile ports must cover **all** remaining producer and consumer
+check/release/reconcile/recoverFence ports must cover **all** remaining producer and consumer
 claims, including future ingress, and positively attest preservation. A process
 scan alone cannot do so. Provider proof cannot erase a native positive hold.
 The fixed native retirement effect is supplied by Orca, not by RPC data. Merely
@@ -136,27 +154,48 @@ must supply and review that authority before a positive retirement is possible.
 
 ## Crash, reconciliation and rollback
 
-The private bounded `worktree-custody-v1/custody.json` journal uses exclusive
-writer admission, exact revision checks, atomic replacement, file fsync and
-directory fsync. Unknown/corrupt/symlink state refuses custody; a leftover writer
-lock is not stolen using age or PID absence. Capture is durable before an async
-grant is requested. Dispatch is durable before effects. Changed options/keys do
-not reopen an unresolved generation. Fences survive a crash conservatively;
-prior-incarnation cancellation is refused. An undispatched fence from a crashed
-authority remains unknown until an owning recovery authority can prove safe
-settlement; there is no automatic lease-expiry release.
+Optional claims metadata is separate from effect authority. The private
+`worktree-custody-v1/custody.json` claims file is never written before coverage
+opt-in or existing effect state. Corrupt, read-only, unsafe, locked or full claims
+metadata makes inventory incomplete and capture unsupported; it does not block
+ordinary Starts or unrelated work. Read-only admission does not revoke release or
+fsync. The process retains one authority per user-data directory across runtime ID
+changes, including live admissions, grants and coverage.
 
-Reconcile is read-only: it dispatches nothing and rewrites no receipt. A stored
-retired result is authoritative for its exact key even after the checkout leaves
-inventory. Otherwise a trusted owning native result query must positively bind
-the same resource/key and a nonempty proof identifier; the in-process return is
-`{resource,key,confirmed,proof}` and native code checks that binding. Absence alone
-remains unknown. A positive query can cache
-settlement for this incarnation's admission decisions without changing the
-durable original. Restart requires that proof again. Confirmed retired old
-instances permit fresh path reuse; unknown/dispatched old instances continue
-fencing overlapping paths. The fixed native provider delegates unknown-outcome
-confirmation to its trusted result authority; it cannot manufacture confirmation
+The separate `worktree-custody-effects-v1/custody.json` is first created by capture.
+It records exact-resource fences and dispatched outcomes with exclusive writer
+admission, revision checks, atomic replacement, file fsync and directory fsync.
+Unknown effect inventory refuses admission because an effect may exist. An effect
+write failure retains the affected pending paths in memory and refuses further
+custody mutation; unrelated known paths remain available. Restart reads the durable
+fence/outcome. A stale writer lock is never stolen using age, PID absence or missing
+consumers. Capture is durable before acquiring grants; dispatch is durable before
+any effect. No absent path, consumer, process or result is recovery proof.
+
+The private v2 storage reads v1 record envelopes and retains terminal operations as
+compact tombstones bound by SHA-256 to the full resource, material instance, claim
+and key. Exact caller-supplied identity/key can reconstruct a retired receipt; a
+changed key or binding cannot dispatch. Claims without effects may be evicted only
+when released, at the 2,048-entry enrollment bound; held generations are retained.
+Effect tombstones are never evicted or expired. The effects file retains at most
+2,048 live records / 16,384 tombstones within 4 MiB. Capacity refuses before any
+write, does not poison admissions, and preserves all earlier idempotency. Reaching
+the terminal receipt budget requires a separately reviewed archival authority;
+restarting or deleting the journal is never compaction.
+
+Current-incarnation undispatched fences can be cancelled after their durable clear.
+For a prior incarnation, host-only `recoverFence` must positively attest that the
+owning recovery authority settled all grants for that exact fence, including
+resource, token, authority and timestamps. A proofless, substituted or unavailable
+result keeps the fence. Recovery proof is persisted before admission reopens;
+there is no automatic expiry release or caller assertion on RPC.
+
+Reconcile dispatches no effect. A trusted owning result query must bind the same
+resource/key and a nonempty proof identifier. Confirmed settlement is durably
+recorded as a compact receipt before returning retired or admitting path reuse,
+so restart does not require an in-memory confirmation again. Failure to persist
+confirmation retains the original pending outcome. Stored retired receipts replay
+without provider access. The fixed native provider cannot manufacture confirmation
 from an absent directory.
 
 Rollback before activation is to revert the source commit. After activation,
@@ -167,10 +206,10 @@ branch/source/material preservation proof remains required independently.
 
 ## Validation
 
-The stdlib fixture suite can run without dependencies:
+The checked-in fixture uses the standard Vitest import and Node runtime pool:
 
 ```text
-ORCA_BACKGROUND_LAUNCH=1 node --max-old-space-size=96 --disable-warning=ExperimentalWarning --test --test-concurrency=1 src/main/runtime/worktree-custody.test.mjs
+ORCA_BACKGROUND_LAUNCH=1 pnpm test src/main/runtime/worktree-custody.test.mjs --maxWorkers=1
 ```
 
 It loads syntax-transformed production modules and exercises durable bindings,
@@ -180,3 +219,20 @@ native effect with Git replaced by a fixture-only port. No real Git removal,
 terminal/process signal, host cleanup or app launch is performed. Full type,
 lint, Vitest, RPC/client compatibility and application checks remain required
 under the coordinator's later resource admission.
+
+## Physical-cleanup limitation and bounded follow-on
+
+The fixed 4,096-entry / 2,048-file / 1-GiB / ten-second whole-checkout budgets are
+required policy and remain unchanged. Typical repository worktrees exceed them.
+This foundation proves neither large-checkout cleanup, throughput nor bytes freed;
+full physical cleanup and host/provider activation remain open.
+
+A separate bounded producer follow-on may enroll only producer-created orphan
+worker-run temporary directories beneath an exact producer-owned temporary root.
+It needs immutable owner/product/task/instance/generation, creation provenance,
+committed last-resource release, positive preservation/external/recovery proofs,
+exclusive admission through deletion, and durable keyed results under the same
+aggregate and per-effect policy budgets. It must refuse symlinks, shared material,
+source/history/branches and uncertain outcomes. This requires its own reviewed
+resource-kind contract and provider; none is installed here. It cannot split a
+worktree or partition its material to evade the required whole-checkout limits.

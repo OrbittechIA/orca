@@ -40,6 +40,8 @@ export function custodyResourceKey(resource: WorktreeCustodyResource): string {
 
 export type WorktreeCustodyObservation = Readonly<{
   resource: WorktreeCustodyResource
+  /** Absent on earlier hosts; only the native authority binds the enrolling producer claim. */
+  claim?: string | null
   observedAt: number
   disposition: 'held' | 'released' | 'unknown'
   releaseProof: string | null

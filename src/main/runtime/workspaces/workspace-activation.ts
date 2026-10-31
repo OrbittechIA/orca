@@ -49,7 +49,7 @@ import {
   type LaunchedAgentHost
 } from '../launched-agent-foreground'
 import { worktreeRowTarget } from '../../persistence/host-qualified-worktree-meta'
-import { assertWorktreeCustodyAdmission } from '../worktree-custody-runtime'
+import { admitWorktreeCustody } from '../worktree-custody-runtime'
 
 export abstract class OrcaRuntimeWithActivateManagedWorktree extends OrcaRuntimeWithListManagedWorktrees {
   protected abstract toAgentSessionOptions(
@@ -76,59 +76,63 @@ export abstract class OrcaRuntimeWithActivateManagedWorktree extends OrcaRuntime
   }> {
     this.assertGraphReady()
     const worktree = await this.resolveGitWorktreeSelector(worktreeSelector)
-    assertWorktreeCustodyAdmission(worktree.id, worktree.path, worktree.hostId)
-    const repo = this.store?.getRepo(worktree.repoId)
-    if (!repo) {
-      throw new Error('repo_not_found')
-    }
-    const navigation = resolveRuntimeNavigationTarget({ ...opts, defaultTarget: 'host' })
-    const targetsHost = navigationTargetsHost(navigation)
-    const targetsClients = navigationTargetsClients(navigation)
+    const releaseCustody = admitWorktreeCustody(worktree.id, worktree.path, worktree.hostId)
+    try {
+      const repo = this.store?.getRepo(worktree.repoId)
+      if (!repo) {
+        throw new Error('repo_not_found')
+      }
+      const navigation = resolveRuntimeNavigationTarget({ ...opts, defaultTarget: 'host' })
+      const targetsHost = navigationTargetsHost(navigation)
+      const targetsClients = navigationTargetsClients(navigation)
 
-    const target = this.store ? worktreeRowTarget(this.store, worktree) : undefined
-    if (
-      !targetsHost &&
-      target &&
-      this.store?.getWorktreeMetaForHost?.(target.id, target.hostId)?.isUnread
-    ) {
-      // Mobile/web activation bypasses renderer selection, so main must acknowledge unread state.
-      this.store.setWorktreeMeta(target, { isUnread: false })
-      this.notifyWorktreesChanged(repo.id)
-    }
+      const target = this.store ? worktreeRowTarget(this.store, worktree) : undefined
+      if (
+        !targetsHost &&
+        target &&
+        this.store?.getWorktreeMetaForHost?.(target.id, target.hostId)?.isUnread
+      ) {
+        // Mobile/web activation bypasses renderer selection, so main must acknowledge unread state.
+        this.store.setWorktreeMeta(target, { isUnread: false })
+        this.notifyWorktreesChanged(repo.id)
+      }
 
-    let sleepingAgentWake: 'requested' | 'unsupported-headless' | 'not-applicable' =
-      'not-applicable'
-    if (targetsHost || targetsClients) {
-      // Inactive renderer-owned panes may need desktop activation to gain PTYs.
-      if (targetsHost) {
-        this.notifyHostActivateWorktree(repo.id, worktree.id)
+      let sleepingAgentWake: 'requested' | 'unsupported-headless' | 'not-applicable' =
+        'not-applicable'
+      if (targetsHost || targetsClients) {
+        // Inactive renderer-owned panes may need desktop activation to gain PTYs.
+        if (targetsHost) {
+          this.notifyHostActivateWorktree(repo.id, worktree.id)
+        }
+        if (targetsClients) {
+          this.notifyClientsActivateWorktree(repo.id, worktree.id, undefined, navigation)
+        }
       }
-      if (targetsClients) {
-        this.notifyClientsActivateWorktree(repo.id, worktree.id, undefined, navigation)
+      if (!targetsHost) {
+        // Refresh phone surfaces without navigating attached desktops.
+        this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(worktree.id, {
+          allowAttachedWindow: true
+        })
+        await this.refreshMobileSessionPtyRecords()
+        this.notifyMobileSessionTabsChanged(worktree.id)
+        // Why: main resumes a workspace sleep's agents; only a window wakes its own hibernation.
+        if (opts.clientKind === 'mobile') {
+          // Not awaited: behind a running sleep it would outlast the phone's request timeout.
+          const worktreeId = worktree.id
+          void this.queueSleepingAgentWake(worktreeId)
+          // Wake records live in the repo host's partition, including SSH.
+          const records = this.store?.getWorkspaceSession?.(getRepoExecutionHostId(repo))
+          sleepingAgentWake = phoneWakeReport(
+            records?.sleepingAgentSessionsByPaneKey,
+            worktreeId,
+            Boolean(this.getAvailableAuthoritativeWindow())
+          )
+        }
       }
+      return { repoId: repo.id, worktreeId: worktree.id, activated: true, sleepingAgentWake }
+    } finally {
+      releaseCustody()
     }
-    if (!targetsHost) {
-      // Refresh phone surfaces without navigating attached desktops.
-      this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(worktree.id, {
-        allowAttachedWindow: true
-      })
-      await this.refreshMobileSessionPtyRecords()
-      this.notifyMobileSessionTabsChanged(worktree.id)
-      // Why: main resumes a workspace sleep's agents; only a window wakes its own hibernation.
-      if (opts.clientKind === 'mobile') {
-        // Not awaited: behind a running sleep it would outlast the phone's request timeout.
-        const worktreeId = worktree.id
-        void this.queueSleepingAgentWake(worktreeId)
-        // Wake records live in the repo host's partition, including SSH.
-        const records = this.store?.getWorkspaceSession?.(getRepoExecutionHostId(repo))
-        sleepingAgentWake = phoneWakeReport(
-          records?.sleepingAgentSessionsByPaneKey,
-          worktreeId,
-          Boolean(this.getAvailableAuthoritativeWindow())
-        )
-      }
-    }
-    return { repoId: repo.id, worktreeId: worktree.id, activated: true, sleepingAgentWake }
   }
 
   /** Use buildStartupForDraft's selection so launches can name the agent before creation. */

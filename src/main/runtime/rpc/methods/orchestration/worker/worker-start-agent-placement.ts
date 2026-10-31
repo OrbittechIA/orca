@@ -23,7 +23,7 @@ import {
 } from './worker-topology'
 import { createWorkerWorktree, type WorkerWorktreeCreationTarget } from './worker-worktree-creation'
 import {
-  assertWorktreeCustodyAdmission,
+  admitOrchestrationWorktreeCustody,
   claimWorkerWorktreeCustody
 } from '../../../../worktree-custody-runtime'
 
@@ -76,26 +76,32 @@ export async function placeWorkerAgent(
   args: WorkerAgentPlacementArgs
 ): Promise<WorkerAgentPlacement> {
   const existing = args.creationTarget ? undefined : requirePlacement(args.resolvedWorktree)
-  if (existing) {
-    assertWorktreeCustodyAdmission(existing.id, existing.path, existing.hostId)
-    claimWorkerWorktreeCustody(existing, args.dispatchId, args.taskId)
-  }
-  if (existing && args.params.terminal) {
-    args.effects.push({
-      kind: 'terminal',
-      role: 'agent',
-      action: 'reused',
-      id: args.params.terminal
-    })
-    return {
-      mode: args.mode,
-      worktree: existing,
-      terminalHandle: args.params.terminal,
-      structuredSession: null,
-      setupReceipt: EXISTING_WORKTREE_SETUP
+  const releaseCustody = existing
+    ? admitOrchestrationWorktreeCustody(existing.id, existing.path, existing.hostId)
+    : () => {}
+  try {
+    if (existing) {
+      claimWorkerWorktreeCustody(existing, args.dispatchId, args.taskId)
     }
+    if (existing && args.params.terminal) {
+      args.effects.push({
+        kind: 'terminal',
+        role: 'agent',
+        action: 'reused',
+        id: args.params.terminal
+      })
+      return {
+        mode: args.mode,
+        worktree: existing,
+        terminalHandle: args.params.terminal,
+        structuredSession: null,
+        setupReceipt: EXISTING_WORKTREE_SETUP
+      }
+    }
+    return await launchWorkerAgent(args, existing)
+  } finally {
+    releaseCustody()
   }
-  return launchWorkerAgent(args, existing)
 }
 
 async function launchWorkerAgent(

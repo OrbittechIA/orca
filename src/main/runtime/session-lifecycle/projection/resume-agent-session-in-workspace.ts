@@ -1,5 +1,5 @@
 import { OrcaRuntimeWithAgentSessionResumeOwnership } from './agent-session-resume-ownership'
-import { assertWorktreeCustodyAdmission } from '../../worktree-custody-runtime'
+import { admitWorktreeCustody } from '../../worktree-custody-runtime'
 import { makePaneKey } from '../../../../shared/stable-pane-id'
 import {
   agentProviderSessionsEqual,
@@ -108,99 +108,103 @@ export abstract class OrcaRuntimeWithResumeAgentSessionInWorkspace extends OrcaR
     if (request.signal?.aborted) {
       return refuse('aborted')
     }
-    assertWorktreeCustodyAdmission(worktreeId, undefined, request.captureHostId)
-    let workspace
+    const releaseCustody = admitWorktreeCustody(worktreeId, undefined, request.captureHostId)
     try {
-      // A resume the user asked for, as its create below.
-      workspace = await this.resolveTerminalWorkspaceLaunchScope(`id:${worktreeId}`, undefined, {
-        wslUserAct: true
-      })
-    } catch {
-      return refuse('no_resume_command')
-    }
-    // Provider session ids name transcripts only on their reporting execution host.
-    if (getConnectionExecutionHostId(workspace.connectionId) !== request.captureHostId) {
-      return refuse('no_resume_command')
-    }
-    // Retries reconcile this request's pane instead of spawning another.
-    const ownPaneKey = makePaneKey(create.identity.tabId, create.identity.leafId)
-    if (await this.isProviderSessionLiveInAnotherPane(session, ownPaneKey)) {
-      return refuse('held_elsewhere')
-    }
-    const records = Object.values(
-      this.getWorkspaceSessionForWorktree(worktreeId)?.sleepingAgentSessionsByPaneKey ?? {}
-    ).filter(
-      (record) =>
-        worktreeIdsEqual(record.worktreeId, worktreeId) &&
-        record.agent === session.agent &&
-        agentProviderSessionsEqual(record.agent, record.providerSession, session.providerSession)
-    )
-    if (records.some((record) => !this.isPaneOwnedResumeRecord(record))) {
-      return refuse('window_owns_wake')
-    }
-    // A session recorded by two panes cannot resume automatically (resolvePaneOwnedResumeStartup).
-    if (records.length > 1) {
-      return refuse('held_elsewhere')
-    }
-    const record = records[0]
-    let resume
-    try {
-      resume = this.resolveMobileSessionResumeCommand(workspace, {
-        ...session,
-        launchConfig: record?.launchConfig
-      })
-    } catch (error) {
-      if (error instanceof WslHostWindowsOnlyAgentError) {
-        return { ok: false, reason: 'windows_only_cli', message: error.message }
+      let workspace
+      try {
+        // A resume the user asked for, as its create below.
+        workspace = await this.resolveTerminalWorkspaceLaunchScope(`id:${worktreeId}`, undefined, {
+          wslUserAct: true
+        })
+      } catch {
+        return refuse('no_resume_command')
       }
-      throw error
-    }
-    if (!resume) {
-      return refuse('no_resume_command')
-    }
-    // Claim pane ownership before spawn to prevent a second resume writer.
-    if (record && isUnclaimedRunningSleepRecord(record)) {
-      if (!(await this.claimSleepRecord(worktreeId, record))) {
+      // Provider session ids name transcripts only on their reporting execution host.
+      if (getConnectionExecutionHostId(workspace.connectionId) !== request.captureHostId) {
+        return refuse('no_resume_command')
+      }
+      // Retries reconcile this request's pane instead of spawning another.
+      const ownPaneKey = makePaneKey(create.identity.tabId, create.identity.leafId)
+      if (await this.isProviderSessionLiveInAnotherPane(session, ownPaneKey)) {
         return refuse('held_elsewhere')
       }
-    }
-    if (request.signal?.aborted) {
-      return refuse('aborted')
-    }
-    // Seed saved tabs before create publishes onto the workspace snapshot.
-    this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(worktreeId)
-    // Runtime-owned create uses the quoting host; a window create may time out while its agent still starts.
-    const created = await this.createRuntimeOwnedMobileSessionTerminal(
-      worktreeId,
-      false,
-      undefined,
-      {
-        // A resume the user asked for (a vault or external-conversation reopen).
-        wslUserAct: true,
-        command: resume.command,
-        env: resume.env,
-        startupCommandDelivery: resume.startupCommandDelivery,
-        launchConfig: resume.launchConfig,
-        launchAgent: resume.launchAgent,
-        launchRuntime: resume.launchRuntime,
-        resumeProviderSession: resume.resumeProviderSession,
-        spawnIntent: 'user-resume',
-        identity: create.identity,
-        createMutation: { clientIdentity: 'agent-session-resume', id: request.mutationId },
-        onPtySpawnDispatched: create.onPtySpawnDispatched,
-        onPtyCreated: create.onPtyCreated,
-        signal: request.signal
+      const records = Object.values(
+        this.getWorkspaceSessionForWorktree(worktreeId)?.sleepingAgentSessionsByPaneKey ?? {}
+      ).filter(
+        (record) =>
+          worktreeIdsEqual(record.worktreeId, worktreeId) &&
+          record.agent === session.agent &&
+          agentProviderSessionsEqual(record.agent, record.providerSession, session.providerSession)
+      )
+      if (records.some((record) => !this.isPaneOwnedResumeRecord(record))) {
+        return refuse('window_owns_wake')
       }
-    )
-    const { tab } = created
-    if (tab.status !== 'ready' || !tab.ptyId) {
-      return refuse('create_failed')
-    }
-    return {
-      ok: true,
-      handle: tab.terminal,
-      paneKey: makePaneKey(tab.parentTabId, tab.leafId),
-      ptyId: tab.ptyId
+      // A session recorded by two panes cannot resume automatically (resolvePaneOwnedResumeStartup).
+      if (records.length > 1) {
+        return refuse('held_elsewhere')
+      }
+      const record = records[0]
+      let resume
+      try {
+        resume = this.resolveMobileSessionResumeCommand(workspace, {
+          ...session,
+          launchConfig: record?.launchConfig
+        })
+      } catch (error) {
+        if (error instanceof WslHostWindowsOnlyAgentError) {
+          return { ok: false, reason: 'windows_only_cli', message: error.message }
+        }
+        throw error
+      }
+      if (!resume) {
+        return refuse('no_resume_command')
+      }
+      // Claim pane ownership before spawn to prevent a second resume writer.
+      if (record && isUnclaimedRunningSleepRecord(record)) {
+        if (!(await this.claimSleepRecord(worktreeId, record))) {
+          return refuse('held_elsewhere')
+        }
+      }
+      if (request.signal?.aborted) {
+        return refuse('aborted')
+      }
+      // Seed saved tabs before create publishes onto the workspace snapshot.
+      this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(worktreeId)
+      // Runtime-owned create uses the quoting host; a window create may time out while its agent still starts.
+      const created = await this.createRuntimeOwnedMobileSessionTerminal(
+        worktreeId,
+        false,
+        undefined,
+        {
+          // A resume the user asked for (a vault or external-conversation reopen).
+          wslUserAct: true,
+          command: resume.command,
+          env: resume.env,
+          startupCommandDelivery: resume.startupCommandDelivery,
+          launchConfig: resume.launchConfig,
+          launchAgent: resume.launchAgent,
+          launchRuntime: resume.launchRuntime,
+          resumeProviderSession: resume.resumeProviderSession,
+          spawnIntent: 'user-resume',
+          identity: create.identity,
+          createMutation: { clientIdentity: 'agent-session-resume', id: request.mutationId },
+          onPtySpawnDispatched: create.onPtySpawnDispatched,
+          onPtyCreated: create.onPtyCreated,
+          signal: request.signal
+        }
+      )
+      const { tab } = created
+      if (tab.status !== 'ready' || !tab.ptyId) {
+        return refuse('create_failed')
+      }
+      return {
+        ok: true,
+        handle: tab.terminal,
+        paneKey: makePaneKey(tab.parentTabId, tab.leafId),
+        ptyId: tab.ptyId
+      }
+    } finally {
+      releaseCustody()
     }
   }
 }

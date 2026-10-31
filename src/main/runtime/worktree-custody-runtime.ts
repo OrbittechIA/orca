@@ -4,30 +4,34 @@ import { getAppEnvironment, hasAppEnvironment } from '../../shared/app-environme
 import { splitWorktreeId } from '../../shared/worktree/id'
 import { WORKTREE_CUSTODY_CAPABILITY } from '../../shared/worktree/custody'
 import type { Worktree } from '../../shared/worktree/types'
-import { WorktreeCustodyAuthority, type CustodyCoverage } from './worktree-custody-authority'
+import {
+  WorktreeCustodyAuthority,
+  WorktreeCustodyAdmissionError,
+  type CustodyCoverage
+} from './worktree-custody-authority'
 import { WorktreeCustodyFileJournal } from './worktree-custody-journal'
+import { OrchestrationError } from './orchestration/orchestration-error'
+import type { OrchestrationDb } from './orchestration/db'
+import type { WorktreeCustodyResource } from '../../shared/worktree/custody'
 
-let authority: {
-  directory: string
-  runtimeId: string | null
-  custody: WorktreeCustodyAuthority
-} | null = null
+export { WorktreeCustodyAdmissionError } from './worktree-custody-authority'
 
-export function nativeWorktreeCustody(runtimeId?: string): WorktreeCustodyAuthority | null {
+const authorities = new Map<string, WorktreeCustodyAuthority>()
+
+export function nativeWorktreeCustody(_runtimeId?: string): WorktreeCustodyAuthority | null {
   if (!hasAppEnvironment() || process.platform === 'win32') return null
   const directory = join(getAppEnvironment().getPath('userData'), 'worktree-custody-v1')
-  if (
-    authority?.directory === directory &&
-    (!runtimeId || !authority.runtimeId || authority.runtimeId === runtimeId)
-  ) {
-    authority.runtimeId ??= runtimeId ?? null
-    return authority.custody
-  }
+  const existing = authorities.get(directory)
+  if (existing) return existing
   const custody = new WorktreeCustodyAuthority(
-    new WorktreeCustodyFileJournal(directory),
-    randomUUID()
+    new WorktreeCustodyFileJournal(
+      join(getAppEnvironment().getPath('userData'), 'worktree-custody-effects-v1')
+    ),
+    randomUUID(),
+    Date.now,
+    new WorktreeCustodyFileJournal(directory)
   )
-  authority = { directory, runtimeId: runtimeId ?? null, custody }
+  authorities.set(directory, custody)
   return custody
 }
 
@@ -53,12 +57,13 @@ export function installNativeWorktreeCustodyCoverage(
 export function admitWorktreeCustody(
   worktreeId: string,
   path?: string,
-  hostId?: string | null
+  hostId?: string | null,
+  reopen = true
 ): () => void {
   if (hostId && hostId !== 'local') return () => {}
   const exactPath = path ?? splitWorktreeId(worktreeId)?.worktreePath
   if (!exactPath) return () => {}
-  return nativeWorktreeCustody()?.admit(worktreeId, exactPath) ?? (() => {})
+  return nativeWorktreeCustody()?.admit(worktreeId, exactPath, reopen) ?? (() => {})
 }
 
 export function assertWorktreeCustodyAdmission(
@@ -66,7 +71,30 @@ export function assertWorktreeCustodyAdmission(
   path?: string,
   hostId?: string | null
 ): void {
-  admitWorktreeCustody(worktreeId, path, hostId)()
+  if (hostId && hostId !== 'local') return
+  const exactPath = path ?? splitWorktreeId(worktreeId)?.worktreePath
+  if (exactPath) nativeWorktreeCustody()?.checkAdmission(worktreeId, exactPath)
+}
+
+export function admitOrchestrationWorktreeCustody(
+  worktreeId: string,
+  path?: string,
+  hostId?: string | null
+): () => void {
+  try {
+    return admitWorktreeCustody(worktreeId, path, hostId)
+  } catch (error) {
+    if (!(error instanceof WorktreeCustodyAdmissionError)) throw error
+    throw new OrchestrationError(
+      'worktree_custody_refused',
+      'Workspace custody prevents this operation.',
+      {
+        effectsApplied: false,
+        worktreeId,
+        reason: error.message
+      }
+    )
+  }
 }
 
 export function claimWorkerWorktreeCustody(
@@ -105,11 +133,41 @@ export function claimWorkerWorktreeCustody(
   }
 }
 
-export function releaseWorkerWorktreeCustody(dispatchId: string, resourceId: string): void {
+export function releaseWorkerWorktreeCustody(
+  database: Pick<OrchestrationDb, 'db'>,
+  dispatchId: string
+): void {
   try {
     const custody = nativeWorktreeCustody()
-    if (!custody?.resources().some((resource) => resource.owner === 'orchestration')) return
-    custody.release(`dispatch:${dispatchId}`, `native-worker-release:${resourceId}`)
+    const resource = custody?.claimedResource(`dispatch:${dispatchId}`)
+    if (!custody || !resource || resource.owner !== 'orchestration' || database.db.isTransaction)
+      return
+    const worker = database.db
+      .prepare('SELECT state, worktree_id FROM worker_dispatches WHERE dispatch_id = ?')
+      .get(dispatchId)
+    if (
+      !worker ||
+      !['completed', 'failed', 'circuit_broken'].includes(String(worker.state)) ||
+      worker.worktree_id !== resource.worktreeId
+    )
+      return
+    const resources = database.db
+      .prepare(`SELECT worktree_id, ownership_state, release_state
+      FROM worker_terminal_resources WHERE owner_dispatch_id = ? OR origin_dispatch_id = ?
+      OR EXISTS (SELECT 1 FROM json_each(prior_owner_dispatch_ids) WHERE value = ?) LIMIT 2049`)
+      .all(dispatchId, dispatchId, dispatchId)
+    if (
+      resources.length === 0 ||
+      resources.length > 2048 ||
+      resources.some(
+        (entry) =>
+          entry.worktree_id !== resource.worktreeId ||
+          entry.ownership_state !== 'released' ||
+          entry.release_state !== 'released'
+      )
+    )
+      return
+    custody.release(`dispatch:${dispatchId}`, `native-worker-release:${dispatchId}`)
   } catch (error) {
     // A legacy or reopened claim remains unknown; worker settlement must stay committed.
     console.warn('[worktree-custody] release proof pending', {
@@ -117,4 +175,21 @@ export function releaseWorkerWorktreeCustody(dispatchId: string, resourceId: str
       reason: error instanceof Error ? error.message : 'custody_release_unproven'
     })
   }
+}
+
+export function queueWorkerWorktreeCustodyRelease(
+  database: Pick<OrchestrationDb, 'db'>,
+  dispatchId: string
+): void {
+  // Re-read committed ownership after the synchronous outer transaction; observation retries durable rows after restart.
+  queueMicrotask(() => releaseWorkerWorktreeCustody(database, dispatchId))
+}
+
+export function reconcileWorkerWorktreeCustodyRelease(
+  database: Pick<OrchestrationDb, 'db'>,
+  resource: WorktreeCustodyResource
+): void {
+  const claim = nativeWorktreeCustody()?.producerClaim(resource)
+  if (claim?.startsWith('dispatch:'))
+    releaseWorkerWorktreeCustody(database, claim.slice('dispatch:'.length))
 }

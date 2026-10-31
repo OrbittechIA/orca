@@ -1,5 +1,5 @@
 import { defineMethod } from '../../../core'
-import { assertWorktreeCustodyAdmission } from '../../../../worktree-custody-runtime'
+import { admitOrchestrationWorktreeCustody } from '../../../../worktree-custody-runtime'
 import { OrchestrationError } from '../../../../orchestration/orchestration-error'
 import { buildDispatchPreamble } from '../../../../orchestration/preamble'
 import { sendAgentTurn } from '../../../../orchestration/send-agent-turn'
@@ -101,137 +101,136 @@ export const ORCHESTRATION_DISPATCH_METHODS = [
       }
 
       const dispatchAuthority = chatAssignee ? null : runtime.getOrchestrationDispatchAuthority(to)
-      if (dispatchAuthority?.worktreeId)
-        assertWorktreeCustodyAdmission(
-          dispatchAuthority.worktreeId,
-          undefined,
-          dispatchAuthority.hostScope.kind
-        )
-      const assigneePaneKey = chatAssignee
-        ? undefined
-        : (dispatchAuthority?.paneKey ?? runtime.getTerminalPaneKey(to) ?? undefined)
-      const processIncarnation =
-        dispatchAuthority?.paneKey && dispatchAuthority.processIncarnation
-          ? dispatchAuthority.processIncarnation
-          : undefined
-      // Resolve dispatch authority on both sides; pane lookup alone misses window-graph-only handles.
-      const callerPane = params.from
-        ? (runtime.getOrchestrationDispatchAuthority(params.from)?.paneKey ??
-          runtime.getTerminalPaneKey(params.from) ??
-          null)
-        : null
-      if (params.inject && chatAssignee) {
-        // The session wins over `--from`, so a chat calling with none is still refused here.
-        refuseChatSelfAssignment({
-          sessionId: chatAssignee,
-          coordinatorSessionId: orchestrationCaller?.orcaSessionId,
-          remedy: 'Dispatch to a different agent, or use worker-start to create one.'
-        })
-      }
-      if (
-        params.inject &&
-        params.from &&
-        (to === params.from || (assigneePaneKey != null && assigneePaneKey === callerPane))
-      ) {
-        // Refuse self-injected preambles to avoid endless self-answering; context-only topology dispatch remains legal.
-        throw new OrchestrationError(
-          'terminal_is_coordinator',
-          `Terminal ${to} is this coordinator's own terminal. Dispatch to a different agent pane, or use worker-start to create one.`
-        )
-      }
-
-      // Require a detected agent before injection so a bare shell cannot execute the preamble.
-      if (params.inject && !chatAssignee) {
-        const hasAgent = await runtime.isTerminalRunningAgent(to)
-        if (!hasAgent) {
-          throw injectRejectedError(to, 'no_agent_detected')
-        }
-      }
-
-      if (params.inject && !chatAssignee && (!assigneePaneKey || !processIncarnation)) {
-        throw new OrchestrationError(
-          'stable_pane_required',
-          `Terminal ${to} has no stable pane/process incarnation for lifecycle authority.`
-        )
-      }
-
-      revalidateLegacyCoordinator?.()
       const admittedWorktreeId = chatLocation?.workspaceId ?? dispatchAuthority?.worktreeId
       const admittedHostId = chatLocation
         ? chatLocation.wslDistro
           ? 'wsl'
           : chatLocation.executionHostId
         : dispatchAuthority?.hostScope.kind
-      if (admittedWorktreeId)
-        assertWorktreeCustodyAdmission(admittedWorktreeId, undefined, admittedHostId)
-      const ctx = db.createDispatchContext({
-        taskId: params.task,
-        assigneeHandle: to,
-        assigneePaneKey,
-        launchTokenHash: dispatchAuthority?.launchTokenHash ?? undefined,
-        processIncarnation,
-        creator: resolveDispatchCreator(runtime, params.from, orchestrationCaller),
-        maxDepth: runtime.getNestedWorkerMaxDepth()
-      })
-
-      // Build after ctx to put its real id in heartbeats and attribute liveness to this Dispatch.
-      const preamble = buildDispatchPreamble({
-        taskId: task.id,
-        dispatchId: ctx.id,
-        canDispatchSubWorkers: ctx.depth < runtime.getNestedWorkerMaxDepth(),
-        heartbeatIntervalMinutes: runtime.getOrchestrationHeartbeatMinutes(),
-        taskSpec: task.spec,
-        coordinatorHandle: orcaSessionIdOrHandle(params.from ?? 'coordinator', db),
-        workerHandle: orcaSessionIdOrHandle(to, db),
-        devMode: params.devMode,
-        cliCommand: runtime.getTerminalOrchestrationCliCommand(to)
-      })
-
-      let injected = false
-      let prompt
-      if (params.inject) {
-        try {
-          if (chatAssignee) {
-            const from = dispatchTaskSource({
-              db,
-              dispatch: ctx,
-              from: params.from,
-              senderName: (party, reported) =>
-                runtime.orchestrationSenderNames.nameOf(party, reported)
-            })
-            await sendChatTask({ db, dispatch: ctx, from, preamble })
-          } else {
-            prompt = await sendAgentTurn({
-              kind: 'terminal',
-              runtime,
-              handle: to,
-              turn: {
-                purpose: 'dispatch-preamble',
-                body: preamble,
-                operationId: orchestrationMutation?.requestId ?? ctx.id
-              }
-            })
-          }
-          injected = true
-        } catch (err) {
-          // Unknown delivery may still be running; keep Dispatch open for its report or explicit abandon.
-          if (!(err instanceof OrchestrationError && err.code === 'operation_unknown')) {
-            db.failDispatch(ctx.id, err instanceof Error ? err.message : String(err))
-          }
-          throw err
+      const releaseCustody = admittedWorktreeId
+        ? admitOrchestrationWorktreeCustody(admittedWorktreeId, undefined, admittedHostId)
+        : () => {}
+      try {
+        const assigneePaneKey = chatAssignee
+          ? undefined
+          : (dispatchAuthority?.paneKey ?? runtime.getTerminalPaneKey(to) ?? undefined)
+        const processIncarnation =
+          dispatchAuthority?.paneKey && dispatchAuthority.processIncarnation
+            ? dispatchAuthority.processIncarnation
+            : undefined
+        // Resolve dispatch authority on both sides; pane lookup alone misses window-graph-only handles.
+        const callerPane = params.from
+          ? (runtime.getOrchestrationDispatchAuthority(params.from)?.paneKey ??
+            runtime.getTerminalPaneKey(params.from) ??
+            null)
+          : null
+        if (params.inject && chatAssignee) {
+          // The session wins over `--from`, so a chat calling with none is still refused here.
+          refuseChatSelfAssignment({
+            sessionId: chatAssignee,
+            coordinatorSessionId: orchestrationCaller?.orcaSessionId,
+            remedy: 'Dispatch to a different agent, or use worker-start to create one.'
+          })
         }
-      }
-
-      // Opt into returning the preamble to avoid hundreds of unnecessary response bytes.
-      if (params.returnPreamble) {
-        return {
-          dispatch: ctx,
-          injected,
-          preamble,
-          ...(prompt?.prompt ? { prompt: prompt.prompt } : {})
+        if (
+          params.inject &&
+          params.from &&
+          (to === params.from || (assigneePaneKey != null && assigneePaneKey === callerPane))
+        ) {
+          // Refuse self-injected preambles to avoid endless self-answering; context-only topology dispatch remains legal.
+          throw new OrchestrationError(
+            'terminal_is_coordinator',
+            `Terminal ${to} is this coordinator's own terminal. Dispatch to a different agent pane, or use worker-start to create one.`
+          )
         }
+
+        // Require a detected agent before injection so a bare shell cannot execute the preamble.
+        if (params.inject && !chatAssignee) {
+          const hasAgent = await runtime.isTerminalRunningAgent(to)
+          if (!hasAgent) {
+            throw injectRejectedError(to, 'no_agent_detected')
+          }
+        }
+
+        if (params.inject && !chatAssignee && (!assigneePaneKey || !processIncarnation)) {
+          throw new OrchestrationError(
+            'stable_pane_required',
+            `Terminal ${to} has no stable pane/process incarnation for lifecycle authority.`
+          )
+        }
+
+        revalidateLegacyCoordinator?.()
+        const ctx = db.createDispatchContext({
+          taskId: params.task,
+          assigneeHandle: to,
+          assigneePaneKey,
+          launchTokenHash: dispatchAuthority?.launchTokenHash ?? undefined,
+          processIncarnation,
+          creator: resolveDispatchCreator(runtime, params.from, orchestrationCaller),
+          maxDepth: runtime.getNestedWorkerMaxDepth()
+        })
+
+        // Build after ctx to put its real id in heartbeats and attribute liveness to this Dispatch.
+        const preamble = buildDispatchPreamble({
+          taskId: task.id,
+          dispatchId: ctx.id,
+          canDispatchSubWorkers: ctx.depth < runtime.getNestedWorkerMaxDepth(),
+          heartbeatIntervalMinutes: runtime.getOrchestrationHeartbeatMinutes(),
+          taskSpec: task.spec,
+          coordinatorHandle: orcaSessionIdOrHandle(params.from ?? 'coordinator', db),
+          workerHandle: orcaSessionIdOrHandle(to, db),
+          devMode: params.devMode,
+          cliCommand: runtime.getTerminalOrchestrationCliCommand(to)
+        })
+
+        let injected = false
+        let prompt
+        if (params.inject) {
+          try {
+            if (chatAssignee) {
+              const from = dispatchTaskSource({
+                db,
+                dispatch: ctx,
+                from: params.from,
+                senderName: (party, reported) =>
+                  runtime.orchestrationSenderNames.nameOf(party, reported)
+              })
+              await sendChatTask({ db, dispatch: ctx, from, preamble })
+            } else {
+              prompt = await sendAgentTurn({
+                kind: 'terminal',
+                runtime,
+                handle: to,
+                turn: {
+                  purpose: 'dispatch-preamble',
+                  body: preamble,
+                  operationId: orchestrationMutation?.requestId ?? ctx.id
+                }
+              })
+            }
+            injected = true
+          } catch (err) {
+            // Unknown delivery may still be running; keep Dispatch open for its report or explicit abandon.
+            if (!(err instanceof OrchestrationError && err.code === 'operation_unknown')) {
+              db.failDispatch(ctx.id, err instanceof Error ? err.message : String(err))
+            }
+            throw err
+          }
+        }
+
+        // Opt into returning the preamble to avoid hundreds of unnecessary response bytes.
+        if (params.returnPreamble) {
+          return {
+            dispatch: ctx,
+            injected,
+            preamble,
+            ...(prompt?.prompt ? { prompt: prompt.prompt } : {})
+          }
+        }
+        return { dispatch: ctx, injected, ...(prompt?.prompt ? { prompt: prompt.prompt } : {}) }
+      } finally {
+        releaseCustody()
       }
-      return { dispatch: ctx, injected, ...(prompt?.prompt ? { prompt: prompt.prompt } : {}) }
     }
   }),
 

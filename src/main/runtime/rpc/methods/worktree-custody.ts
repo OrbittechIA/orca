@@ -18,7 +18,7 @@ export const WORKTREE_CUSTODY_METHOD = defineMethod({
         supported: custody?.supported === true,
         authorityId: custody?.authorityId ?? null,
         resources: custody?.resources() ?? [],
-        complete: custody !== null,
+        complete: custody?.complete === true,
         scope: 'native-enrolled-only'
       }
     }
@@ -32,7 +32,7 @@ export const WORKTREE_CUSTODY_METHOD = defineMethod({
         custody.check(params.fence)
         return { schemaVersion: 1, valid: true }
       case 'cancel':
-        custody.cancel(params.fence)
+        await custody.cancel(params.fence)
         return { schemaVersion: 1, cancelled: true }
       case 'retire':
         return { schemaVersion: 1, outcome: await custody.retire(params.fence, params.key) }

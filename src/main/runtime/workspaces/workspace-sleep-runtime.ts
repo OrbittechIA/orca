@@ -1,5 +1,5 @@
 import type { RuntimeWorktreeTerminalSleepResult } from '../../../shared/runtime-types'
-import { assertWorktreeCustodyAdmission } from '../worktree-custody-runtime'
+import { admitWorktreeCustody } from '../worktree-custody-runtime'
 import type { SleepingAgentSessionRecord } from '../../../shared/agent-session-resume'
 import { toRuntimeExecutionHostId } from '../../../shared/execution-host'
 import type {
@@ -121,20 +121,21 @@ export class WorkspaceSleepCoordinator {
   }
 
   noteReopened(worktreeId: string): void {
-    assertWorktreeCustodyAdmission(worktreeId)
+    admitWorktreeCustody(worktreeId)()
     this.reopenings.set(worktreeId, (this.reopenings.get(worktreeId) ?? 0) + 1)
   }
 
   /** Queue wake behind sleep and await agent starts so later sleep/delete cannot overtake it. */
   wake(worktreeId: string): Promise<void> {
     this.noteReopened(worktreeId)
+    const release = admitWorktreeCustody(worktreeId)
     return queueTerminalWorkspaceCommand(this.runtime, `id:${worktreeId}`, {
       kind: 'wake',
       run: async () => {
         await this.runtime.resumeSleptWorkspaceAgents(worktreeId)
         this.runtime.wakeWindowHibernatedAgents(worktreeId)
       }
-    })
+    }).finally(release)
   }
 
   /** A slept pane was opened: main resumes it, queued like any wake, and the opener attaches. */
@@ -142,10 +143,11 @@ export class WorkspaceSleepCoordinator {
     if (!automatic) {
       this.noteReopened(pane.worktreeId)
     }
+    const release = admitWorktreeCustody(pane.worktreeId)
     return queueTerminalWorkspaceCommand(this.runtime, `id:${pane.worktreeId}`, {
       kind: 'wake',
       run: async () => (await this.runtime.ensureRestoredPaneStarted(pane, { automatic })) !== null
-    })
+    }).finally(release)
   }
 
   private deps(): WorkspaceSleepDeps {

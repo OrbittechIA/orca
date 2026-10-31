@@ -6,6 +6,8 @@ import {
 } from '../../shared/worktree/custody'
 import type { OrcaRuntimeService } from './orca-runtime'
 import { getStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
+import { pendingWorktreeRemovals, failedWorktreeRemovals } from '../worktree-removal-table'
+import { reconcileWorkerWorktreeCustodyRelease } from './worktree-custody-runtime'
 
 /** Reports only ownership metadata. Missing stores and legacy/unbound consumers remain incomplete. */
 export async function observeNativeWorktreeCustody(
@@ -47,6 +49,11 @@ export async function observeNativeWorktreeCustody(
     !worktree.isMainWorktree &&
     !worktree.isBare
   if (exact) {
+    reconcileWorkerWorktreeCustodyRelease(runtime.getOrchestrationDb(), resource)
+    const removing = [...pendingWorktreeRemovals.values(), ...failedWorktreeRemovals.values()].some(
+      (removal) =>
+        removal.worktreeId === resource.worktreeId || removal.worktreePath === resource.path
+    )
     const session = runtime.getWorkspaceSessionForWorktree(resource.worktreeId)
     const sleeping = Object.values(session?.sleepingAgentSessionsByPaneKey ?? {}).filter(
       (record) => record.worktreeId === resource.worktreeId
@@ -62,6 +69,7 @@ export async function observeNativeWorktreeCustody(
       false,
       current,
       current ||
+        removing ||
         worktree.workspaceStatus !== 'completed' ||
         worktree.isPinned ||
         worktree.childWorktreeIds.length > 0,

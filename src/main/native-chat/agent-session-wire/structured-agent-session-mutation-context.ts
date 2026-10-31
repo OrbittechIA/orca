@@ -1,4 +1,8 @@
-import { admitWorktreeCustody } from '../../runtime/worktree-custody-runtime'
+import {
+  admitWorktreeCustody,
+  WorktreeCustodyAdmissionError
+} from '../../runtime/worktree-custody-runtime'
+import { refuseUnclassified } from '../../../shared/agent-session-wire-refusals'
 import type { AgentChildWorkEvidence } from '../../../shared/agent-status-child-work-evidence'
 import type {
   AgentSessionMutationEnvelope,
@@ -84,13 +88,25 @@ export async function runStructuredAgentSessionMutation<TValue>(
   prepareSession?: AgentSessionMutationRequest<TValue>['prepareSession']
 ): Promise<AgentSessionMutationResult<TValue>> {
   const location = context.deps.store.getRecord(envelope.sessionId)?.location
-  const release = location
-    ? admitWorktreeCustody(
-        location.workspaceId,
-        undefined,
-        location.wslDistro ? 'wsl' : location.executionHostId
+  let release: () => void
+  try {
+    release = location
+      ? admitWorktreeCustody(
+          location.workspaceId,
+          undefined,
+          location.wslDistro ? 'wsl' : location.executionHostId
+        )
+      : () => {}
+  } catch (error) {
+    if (!(error instanceof WorktreeCustodyAdmissionError)) throw error
+    return {
+      ok: false,
+      refusal: refuseUnclassified(
+        'agent_session_ownership_unknown',
+        'Workspace custody prevents this operation before any session mutation.'
       )
-    : () => {}
+    }
+  }
   try {
     return await admitAndRunAgentSessionMutation({
       store: context.deps.store,

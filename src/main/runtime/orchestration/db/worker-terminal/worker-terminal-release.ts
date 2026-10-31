@@ -1,4 +1,4 @@
-import { releaseWorkerWorktreeCustody } from '../../../worktree-custody-runtime'
+import { queueWorkerWorktreeCustodyRelease } from '../../../worktree-custody-runtime'
 import {
   decideWorkerTerminalRelease,
   WORKER_SETTLED_STATES,
@@ -159,7 +159,7 @@ export function settleDeadWorkerTerminalRelease(
     const released = this.getWorkerTerminalResource(params.resourceId) as WorkerTerminalResourceRow
     this.db.exec('COMMIT')
     if (released.release_state === 'released' && released.ownership_state === 'released') {
-      releaseWorkerWorktreeCustody(released.owner_dispatch_id, released.id)
+      queueWorkerWorktreeCustodyRelease(this, released.owner_dispatch_id)
     }
     return released.release_state === 'released'
       ? { disposition: 'released', resource: released }

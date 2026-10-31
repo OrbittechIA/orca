@@ -1,5 +1,5 @@
 import type { BrowserWindow } from 'electron'
-import { assertWorktreeCustodyAdmission } from './worktree-custody-runtime'
+import { admitWorktreeCustody } from './worktree-custody-runtime'
 import type { TerminalWorkspaceLaunchScope } from './runtime-legacy-worker-terminal-recovery-types'
 import { OrcaRuntimeWithGetAgentSessionExecutionNamespace } from './session-construction/agent-session/get-agent-session-execution-namespace'
 import type {
@@ -118,106 +118,110 @@ export abstract class OrcaRuntimeWithCreateAgentSession extends OrcaRuntimeWithG
           wslUserAct: true
         }
       )
-      assertWorktreeCustodyAdmission(
+      const releaseCustody = admitWorktreeCustody(
         workspace.id,
         workspace.path,
         workspace.connectionId ? 'ssh' : 'local'
       )
-      if (
-        !(await this.executionOwnerSupportsAgentSessionOperation(
-          workspace,
-          'create',
-          caller.signal
-        ))
-      ) {
-        // Legacy launch remains client-owned until this pre-spawn check passes.
-        throw new Error('agent_session_legacy_required')
-      }
-      const startupCwd = this.resolveWorkspaceTerminalStartupCwd(workspace, request.startupCwd)
-      // Fingerprint resolved authority in fixed order; aliases/property order are only client syntax.
-      const resolvedFingerprint = createHash('sha256')
-        .update(
-          JSON.stringify([
-            workspace.id,
-            request.agent,
-            request.prompt ?? null,
-            request.promptDelivery ?? null,
-            request.agentArgs ?? null,
-            request.agentArgs === undefined ? 'host-default' : 'client-override',
-            request.launchPreferences?.model ?? null,
-            request.launchPreferences?.effort ?? null,
-            request.launchPreferences?.mode ?? null,
-            startupCwd ?? null,
-            request.presentation ?? null,
-            request.placement?.tabId ?? null,
-            request.placement?.leafId ?? null,
-            request.viewMode ?? null,
-            ...(request.terminalKittyKeyboardProtocol === true ? ['kitty-keyboard'] : [])
-          ])
-        )
-        .digest('base64url')
-      const settings = this.store!.getSettings()
-      if (!isTuiAgentEnabled(request.agent, settings.disabledTuiAgents)) {
-        throw new Error('Selected agent is disabled. Choose an enabled agent before creating.')
-      }
-      let terminal: RuntimeTerminalCreate
-      const executionOperationId = createHash('sha256')
-        .update(this.runtimeId)
-        .update('\0')
-        .update(operationKey)
-        .update('\0')
-        .update(resolvedFingerprint)
-        .digest('base64url')
-      const operationTabId =
-        request.placement?.tabId ?? deterministicAgentSessionUuid(`${executionOperationId}:tab`)
-      const operationLeafId =
-        request.placement?.leafId ?? deterministicAgentSessionUuid(`${executionOperationId}:leaf`)
-      const operationHandle = `term_${deterministicAgentSessionUuid(`${executionOperationId}:handle`)}`
-      // Record before dispatch: ORCA_TERMINAL_HANDLE is the only identity recoverable after a lost spawn.
-      reclaim.identity = {
-        worktreeId: workspace.id,
-        connectionId: workspace.connectionId ?? null,
-        terminalHandle: operationHandle
-      }
       try {
-        terminal = await this.createTerminal(`id:${workspace.id}`, {
-          // Only the agent-session RPC reaches here: the caller's own act.
-          wslUserAct: true,
-          // No requested surface: the host-planned launch uses unknown.
-          startupAgent: request.agent,
-          ...(request.prompt ? { startupPrompt: request.prompt } : {}),
-          startupPromptDelivery: request.promptDelivery,
-          suppressStartupUpdatePrompt: request.promptDelivery === 'auto-submit',
-          // TEMPORARY: see `startupPromptCarry`.
-          startupPromptCarry: 'force-line',
-          ...(request.agentArgs !== undefined ? { agentArgs: request.agentArgs } : {}),
-          launchPreferences: request.launchPreferences,
-          // Account env is re-prepared per attempt; exclude from fingerprints and let first spawn win.
-          accountEnv: request.accountEnv,
-          terminalImageViewerSupported: caller.terminalImageViewerSupported,
-          terminalKittyKeyboardProtocol: request.terminalKittyKeyboardProtocol,
-          cwd: startupCwd,
-          presentation: request.presentation ?? 'background',
-          tabId: operationTabId,
-          leafId: operationLeafId,
-          preAllocatedHandle: operationHandle,
-          viewMode: request.viewMode,
-          agentSessionCreateOperationId: executionOperationId,
-          signal: caller.signal,
-          onPtySpawnCommitted: () => {
+        if (
+          !(await this.executionOwnerSupportsAgentSessionOperation(
+            workspace,
+            'create',
+            caller.signal
+          ))
+        ) {
+          // Legacy launch remains client-owned until this pre-spawn check passes.
+          throw new Error('agent_session_legacy_required')
+        }
+        const startupCwd = this.resolveWorkspaceTerminalStartupCwd(workspace, request.startupCwd)
+        // Fingerprint resolved authority in fixed order; aliases/property order are only client syntax.
+        const resolvedFingerprint = createHash('sha256')
+          .update(
+            JSON.stringify([
+              workspace.id,
+              request.agent,
+              request.prompt ?? null,
+              request.promptDelivery ?? null,
+              request.agentArgs ?? null,
+              request.agentArgs === undefined ? 'host-default' : 'client-override',
+              request.launchPreferences?.model ?? null,
+              request.launchPreferences?.effort ?? null,
+              request.launchPreferences?.mode ?? null,
+              startupCwd ?? null,
+              request.presentation ?? null,
+              request.placement?.tabId ?? null,
+              request.placement?.leafId ?? null,
+              request.viewMode ?? null,
+              ...(request.terminalKittyKeyboardProtocol === true ? ['kitty-keyboard'] : [])
+            ])
+          )
+          .digest('base64url')
+        const settings = this.store!.getSettings()
+        if (!isTuiAgentEnabled(request.agent, settings.disabledTuiAgents)) {
+          throw new Error('Selected agent is disabled. Choose an enabled agent before creating.')
+        }
+        let terminal: RuntimeTerminalCreate
+        const executionOperationId = createHash('sha256')
+          .update(this.runtimeId)
+          .update('\0')
+          .update(operationKey)
+          .update('\0')
+          .update(resolvedFingerprint)
+          .digest('base64url')
+        const operationTabId =
+          request.placement?.tabId ?? deterministicAgentSessionUuid(`${executionOperationId}:tab`)
+        const operationLeafId =
+          request.placement?.leafId ?? deterministicAgentSessionUuid(`${executionOperationId}:leaf`)
+        const operationHandle = `term_${deterministicAgentSessionUuid(`${executionOperationId}:handle`)}`
+        // Record before dispatch: ORCA_TERMINAL_HANDLE is the only identity recoverable after a lost spawn.
+        reclaim.identity = {
+          worktreeId: workspace.id,
+          connectionId: workspace.connectionId ?? null,
+          terminalHandle: operationHandle
+        }
+        try {
+          terminal = await this.createTerminal(`id:${workspace.id}`, {
+            // Only the agent-session RPC reaches here: the caller's own act.
+            wslUserAct: true,
+            // No requested surface: the host-planned launch uses unknown.
+            startupAgent: request.agent,
+            ...(request.prompt ? { startupPrompt: request.prompt } : {}),
+            startupPromptDelivery: request.promptDelivery,
+            suppressStartupUpdatePrompt: request.promptDelivery === 'auto-submit',
+            // TEMPORARY: see `startupPromptCarry`.
+            startupPromptCarry: 'force-line',
+            ...(request.agentArgs !== undefined ? { agentArgs: request.agentArgs } : {}),
+            launchPreferences: request.launchPreferences,
+            // Account env is re-prepared per attempt; exclude from fingerprints and let first spawn win.
+            accountEnv: request.accountEnv,
+            terminalImageViewerSupported: caller.terminalImageViewerSupported,
+            terminalKittyKeyboardProtocol: request.terminalKittyKeyboardProtocol,
+            cwd: startupCwd,
+            presentation: request.presentation ?? 'background',
+            tabId: operationTabId,
+            leafId: operationLeafId,
+            preAllocatedHandle: operationHandle,
+            viewMode: request.viewMode,
+            agentSessionCreateOperationId: executionOperationId,
+            signal: caller.signal,
+            onPtySpawnCommitted: () => {
+              retainReplayFence = true
+            }
+          })
+        } catch (error) {
+          if (error instanceof AgentLaunchUnbuildableError) {
+            throw new Error('agent_session_identity_required')
+          }
+          if (isAgentSessionOperationOutcomeUnknown(error)) {
             retainReplayFence = true
           }
-        })
-      } catch (error) {
-        if (error instanceof AgentLaunchUnbuildableError) {
-          throw new Error('agent_session_identity_required')
+          throw error
         }
-        if (isAgentSessionOperationOutcomeUnknown(error)) {
-          retainReplayFence = true
-        }
-        throw error
+        return { terminal, disposition: 'created' }
+      } finally {
+        releaseCustody()
       }
-      return { terminal, disposition: 'created' }
     })()
     this.agentSessionCreateOperations.set(operationKey, {
       fingerprint: requestFingerprint,
