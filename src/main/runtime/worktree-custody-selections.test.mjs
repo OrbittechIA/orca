@@ -3,12 +3,30 @@ import { test } from 'vitest'
 import { moduleFromSource } from './worktree-custody-fixture.mjs'
 import { KEY, nativePorts } from './worktree-custody-fixture.mjs'
 import { providerCheckout, providerFixture } from './worktree-custody-native-fixture.mjs'
+import { runtimePorts } from './worktree-custody-runtime-fixture.mjs'
 
-const { WorktreeCustodySelections } = await moduleFromSource(
+const { WorktreeCustodySelections, nativeWorktreeCustodySelections } = await moduleFromSource(
   'selections.mjs',
   './worktree-custody-selections.ts',
-  { './worktree-custody-runtime': './native-ports.mjs' }
+  {
+    './worktree-custody-runtime': './native-ports.mjs',
+    '../../shared/app-environment': './runtime-ports.mjs'
+  }
 )
+
+test('selection inventory survives runtime replacement and remains isolated by profile', () => {
+  runtimePorts.setUserData('/fixture-profile-1')
+  const firstRuntime = nativeWorktreeCustodySelections()
+  const close = firstRuntime.open('connected-phone')
+  assert.equal(nativeWorktreeCustodySelections(), firstRuntime)
+  assert.equal(nativeWorktreeCustodySelections().selects('resource'), true)
+  runtimePorts.setUserData('/fixture-profile-2')
+  assert.notEqual(nativeWorktreeCustodySelections(), firstRuntime)
+  assert.equal(nativeWorktreeCustodySelections().complete, true)
+  runtimePorts.setUserData('/fixture-profile-1')
+  close()
+  assert.equal(nativeWorktreeCustodySelections().complete, true)
+})
 
 test('nonreporting connections hold every resource until reporting or disconnecting', () => {
   const admissions = []

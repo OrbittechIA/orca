@@ -62,6 +62,7 @@ export type NativeCustodyProviderPorts = {
   now?: () => number
   /** Native adoption package only, after Core accepts the exact policy and aggregate caps. */
   checkoutPolicy?: CheckoutRetirementPolicy
+  releaseHistory?: NativeWorktreeCustodyProvider['recoverRelease']
 }
 
 export type NativeCustodyProvider = NativeWorktreeCustodyProvider & {
@@ -244,6 +245,7 @@ export function createNativeWorktreeCustodyProvider(
     ready:
       ports.external !== null &&
       ports.pairedSelection !== null &&
+      ports.releaseHistory !== undefined &&
       ports.checkoutPolicy !== undefined,
     retirementPolicy: ports.checkoutPolicy ?? WHOLE_CHECKOUT_RETIREMENT_POLICY,
     observe,
@@ -324,6 +326,7 @@ export function createNativeWorktreeCustodyProvider(
       }
     },
     // Durable producer rows lack consumer admission history across the gap; keep old epochs unknown.
-    recoverRelease: async (release) => ({ release, confirmed: false, proof: null })
+    recoverRelease:
+      ports.releaseHistory ?? (async (release) => ({ release, confirmed: false, proof: null }))
   }
 }

@@ -1,10 +1,27 @@
 import { admitWorktreeCustody } from './worktree-custody-runtime'
+import { getAppEnvironment, hasAppEnvironment } from '../../shared/app-environment'
+import { join } from 'node:path'
 
 type SelectionConnection = { selected: Set<string> | null }
 export type WorktreeSelectionAuthority = {
   readonly complete?: boolean
   readonly generation?: number
   selects: (worktreeId: string) => boolean
+}
+
+const profiles = new Map<string, WorktreeCustodySelections>()
+
+export function nativeWorktreeCustodySelections(): WorktreeCustodySelections {
+  if (!hasAppEnvironment()) {
+    return new WorktreeCustodySelections()
+  }
+  const key = join(getAppEnvironment().getPath('userData'), 'worktree-custody-v1')
+  let inventory = profiles.get(key)
+  if (!inventory) {
+    inventory = new WorktreeCustodySelections()
+    profiles.set(key, inventory)
+  }
+  return inventory
 }
 
 /** Transport-owned inventory; presence expiry never releases a selected workspace. */

@@ -204,13 +204,14 @@ PID absence, lock-file age or journal existence alone are never proof.
 
 Coverage, and therefore the capability, is installed only when the provider is
 `ready`, which requires host-only external-consumer and paired-selection
-authorities and an explicitly adopted checkout policy. The external authority and policy adoption are absent,
+authorities, an owning release-history authority, and an explicitly adopted checkout policy. The external/history authorities and policy adoption are absent,
 so this build installs observation only. A process scan or file-target guard cannot
 be that authority.
 
 ## Staged selection inventory and closed epochs
 
-`WorktreeCustodySelections` is independent of the sidebar switch. Native local
+`WorktreeCustodySelections` is owned by the profile, survives runtime replacement,
+and is independent of the sidebar switch. Native local
 socket accept/close, authenticated paired/mobile socket ready/close (direct and
 relay), and desktop window/document lifecycle register connections before they
 can supply selection absence. Every connection starts unknown. The separate

@@ -366,6 +366,7 @@ async function providerFixture(checkout, options = {}) {
       maxDepth: 128
     },
     profileLock: options.profileLock ?? { current: () => null, exited: () => false },
+    releaseHistory: async (release) => ({ release, confirmed: false, proof: null }),
     external:
       options.external === null
         ? null
