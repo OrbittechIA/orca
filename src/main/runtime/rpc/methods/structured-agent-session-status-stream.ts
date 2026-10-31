@@ -6,10 +6,11 @@ import { projectStructuredAgentSessionStatusAudience } from './structured-agent-
 
 import { prepareStructuredTabsIfSupported } from './structured-session-tab-restore'
 import { defineStreamingMethod, type RpcContext } from '../core'
+import { requireStructuredHost as requireHost } from './structured-agent-session-gate'
 import {
-  canReachStructuredSession,
-  requireStructuredHost as requireHost
-} from './structured-agent-session-gate'
+  canReadStructuredSessionRecord,
+  structuredSessionAdmissionRecord
+} from './structured-agent-session-launch-authority'
 import { structuredAgentSessionStatusSubscriptionId } from './structured-agent-session-subscription-id'
 import { clientReadsStructuredSessionAgent } from './structured-agent-session-policy'
 
@@ -68,10 +69,15 @@ export const STRUCTURED_AGENT_SESSION_STATUS_METHODS = [
         id: subscriptionId,
         emit: (event) => {
           const visible = projectStructuredAgentSessionStatusAudience(event, (sessionId, agent) => {
-            const provider = agent ?? host.deps.store.getConversation(sessionId)?.provider
+            // A name note reads its conversation once; the view keeps provider and launch scope.
+            const record =
+              agent === undefined
+                ? host.deps.store.getConversation(sessionId)
+                : structuredSessionAdmissionRecord(host, sessionId)
+            const provider = agent ?? record?.provider
             return (
               provider !== undefined &&
-              canReachStructuredSession(ctx, host, sessionId) &&
+              canReadStructuredSessionRecord(ctx, record) &&
               clientReadsStructuredSessionAgent(ctx, provider)
             )
           })
