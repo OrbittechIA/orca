@@ -1,7 +1,7 @@
 import { defineMethod } from '../core'
 import { nativeWorktreeCustody } from '../../worktree-custody-runtime'
 import { WorktreeCustodyRequestSchema } from '../../../../shared/worktree/custody-schema'
-import { observeNativeWorktreeCustody } from '../../worktree-custody-observation'
+import { installNativeWorktreeCustodyProvider } from '../../worktree-custody-native-provider-host'
 
 export const WORKTREE_CUSTODY_METHOD = defineMethod({
   name: 'worktree.custody.v1',
@@ -9,9 +9,8 @@ export const WORKTREE_CUSTODY_METHOD = defineMethod({
   params: WorktreeCustodyRequestSchema,
   handler: async (params, { runtime }) => {
     const custody = nativeWorktreeCustody(runtime.getRuntimeId())
-    custody?.installObserver('orchestration', (resource) =>
-      observeNativeWorktreeCustody(runtime, resource)
-    )
+    // Hosts that skip desktop startup composition (headless/orcad) install the same provider lazily.
+    installNativeWorktreeCustodyProvider(runtime)
     if (params.operation === 'list') {
       return {
         schemaVersion: 1,

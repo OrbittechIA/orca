@@ -12,11 +12,13 @@ import {
 import { WorktreeCustodyFileJournal } from './worktree-custody-journal'
 import { OrchestrationError } from './orchestration/orchestration-error'
 import type { OrchestrationDb } from './orchestration/db'
+import { WORKER_RELEASABLE_STATES } from './orchestration/worker-terminal-ownership'
 import type { WorktreeCustodyResource } from '../../shared/worktree/custody'
 
 export { WorktreeCustodyAdmissionError } from './worktree-custody-authority'
 
 const authorities = new Map<string, WorktreeCustodyAuthority>()
+const SETTLED_DISPATCH_STATUSES = ['completed', 'failed', 'circuit_broken']
 
 export function nativeWorktreeCustody(_runtimeId?: string): WorktreeCustodyAuthority | null {
   if (!hasAppEnvironment() || process.platform === 'win32') {
@@ -173,13 +175,20 @@ export function releaseWorkerWorktreeCustody(
     if (!custody || !resource || resource.owner !== 'orchestration' || database.db.isTransaction) {
       return
     }
+    // worker_dispatches and dispatch_contexts share the Dispatch id; both must settle for the claimed task.
     const worker = database.db
-      .prepare('SELECT state, worktree_id FROM worker_dispatches WHERE dispatch_id = ?')
+      .prepare(
+        `SELECT wd.state, wd.worktree_id, dc.task_id, dc.status AS dispatch_status
+        FROM worker_dispatches wd INNER JOIN dispatch_contexts dc ON dc.id = wd.dispatch_id
+        WHERE wd.dispatch_id = ?`
+      )
       .get(dispatchId)
     if (
       !worker ||
-      !['completed', 'failed', 'circuit_broken'].includes(String(worker.state)) ||
-      worker.worktree_id !== resource.worktreeId
+      !WORKER_RELEASABLE_STATES.some((state) => state === worker.state) ||
+      !SETTLED_DISPATCH_STATUSES.includes(String(worker.dispatch_status)) ||
+      worker.worktree_id !== resource.worktreeId ||
+      worker.task_id !== resource.task
     ) {
       return
     }

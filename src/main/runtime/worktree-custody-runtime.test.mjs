@@ -3,6 +3,7 @@ import {
   interruptedRemovalPorts,
   interruptedLocalWorktreeRemovalJob
 } from './worktree-custody-runtime-fixture.mjs'
+import { proveWorktreePreservation, cleanGit } from './worktree-custody-native-fixture.mjs'
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync } from 'node:fs'
 import { join } from 'node:path'
@@ -15,6 +16,8 @@ import {
   WORKTREE_CUSTODY_METHOD,
   runtimeFixture,
   settleWorkerTerminalRelease,
+  createCoreTablesSql,
+  DISPATCH_CONTEXTS_SQL,
   OrcaRuntimeWithCreateTerminal,
   mutationBoundary,
   attachBoundary,
@@ -92,19 +95,29 @@ test('producer release waits for the last owned resource and actual commit, then
   const { DatabaseSync } = await import('node:sqlite')
   const sqlite = new DatabaseSync(':memory:')
   try {
-    sqlite.exec(`CREATE TABLE worker_dispatches (dispatch_id TEXT, state TEXT, worktree_id TEXT);
-      CREATE TABLE worker_terminal_resources (id TEXT, owner_dispatch_id TEXT, origin_dispatch_id TEXT,
-        prior_owner_dispatch_ids TEXT DEFAULT '[]', worktree_id TEXT, ownership_state TEXT, release_state TEXT,
-        release_completed_at TEXT, release_error TEXT, updated_at TEXT);`)
+    // Real worker_dispatches/worker_terminal_resources DDL keeps impossible states unrepresentable.
+    sqlite.exec(createCoreTablesSql())
+    sqlite.exec(DISPATCH_CONTEXTS_SQL)
+    assert.throws(() =>
+      sqlite
+        .prepare(
+          `INSERT INTO worker_dispatches (dispatch_id, state) VALUES ('legacy', 'completed')`
+        )
+        .run()
+    )
     const f = runtimeFixture()
     sqlite
-      .prepare('INSERT INTO worker_dispatches VALUES (?, ?, ?)')
-      .run('fixture', 'completed', BASE.worktreeId)
+      .prepare('INSERT INTO worker_dispatches (dispatch_id, state, worktree_id) VALUES (?, ?, ?)')
+      .run('fixture', 'ready', BASE.worktreeId)
+    sqlite
+      .prepare(`INSERT INTO dispatch_contexts (id, task_id, status) VALUES (?, ?, 'dispatched')`)
+      .run('fixture', BASE.task)
     const insert = sqlite.prepare(`INSERT INTO worker_terminal_resources
-      (id,owner_dispatch_id,origin_dispatch_id,worktree_id,ownership_state,release_state) VALUES (?, ?, ?, ?, 'owned', 'requested')`)
-    for (const id of ['one', 'two']) {
-      insert.run(id, 'fixture', 'fixture', BASE.worktreeId)
-    }
+      (id,owner_dispatch_id,origin_dispatch_id,worktree_id,terminal_handle,ownership_state,release_state)
+      VALUES (?, ?, ?, ?, ?, 'owned', 'requested')`)
+    // One owner row per Dispatch; a successor-owned row originating here still binds release.
+    insert.run('one', 'fixture', 'fixture', BASE.worktreeId, 'term-one')
+    insert.run('two', 'successor', 'fixture', BASE.worktreeId, 'term-two')
     const database = {
       db: {
         prepare: (sql) => sqlite.prepare(sql),
@@ -132,6 +145,19 @@ test('producer release waits for the last owned resource and actual commit, then
     await Promise.resolve()
     assert.equal((await f.custody.observe(f.resource)).disposition, 'held')
     sqlite.exec('COMMIT')
+    // Every resource is released, but an unsettled worker or Dispatch keeps the producer held.
+    runtimeCustody.reconcileWorkerWorktreeCustodyRelease(database, f.resource)
+    assert.equal((await f.custody.observe(f.resource)).disposition, 'held')
+    sqlite.prepare(`UPDATE worker_dispatches SET state = 'succeeded'`).run()
+    runtimeCustody.reconcileWorkerWorktreeCustodyRelease(database, f.resource)
+    assert.equal((await f.custody.observe(f.resource)).disposition, 'held')
+    // A settled Dispatch for another native task cannot release this claim's generation.
+    sqlite
+      .prepare(`UPDATE dispatch_contexts SET status = 'completed', task_id = 'task-other'`)
+      .run()
+    runtimeCustody.reconcileWorkerWorktreeCustodyRelease(database, f.resource)
+    assert.equal((await f.custody.observe(f.resource)).disposition, 'held')
+    sqlite.prepare(`UPDATE dispatch_contexts SET task_id = ?`).run(BASE.task)
     runtimeCustody.reconcileWorkerWorktreeCustodyRelease(database, f.resource)
     assert.equal((await f.custody.observe(f.resource)).disposition, 'released')
     settleWorkerTerminalRelease.call(database, 'one')
@@ -310,4 +336,33 @@ test('startup interrupted removal retains admission through async proof and rele
   await Promise.resolve()
   const fence = await f.custody.capture(f.resource)
   await f.custody.cancel(fence)
+})
+
+test('preservation proof is positive only for clean tracked material on a retained branch', async () => {
+  const path = '/fixture/preserved'
+  assert.equal((await proveWorktreePreservation(path, cleanGit(path))).preserved, true)
+  for (const [git, reason] of [
+    [{ 'rev-parse --show-toplevel': '/fixture/other\n' }, 'git_toplevel_mismatch'],
+    [{ status: '?? scratch.txt\0' }, 'tracked_untracked_or_ignored_material'],
+    [{ 'ls-files -v': 'h assumed\0' }, 'hidden_index_or_gitlink_material'],
+    [
+      { 'ls-files --stage': `160000 ${'b'.repeat(40)} 0\tsub\0` },
+      'hidden_index_or_gitlink_material'
+    ],
+    [{ 'symbolic-ref -q': 'HEAD\n' }, 'detached_head_unretained'],
+    [{ 'rev-parse --verify': 'not-an-oid\n' }, 'branch_tip_unbound'],
+    [{ 'for-each-ref': 'refs/worktree/wip\n' }, 'per_worktree_refs'],
+    [{ status: new Error('git unavailable') }, 'git_preservation_unavailable']
+  ]) {
+    assert.deepEqual(await proveWorktreePreservation(path, cleanGit(path, git)), {
+      preserved: false,
+      reason
+    })
+  }
+  const inProgress = mkdtempSync(join(fixtureRoot, 'preservation-rebase-'))
+  mkdirSync(join(inProgress, '.fixture-git-dir', 'rebase-merge'), { recursive: true })
+  assert.deepEqual(await proveWorktreePreservation(inProgress, cleanGit(inProgress)), {
+    preserved: false,
+    reason: 'operation_in_progress'
+  })
 })

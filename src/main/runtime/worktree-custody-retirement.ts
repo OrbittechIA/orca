@@ -115,6 +115,21 @@ function mergeNativeObservation(
   }
 }
 
+/** Native observation with owning producer gaps filled; also serves the observer-only installation. */
+export function observeWithNativeProducer(
+  runtime: OrcaRuntimeService,
+  producer: Pick<NativeWorktreeCustodyProvider, 'observe'>
+): CustodyCoverage['observe'] {
+  return async (resource) => {
+    const native = await observeNativeWorktreeCustody(runtime, resource)
+    const supplied = await producer.observe(resource)
+    if (custodyResourceKey(supplied.resource) !== custodyResourceKey(resource)) {
+      return { ...native, domains: [] }
+    }
+    return mergeNativeObservation(native, supplied)
+  }
+}
+
 /** Fixed native effect: no teardown, hooks, branch deletion, metadata purge, or history deletion. */
 export function installNativeWorktreeCustodyRetirement(
   runtime: OrcaRuntimeService,
@@ -187,14 +202,7 @@ export function installNativeWorktreeCustodyRetirement(
       reconcile: producer.reconcile,
       recoverFence: producer.recoverFence,
       recoverRelease: producer.recoverRelease,
-      observe: async (resource) => {
-        const native = await observeNativeWorktreeCustody(runtime, resource)
-        const supplied = await producer.observe(resource)
-        if (custodyResourceKey(supplied.resource) !== custodyResourceKey(resource)) {
-          return { ...native, domains: [] }
-        }
-        return mergeNativeObservation(native, supplied)
-      },
+      observe: observeWithNativeProducer(runtime, producer),
       retire
     },
     runtime.getRuntimeId()

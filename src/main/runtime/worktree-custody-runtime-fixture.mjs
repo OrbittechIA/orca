@@ -20,7 +20,8 @@ writeFileSync(
   export function normalizeRuntimePathForComparison(value) { return value; }
   export function defineMethod(method) { return method; }
   export const WorktreeCustodyRequestSchema = {};
-  export function observeNativeWorktreeCustody() { throw new Error('observation not reached by list'); }
+  export let providerInstalls = 0;
+  export function installNativeWorktreeCustodyProvider() { providerInstalls++; }
 `
 )
 const runtimePorts = await import(pathToFileURL(join(fixtureRoot, 'runtime-ports.mjs')).href)
@@ -32,7 +33,22 @@ const { OrchestrationError } = await moduleFromSource(
   'orchestration-error.mjs',
   './orchestration/orchestration-error.ts'
 )
+await moduleFromSource(
+  'worker-terminal-ownership.mjs',
+  './orchestration/worker-terminal-ownership.ts'
+)
+writeFileSync(join(fixtureRoot, 'contract-constants.mjs'), `export const LEGACY_RUN_ID = 'legacy';`)
+const { createCoreTablesSql } = await moduleFromSource(
+  'core-tables.mjs',
+  './orchestration/db/schema/create-core-tables-sql.ts',
+  { '../contract-constants': './contract-constants.mjs' }
+)
+// Status CHECK copied from create-graph-tables-sql.ts; other columns are not read by custody.
+const DISPATCH_CONTEXTS_SQL = `CREATE TABLE dispatch_contexts (id TEXT PRIMARY KEY, task_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK(status IN ('pending', 'dispatched', 'completed', 'failed', 'circuit_broken')));`
 const runtimeCustody = await moduleFromSource('runtime.mjs', './worktree-custody-runtime.ts', {
+  './orchestration/worker-terminal-ownership': './worker-terminal-ownership.mjs',
   '../../shared/app-environment': './runtime-ports.mjs',
   '../../shared/worktree/id': './worktree-id.mjs',
   '../../shared/worktree/custody': './custody.mjs',
@@ -47,7 +63,7 @@ const { WORKTREE_CUSTODY_METHOD } = await moduleFromSource(
     '../core': './runtime-ports.mjs',
     '../../worktree-custody-runtime': './runtime.mjs',
     '../../../../shared/worktree/custody-schema': './runtime-ports.mjs',
-    '../../worktree-custody-observation': './runtime-ports.mjs'
+    '../../worktree-custody-native-provider-host': './runtime-ports.mjs'
   }
 )
 
@@ -199,6 +215,8 @@ export {
   runtimePorts,
   OrchestrationError,
   runtimeCustody,
+  createCoreTablesSql,
+  DISPATCH_CONTEXTS_SQL,
   WORKTREE_CUSTODY_METHOD,
   runtimeFixture,
   settleWorkerTerminalRelease,

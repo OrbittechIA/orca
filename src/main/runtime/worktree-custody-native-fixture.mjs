@@ -1,3 +1,6 @@
+import { writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import {
   fixtureRoot,
   moduleFromSource,
@@ -114,3 +117,89 @@ const { observeNativeWorktreeCustody } = await moduleFromSource(
 )
 
 export { nativePorts, nativeFixture, observeNativeWorktreeCustody }
+
+writeFileSync(
+  join(fixtureRoot, 'provider-ports.mjs'),
+  `
+  export function normalizeRuntimePathForComparison(value) { return value; }
+  export function isPathInsideOrEqual(root, candidate) {
+    return candidate === root || candidate.startsWith(root.endsWith('/') ? root : root + '/');
+  }
+  export const TERMINAL_REMOVAL_IN_PROGRESS_MESSAGE = 'terminal removal in progress';
+  export const WATCHER_REMOVAL_IN_PROGRESS_MESSAGE = 'watcher removal in progress';
+  export function getStructuredAgentSessionHost() { return null; }
+  export const pendingWorktreeRemovals = new Map();
+  export const failedWorktreeRemovals = new Map();
+  export const watcherLifecycleState = {
+    watchedRoots: new Map(), suspendedLocalWatcherListeners: new Map(),
+    inFlightLocalInstalls: new Map(), pendingLocalInstallPromises: new Map()
+  };
+  export const runtimeLeases = new Map();
+  export function getRuntimeFileWatcherLeases(_runtimeId, _connection, path) { return runtimeLeases.get(path); }
+  export async function gitExecFileAsync() { throw new Error('production git is not reached by fixtures'); }
+  let authority = null;
+  export function setAuthority(next) { authority = next; }
+  export function nativeWorktreeCustody() { return authority; }
+`
+)
+const providerPorts = await import(pathToFileURL(join(fixtureRoot, 'provider-ports.mjs')).href)
+const gate = await moduleFromSource('watcher-gate.mjs', '../ipc/watcher-removal-gate.ts', {
+  '../../shared/cross-platform-path': './provider-ports.mjs',
+  '../../shared/worktree/removal-fence-error': './provider-ports.mjs'
+})
+const { proveWorktreePreservation } = await moduleFromSource(
+  'preservation.mjs',
+  './worktree-custody-preservation.ts',
+  { '../git/runner': './provider-ports.mjs' }
+)
+const providerCore = await moduleFromSource(
+  'native-provider.mjs',
+  './worktree-custody-native-provider.ts',
+  { '../../shared/cross-platform-path': './provider-ports.mjs' }
+)
+const providerHost = await moduleFromSource(
+  'native-provider-host.mjs',
+  './worktree-custody-native-provider-host.ts',
+  {
+    '../native-chat/agent-session-wire/structured-agent-session-registry': './provider-ports.mjs',
+    '../worktree-removal-table': './provider-ports.mjs',
+    '../ipc/filesystem/watchers/filesystem-watcher-lifecycle-state': './provider-ports.mjs',
+    './files/watch/file-watcher-leases': './provider-ports.mjs',
+    '../ipc/watcher-removal-gate': './watcher-gate.mjs',
+    './worktree-custody-preservation': './preservation.mjs',
+    './worktree-custody-runtime': './provider-ports.mjs',
+    './worktree-custody-retirement': './retirement.mjs',
+    './worktree-custody-native-provider': './native-provider.mjs'
+  }
+)
+const provider = { ...providerCore, ...providerHost }
+
+/** Git answers for a checkout whose only material is tracked, clean and on a retained branch. */
+function cleanGit(path, overrides = {}) {
+  const answers = {
+    'rev-parse --show-toplevel': `${path}\n`,
+    status: '',
+    'ls-files -v': 'H tracked-source\0',
+    'ls-files --stage': '100644 0123456789abcdef0123456789abcdef01234567 0\ttracked-source\0',
+    'symbolic-ref -q': 'refs/heads/feature\n',
+    'rev-parse --verify': `${'a'.repeat(40)}\n`,
+    'for-each-ref': '',
+    'rev-parse --absolute-git-dir': `${path}/.fixture-git-dir\n`,
+    ...overrides
+  }
+  return async (args) => {
+    const key = Object.keys(answers)
+      .filter((prefix) => args.join(' ').startsWith(prefix))
+      .sort((left, right) => right.length - left.length)[0]
+    const answer = answers[key]
+    if (answer instanceof Error) {
+      throw answer
+    }
+    if (answer === undefined) {
+      throw new Error(`unexpected git ${args.join(' ')}`)
+    }
+    return answer
+  }
+}
+
+export { providerPorts, gate, provider, proveWorktreePreservation, cleanGit }

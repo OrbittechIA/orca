@@ -1,9 +1,10 @@
 # Native worktree custody v1
 
 This is a source foundation for a trusted material-lifecycle adapter. It does not
-certify existing worktrees for cleanup. No complete external-consumer or
-preservation provider is installed by default. Consequently the runtime does not
-advertise `worktree.custody.no-stop.v1` until native host code installs coverage.
+certify existing worktrees for cleanup. Startup installs the native orchestration
+provider for observation, but no native authority attests external consumers, so
+coverage is not installed and the runtime does not advertise
+`worktree.custody.no-stop.v1`.
 The installed 1.4.224 runtime does not implement this staged source.
 
 The separate `worktree.custody.v1` RPC never calls interactive `worktree.rm`,
@@ -110,7 +111,9 @@ durable released ownership row commits; `settleDeadWorkerTerminalRelease` does
 the same after its transaction commits and its incarnation-fenced settlement.
 The custody command never triggers these release operations. A worker report,
 completed card, missing terminal or lease expiry does not publish release.
-Release publication requires the Dispatch's settled native worker and every
+Release publication requires the Dispatch's `worker_dispatches` row in a releasable
+state (`succeeded` or `failed`) on the claimed worktree, its `dispatch_contexts` row
+settled (`completed`, `failed` or `circuit_broken`) for the claimed native task, and every
 current, original or prior-owned resource to be durably released. It uses one stable
 Dispatch proof, rather than a per-terminal proof. A microtask rechecks actual committed
 rows after the outer synchronous transaction; a rolled-back or still-open transaction
@@ -149,8 +152,38 @@ claims, including future ingress, and positively attest preservation. A process
 scan alone cannot do so. Provider proof cannot erase a native positive hold.
 The fixed native retirement effect is supplied by Orca, not by RPC data. Merely
 adding an interface or setting a feature flag cannot enable the capability.
-No complete provider is installed in this change; Root's Core/provider follow-on
-must supply and review that authority before a positive retirement is possible.
+
+`installNativeWorktreeCustodyProvider(runtime)` is that host composition. Desktop
+and headless startup call it once after constructing the runtime; the custody RPC
+calls the same idempotent installer for hosts that skip that composition. Caller
+data never reaches it. The `orchestration` provider (`worktree-custody-native-provider.ts`)
+binds only existing owners:
+
+| domain              | owning source                                                                                                                                                                      | complete when                        |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| structured-session  | opened single-writer agent-session record store and open-journal work                                                                                                              | store opened                         |
+| recovery            | sleep records, pending/failed removals, recoverable `worker_dispatches`, session spawn reservations                                                                                | store and workspace session readable |
+| workspace           | host workspace session: selection, open editor/browser/unified tabs; status, pin, children, removal                                                                                | workspace session readable           |
+| registered-consumer | desktop watched/suspended/in-flight watcher roots and runtime file-watch leases                                                                                                    | always (in-process registries)       |
+| preservation        | Git: no tracked, untracked or ignored entry; only plain index entries; no gitlink; HEAD on a shared branch the fixed effect retains; no per-worktree refs or in-progress operation | Git answered                         |
+| external-consumer   | none on this host                                                                                                                                                                  | never                                |
+
+Terminal and dispatch keep the native observation above. Native product is the
+physical `projectId`; a native Task has no product, so Core must bind its own
+product to that projectId explicitly. Any positive hold skips the Git read.
+
+Its grant takes the existing watcher-removal gate for the exact path, which refuses
+fresh watcher and PTY installs on overlapping roots until release, waits at most
+five seconds for in-flight installs, and refuses if any registered consumer exists.
+`check()` only rereads the registries. Reconcile, prior-incarnation fence recovery
+and prior-epoch release recovery return unconfirmed: no owning durable result store,
+retained grant-settlement proof or durable consumer-admission history exists, so
+those stay unknown and protected.
+
+Coverage, and therefore the capability, is installed only when the provider is
+`ready`, which requires a host-only external-consumer authority. None exists, so
+this build installs observation only. A process scan or file-target guard cannot
+be that authority.
 
 ## Crash, reconciliation and rollback
 
