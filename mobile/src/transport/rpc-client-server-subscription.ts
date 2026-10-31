@@ -1,6 +1,7 @@
 // Streams whose host names its registration only in the `ready` frame. The transport that saw that
 // frame is the only holder of a current id, so it alone sends the release.
 export const READY_STREAM_RELEASE_METHODS: ReadonlyMap<string, string> = new Map([
+  ['workspace.selection.watch.v1', 'workspace.selection.unsubscribe.v1'],
   ['browser.screencast', 'browser.screencast.unsubscribe'],
   ['runtime.clientEvents.subscribe', 'runtime.clientEvents.unsubscribe'],
   ['notifications.subscribe', 'notifications.unsubscribe'],

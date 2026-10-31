@@ -131,6 +131,7 @@ export function finishCloseAfterReadySubscriptions(
 
 function cleanupNeedsRemoteSubscriptionId(method: string): boolean {
   return (
+    method === 'workspace.selection.watch.v1' ||
     method === 'accounts.subscribe' ||
     method === 'notifications.subscribe' ||
     method === 'runtime.clientEvents.subscribe' ||

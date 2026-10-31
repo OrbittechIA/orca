@@ -9,6 +9,9 @@ import {
 import {
   overlaps,
   sameFence,
+  custodyFenceHash,
+  digest,
+  MAX_CLIENT_CANCELLATIONS,
   type CustodyCoverage,
   type CustodyRecord
 } from './worktree-custody-records'
@@ -38,6 +41,13 @@ export class WorktreeCustodyFences extends WorktreeCustodyAdmission {
     this.assertReleased(resource)
     const coverage = this.requireCoverage(resource)
     this.assertNoAdmissions(resource)
+    if (
+      (this.effects.clientCancellations?.length ?? 0) +
+        this.records.filter((entry) => entry.fence !== null).length >=
+      MAX_CLIENT_CANCELLATIONS
+    ) {
+      throw new Error('custody_client_settlement_capacity')
+    }
     const fence = {
       resource: structuredClone(record.resource),
       token: randomUUID(),
@@ -55,7 +65,7 @@ export class WorktreeCustodyFences extends WorktreeCustodyAdmission {
       }
     })
     try {
-      const grant = await coverage.acquire(resource)
+      const grant = await coverage.acquire(resource, structuredClone(fence))
       this.grants.set(fence.token, {
         check: () => grant.check(),
         release: () => grant.release(),
@@ -106,6 +116,12 @@ export class WorktreeCustodyFences extends WorktreeCustodyAdmission {
       record.recovery?.token === fence.token &&
       record.recovery.authorityId === fence.authorityId
     ) {
+      if (record.recovery.fence && !sameFence(record.recovery.fence, fence)) {
+        throw new Error('custody_fence_binding_changed')
+      }
+      if (record.recovery.fence) {
+        this.coverage.get(fence.resource.owner)?.settleClientFence?.(fence)
+      }
       return
     }
     const held = record.fence
@@ -141,12 +157,22 @@ export class WorktreeCustodyFences extends WorktreeCustodyAdmission {
       record.recovery = {
         token: held.token,
         authorityId: held.authorityId,
-        proof: proof ?? 'current-undispatched-authority'
+        proof: proof ?? 'current-undispatched-authority',
+        fence: structuredClone(held)
       }
+      const cancellations = (this.effects.clientCancellations ??= [])
+      cancellations.push({
+        fenceHash: custodyFenceHash(held),
+        proofHash: digest(proof ?? 'current-undispatched-authority')
+      })
     })
     const grant = this.grants.get(fence.token)
     this.grants.delete(fence.token)
-    grant?.release()
+    try {
+      this.coverage.get(fence.resource.owner)?.settleClientFence?.(fence)
+    } finally {
+      grant?.release()
+    }
   }
 
   protected pathBusy(path: string): boolean {

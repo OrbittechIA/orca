@@ -1,4 +1,5 @@
 import { cancelActiveWorktreeRemoval } from '@/store/active-worktree-deselection-intent'
+import { canSelectWorkspace } from '@/runtime/workspace-selection-custody'
 import type { WorktreeSlice } from '../../worktree-helpers'
 import type { WorktreeSliceGet, WorktreeSliceSet } from '../listing/worktree-slice-types'
 import { projectWorktreeTabModelReconciliation } from '../../tabs'
@@ -29,6 +30,14 @@ export function createSetActiveWorktree(
   get: WorktreeSliceGet
 ): WorktreeSlice['setActiveWorktree'] {
   return (worktreeId, executionHostId, options) => {
+    if (
+      worktreeId &&
+      (get().activeWorktreeId !== worktreeId ||
+        get().activeWorkspaceExecutionHostId !== (executionHostId ?? null)) &&
+      !canSelectWorkspace(worktreeId, executionHostId)
+    ) {
+      return false
+    }
     const stateTransition = options?.stateTransition?.(get())
     const createdTabIds = new Set(options?.createdTabIds)
     // A tab its caller just created is not asleep: its first bind is new work, not a wake.

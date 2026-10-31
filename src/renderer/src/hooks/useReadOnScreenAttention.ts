@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { startWorkspaceSelectionCustody } from '@/runtime/workspace-selection-custody'
 import { subscribeStructuredAttentionViews } from '@/attention/agent-subject-read-actions'
 import { subscribeAutoAckPresenceSignals } from './agent-auto-ack-presence'
 import { useAppStore } from '@/store'
@@ -11,6 +12,7 @@ import {
 } from './client-workspace-view-report'
 
 export function useReadOnScreenAttention(): void {
+  useEffect(startWorkspaceSelectionCustody, [])
   useEffect(
     () =>
       startOnScreenAttentionScan(useAppStore, {

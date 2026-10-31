@@ -1,7 +1,7 @@
 # Linux external-custody authority qualification
 
 This is a prepared engineering and adoption contract, not an installed helper or
-a qualified native port. No code, marks, service, permissions, worktree or profile
+a qualified native port. No privileged helper, marks, service, permissions, worktree or profile
 was changed on the host. This source keeps retirement capability unadvertised.
 
 ## Current-boot evidence
@@ -17,19 +17,21 @@ and closed. No persistent marks or policy attachment were made.
 Fanotify permission notification alone does not authorize this protocol. A pathname
 `chdir` or `chroot` can admit a cwd/root consumer without opening a file; already-open
 descriptors and mappings need separate owning proof. Scanning processes before a
-removal leaves an admission race. The natural BPF-LSM enforcement route is not active
-on this boot. No supported external fence is claimed, and no reboot or boot change is
-authorized by this source task. This is a specific current-host limitation, rather
-than a claim that all Linux hosts lack an available native seam.
+removal leaves an admission race. BPF LSM is not active on this boot, but that alone
+does not exclude other native seams. The coordinator identified a Linux 6.8
+`BPF_MODIFY_RETURN` tracing candidate for `security_*` functions, independently of
+BPF LSM activation; verifier acceptance and complete enforcement remain unqualified.
+No supported external fence or required reboot is inferred from the LSM list.
 
 ## Required native implementation
 
-A reviewed broker/LSM implementation must close every relevant admission before
+A reviewed broker/kernel implementation must close every relevant admission before
 the all-UID metadata census and hold that closure through the fixed Git result.
 It must cover cwd/root, open descriptors, existing/new mappings, inherited access,
 descriptor transfer, fork/exec, bind/mount aliases and namespace changes. Candidate
-hooks include `path_chdir`, `path_chroot`, `file_open`, `mmap_file`, `file_mprotect`,
-`file_receive`, task lifecycle and mount/path/inode permission hooks. This list is
+hooks include inode permission (`MAY_EXEC | MAY_CHDIR` for chdir/fchdir/chroot),
+`path_chroot`, `file_open`, `mmap_file`, `file_mprotect`, `file_receive`, task lifecycle
+and mount/path permission hooks. Linux 6.8 has no `security_path_chdir` hook. This list is
 an engineering checklist, not a proof that those hooks alone suffice. Mount, PID or
 user namespaces and hook coverage must be positively qualified; unsupported views
 or bypasses refuse the resource.
@@ -88,9 +90,9 @@ The exact required Linux capabilities, loader, hook program, binary digests, ser
 sandbox and installation paths remain unimplemented/unqualified. A generic root
 service template would conceal that work, so no installable helper is presented as
 complete. Root must review the concrete loader/broker/effect bridge before any
-privileged build, execution, attachment or installation. The current-boot LSM gap
-additionally requires a separately authorized host-maintenance decision; this task
-does not grant it.
+privileged build, execution, attachment or installation. Any host-maintenance change
+requires separate authorization; the tracing candidate must first be assessed on
+its own evidence rather than treating inactive BPF LSM as an impossibility proof.
 
 ## Authentic disposable qualification plan
 

@@ -51,6 +51,7 @@ export type NativeWorktreeCustodyProvider = {
   recoverFence: CustodyCoverage['recoverFence']
   recoverRelease?: CustodyCoverage['recoverRelease']
   retirementPolicy?: CheckoutRetirementPolicy
+  settleClientFence?: CustodyCoverage['settleClientFence']
 }
 
 async function boundedCheckout(
@@ -241,6 +242,7 @@ export function installNativeWorktreeCustodyRetirement(
       reconcile: async (outcome) => results.confirmed(outcome) ?? producer.reconcile(outcome),
       recoverFence: producer.recoverFence,
       recoverRelease: producer.recoverRelease,
+      settleClientFence: producer.settleClientFence,
       observe: observeWithNativeProducer(runtime, producer),
       retire
     },

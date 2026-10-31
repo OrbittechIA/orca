@@ -64,6 +64,12 @@ export function isEndResult(result: unknown): boolean {
 export function getCleanupRequest(
   subscription: SharedControlLogicalSubscription<unknown>
 ): { method: string; params: unknown } | null {
+  if (subscription.method === 'workspace.selection.watch.v1' && subscription.remoteSubscriptionId) {
+    return cleanupBySubscriptionId(
+      'workspace.selection.unsubscribe.v1',
+      subscription.remoteSubscriptionId
+    )
+  }
   if (subscription.method === 'accounts.subscribe' && subscription.remoteSubscriptionId) {
     return cleanupBySubscriptionId('accounts.unsubscribe', subscription.remoteSubscriptionId)
   }

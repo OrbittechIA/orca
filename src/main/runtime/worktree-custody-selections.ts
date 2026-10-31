@@ -1,12 +1,22 @@
-import { admitWorktreeCustody } from './worktree-custody-runtime'
+import { admitWorktreeCustody, nativeWorktreeCustody } from './worktree-custody-runtime'
 import { getAppEnvironment, hasAppEnvironment } from '../../shared/app-environment'
 import { join } from 'node:path'
+import type { WorktreeCustodyFence } from '../../shared/worktree/custody'
+import type { SelectionAck, SelectionFrame } from '../../shared/worktree/custody-selection'
+import { WorktreeCustodySelectionRounds } from './worktree-custody-selection-rounds'
 
-type SelectionConnection = { selected: Set<string> | null }
+type SelectionConnection = {
+  selected: Set<string> | null
+  headless: boolean
+  channel: { nonce: string; close(): void } | null
+  reportedComplete: boolean
+}
 export type WorktreeSelectionAuthority = {
-  readonly complete?: boolean
-  readonly generation?: number
+  readonly complete: boolean
+  readonly generation: number
   selects: (worktreeId: string) => boolean
+  acquire: (fence: WorktreeCustodyFence) => Promise<{ check(): boolean; release(): void }>
+  settle: (fence: WorktreeCustodyFence) => void
 }
 
 const profiles = new Map<string, WorktreeCustodySelections>()
@@ -31,8 +41,19 @@ export class WorktreeCustodySelections {
   private unknown = 0
   private revision = 0
   private unrepresented = false
+  private readonly rounds: WorktreeCustodySelectionRounds
 
-  constructor(private readonly admit: (worktreeId: string) => () => void = admitWorktreeCustody) {}
+  constructor(
+    private readonly admit: (worktreeId: string) => () => void = admitWorktreeCustody,
+    settlement: (fence: WorktreeCustodyFence) => string | null = (fence) =>
+      nativeWorktreeCustody()?.clientFenceSettlement(fence) ?? null
+  ) {
+    this.rounds = new WorktreeCustodySelectionRounds({
+      generation: () => this.generation,
+      complete: () => this.complete,
+      settlement
+    })
+  }
 
   has(connectionId: string): boolean {
     return this.connections.has(connectionId)
@@ -50,7 +71,12 @@ export class WorktreeCustodySelections {
     if (this.connections.has(connectionId)) {
       throw new Error('custody_selection_connection_reused')
     }
-    const connection: SelectionConnection = { selected: null }
+    const connection: SelectionConnection = {
+      selected: null,
+      headless: false,
+      channel: null,
+      reportedComplete: false
+    }
     this.connections.set(connectionId, connection)
     this.unknown++
     this.revision++
@@ -59,18 +85,35 @@ export class WorktreeCustodySelections {
         return
       }
       this.removeSelection(connection)
+      this.unknown -= Number(this.isUnknown(connection))
+      connection.channel?.close()
       this.connections.delete(connectionId)
       this.revision++
     }
   }
 
-  report(connectionId: string, workspaceIds: readonly string[]): void {
+  report(
+    connectionId: string,
+    workspaceIds: readonly string[],
+    kind: 'headless' | 'view' = 'view',
+    complete = true
+  ): void {
     const connection = this.connections.get(connectionId)
     if (!connection) {
       throw new Error('custody_selection_connection_closed')
     }
+    if (kind === 'headless' && connection.channel) {
+      throw new Error('custody_selection_role_changed')
+    }
+    if (!complete) {
+      this.change(connection, () => {
+        connection.reportedComplete = false
+      })
+      return
+    }
     if (
       workspaceIds.length > 64 ||
+      (kind === 'headless' && workspaceIds.length !== 0) ||
       workspaceIds.some((id) => !id || id.length > 8192 || id.includes('\0'))
     ) {
       throw new Error('custody_selection_report_invalid')
@@ -78,6 +121,8 @@ export class WorktreeCustodySelections {
     const selected = new Set(workspaceIds)
     if (
       connection.selected?.size === selected.size &&
+      connection.headless === (kind === 'headless') &&
+      connection.reportedComplete &&
       [...selected].every((id) => connection.selected?.has(id))
     ) {
       return
@@ -90,17 +135,57 @@ export class WorktreeCustodySelections {
           releases.push(this.admit(id))
         }
       }
-      this.removeSelection(connection)
-      connection.selected = selected
-      this.revision++
-      for (const id of selected) {
-        this.selectedCounts.set(id, (this.selectedCounts.get(id) ?? 0) + 1)
-      }
+      this.change(connection, () => {
+        this.removeSelection(connection)
+        connection.selected = selected
+        connection.headless = kind === 'headless'
+        connection.reportedComplete = true
+        for (const id of selected) {
+          this.selectedCounts.set(id, (this.selectedCounts.get(id) ?? 0) + 1)
+        }
+      })
     } finally {
       for (const release of releases) {
         release()
       }
     }
+  }
+
+  watch(
+    connectionId: string,
+    incarnation: string,
+    emit: (frame: SelectionFrame) => void
+  ): () => void {
+    const connection = this.connections.get(connectionId)
+    if (!connection || connection.channel) {
+      throw new Error('custody_selection_connection_changed')
+    }
+    const channel = this.rounds.attach(connectionId, incarnation, emit)
+    this.change(connection, () => {
+      connection.channel = channel
+    })
+    return () => {
+      if (this.connections.get(connectionId) !== connection || connection.channel !== channel) {
+        return
+      }
+      this.change(connection, () => {
+        connection.channel = null
+      })
+      channel.close()
+    }
+  }
+
+  acknowledge(connectionId: string, ack: SelectionAck): void {
+    this.rounds.acknowledge(connectionId, ack)
+  }
+  reconcile(connectionId: string, nonce: string, fences: readonly WorktreeCustodyFence[]): void {
+    this.rounds.reconcile(connectionId, nonce, fences)
+  }
+  acquire(fence: WorktreeCustodyFence) {
+    return this.rounds.acquire(fence)
+  }
+  settle(fence: WorktreeCustodyFence): void {
+    this.rounds.settle(fence)
   }
 
   get complete(): boolean {
@@ -117,7 +202,6 @@ export class WorktreeCustodySelections {
 
   private removeSelection(connection: SelectionConnection): void {
     if (connection.selected === null) {
-      this.unknown--
       return
     }
     for (const id of connection.selected) {
@@ -128,5 +212,20 @@ export class WorktreeCustodySelections {
         this.selectedCounts.set(id, count - 1)
       }
     }
+  }
+
+  private isUnknown(connection: SelectionConnection): boolean {
+    return (
+      !connection.reportedComplete ||
+      connection.selected === null ||
+      (!connection.headless && connection.channel === null)
+    )
+  }
+
+  private change(connection: SelectionConnection, mutate: () => void): void {
+    const before = this.isUnknown(connection)
+    mutate()
+    this.unknown += Number(this.isUnknown(connection)) - Number(before)
+    this.revision++
   }
 }

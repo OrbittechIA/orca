@@ -4,6 +4,7 @@ import { createStableLogicalRpcClient } from './stable-logical-rpc-client'
 import type { ConnectionLogSink, HostProfile } from './types'
 import { directPathForEndpoint } from './mobile-direct-endpoint-probe'
 import { startMobileEndpointLifecycle } from './mobile-endpoint-lifecycle'
+import { mobileWorkspaceSelection } from './workspace-selection-custody'
 
 export function openHostLogicalClient(host: HostProfile, onLog: ConnectionLogSink): RpcClient {
   // Keep app-visible RPC/subscription identity stable while replacing physical sockets.
@@ -11,6 +12,7 @@ export function openHostLogicalClient(host: HostProfile, onLog: ConnectionLogSin
     connect(host.endpoint, host.deviceToken, host.publicKeyB64, { onLog }),
     directPathForEndpoint(host.endpoint)
   )
+  mobileWorkspaceSelection(logical)
   if (Platform.OS === 'web') {
     return logical
   }

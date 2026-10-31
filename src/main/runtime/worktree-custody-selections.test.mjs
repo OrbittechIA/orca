@@ -5,12 +5,16 @@ import { KEY, nativePorts } from './worktree-custody-fixture.mjs'
 import { providerCheckout, providerFixture } from './worktree-custody-native-fixture.mjs'
 import { runtimePorts } from './worktree-custody-runtime-fixture.mjs'
 
+await moduleFromSource('selection-rounds.mjs', './worktree-custody-selection-rounds.ts', {
+  '../../shared/worktree/custody': './custody.mjs'
+})
 const { WorktreeCustodySelections, nativeWorktreeCustodySelections } = await moduleFromSource(
   'selections.mjs',
   './worktree-custody-selections.ts',
   {
     './worktree-custody-runtime': './native-ports.mjs',
-    '../../shared/app-environment': './runtime-ports.mjs'
+    '../../shared/app-environment': './runtime-ports.mjs',
+    './worktree-custody-selection-rounds': './selection-rounds.mjs'
   }
 )
 
@@ -38,6 +42,8 @@ test('nonreporting connections hold every resource until reporting or disconnect
   assert.equal(selections.complete, false)
   assert.equal(selections.selects('unrelated-workspace'), true)
   selections.report('legacy-phone', ['selected'])
+  assert.equal(selections.complete, false)
+  selections.watch('legacy-phone', '11111111-1111-4111-8111-111111111111', () => {})
   assert.equal(selections.complete, true)
   assert.equal(selections.selects('selected'), true)
   assert.equal(selections.selects('unrelated-workspace'), false)
@@ -74,6 +80,7 @@ test('selection admission refusal preserves the prior selection and active reser
     return () => reservations--
   })
   const close = selections.open('desktop')
+  selections.watch('desktop', '11111111-1111-4111-8111-111111111111', () => {})
   selections.report('desktop', ['existing'])
   assert.throws(() => selections.report('desktop', ['new', 'retiring']), /fenced/)
   assert.equal(reservations, 0)
@@ -83,10 +90,15 @@ test('selection admission refusal preserves the prior selection and active reser
 })
 
 test('the composed provider refuses a transient late client before the fixed Git effect', async () => {
-  const selections = new WorktreeCustodySelections(() => () => {})
+  let authority
+  const selections = new WorktreeCustodySelections(
+    () => () => {},
+    (fence) => authority?.clientFenceSettlement(fence) ?? null
+  )
   const f = await providerFixture(providerCheckout('late-selection'), {
     pairedSelection: selections
   })
+  authority = f.authority
   let effects = 0
   nativePorts.setRemove(async () => {
     effects++

@@ -1,6 +1,6 @@
 # Native worktree custody v1
 
-This is a source foundation for a trusted material-lifecycle adapter. It does not
+This is staged native integration for a trusted material-lifecycle adapter. It does not
 certify existing worktrees for cleanup. Startup installs the native orchestration
 provider for observation, but no native authority attests external consumers, so
 coverage is not installed and the runtime does not advertise
@@ -163,7 +163,7 @@ binds only existing owners:
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
 | structured-session  | opened single-writer agent-session record store and open-journal work                                                                                                              | store opened                                                                            |
 | recovery            | sleep records, pending/failed removals, recoverable `worker_dispatches`, session spawn reservations                                                                                | store and workspace session readable                                                    |
-| workspace           | host workspace session plus transport-owned selection inventory; open editor/browser/unified tabs; status, pin, children, removal                                                  | every live connection has reported its selection protocol and none selects the resource |
+| workspace           | host workspace session plus transport-owned selection inventory; open editor/browser/unified tabs; status, pin, children, removal                                                  | every live connection owns a complete view channel or explicit headless declaration; no view selects the resource |
 | registered-consumer | desktop watched/suspended/in-flight watcher roots and runtime file-watch leases on any overlapping root, every runtime and connection                                              | always (in-process registries)                                                          |
 | preservation        | Git: no tracked, untracked or ignored entry; only plain index entries; no gitlink; HEAD on a shared branch the fixed effect retains; no per-worktree refs or in-progress operation | Git answered                                                                            |
 | external-consumer   | none on this host                                                                                                                                                                  | never                                                                                   |
@@ -208,30 +208,64 @@ authorities, an owning release-history authority, and an explicitly adopted chec
 so this build installs observation only. A process scan or file-target guard cannot
 be that authority.
 
-## Staged selection inventory and closed epochs
+## Target-specific live client admissions
 
-`WorktreeCustodySelections` is owned by the profile, survives runtime replacement,
-and is independent of the sidebar switch. Native local
-socket accept/close, authenticated paired/mobile socket ready/close (direct and
-relay), and desktop window/document lifecycle register connections before they
-can supply selection absence. Every connection starts unknown. The separate
-`workspace.selection.report.v1` method accepts the strict
-`{protocol:'workspace.selection.v1',workspaceIds:[...]}` report, bound to the
-transport's connection ID. Clients must receive its acknowledgement before
-selecting a newly reported workspace. Reports replace the complete selection,
-including background selections; presence expiry and focus never release it.
-The protocol is available to phones without granting them destructive custody RPCs.
-Shipped clients that do not implement this promise remain unknown and HOLD cleanup;
-this change does not silently upgrade their sidebar presence reports.
+`WorktreeCustodySelections` belongs to the profile across runtime replacement. Local
+socket accept/close, authenticated paired/mobile direct/relay sockets, and desktop
+window/document lifecycle register connections before selection absence can count.
+Unknown, legacy, incomplete and unrepresented clients HOLD cleanup. Presence expiry,
+focus, sidebar configuration and disconnect history do not establish absence.
 
-An unknown direct in-process RPC caller also leaves a conservative hold. A native
-bridge must explicitly own a connection's open/report/close lifecycle to remove
-that uncertainty. Ordinary RPCs and Starts continue. Known connection close
-removes only its current selections; selecting a workspace first enters the
-existing custody admission guard and revokes the released generation. Late reports
-after close are refused. A monotonic in-memory generation invalidates a captured
-grant even if a new unknown client connected and disconnected between checks.
-The provider's selection check uses only counters and maps, with no process walk.
+`workspace.selection.watch.v1` opens a live view channel on that actual connection;
+a report alone never qualifies a view. Initial and later complete reports include
+selected plus mounted background/folder workspaces, at most 64 IDs. An incomplete
+report preserves prior selections and adds an unknown hold. Native selection
+admission still revokes released eligibility. Ordinary Start and navigation retain
+their synchronous contracts outside the particular retiring target.
+
+Capture first commits the exact native fence, then sends every view a round bound
+to connection ID, channel nonce, client incarnation, round nonce and the full native
+resource/fence. Before replying, the client synchronously closes new local admission
+for that target and reads its actual selection/mount snapshot. Only ABSENT from every
+current view permits acquisition; HELD, UNKNOWN, five-second timeout, late connection,
+report change or disconnect/reopen invalidates it. Existing mounted consumers stay
+running and refuse retirement. Synchronous native grant checks read cached authority
+and generation state; they perform no process walk or filesystem census.
+
+The renderer adapter starts independently of sidebar presence and reads actual
+active selection plus retained mounted workspace IDs. Its synchronous selection and
+terminal/prewarm guards cover only the fenced target, including folder keys. Web
+local-owner aliases normalize to the browser's actual environment, avoiding an empty
+local report on the same remote socket. Electron paired subscriptions use the shared
+control connection; old hosts without that seam stay unknown. The web watch, reports,
+ACKs and exact ready-ID unsubscribe use its parent socket; unrelated subscriptions
+retain their existing child-socket behavior. Physical reconnect replays the channel,
+then reconciles the client's retained full fences against native durable evidence.
+
+Mobile initializes the adapter on the stable logical client. The common workspace
+route guards new deep links before content mounts and tracks retained background
+routes with mount leases; it never unmounts an existing consumer for retirement.
+Logical migration replays current mounted IDs and pending fences, while stale physical
+callbacks cannot release a new connection's gates. Execution-host views carry the
+existing host envelope over one delegated phone/server socket. A legacy or malformed
+reply leaves cleanup unknown without closing the user's working RPC client.
+
+Only custody CLI requests send an acknowledged explicit empty headless report before
+the original request on the same local socket. No generic method-name exemption is
+used. Other CLI/Start requests retain the existing one-request path. Any unrepresented
+remote/legacy path continues to HOLD rather than silently falling back.
+
+Client gates survive disconnects and deadline expiry. A reconnect receives active
+native fences and asks for exact settlement of retained fences. Only an owning,
+healthy durable native cancellation or terminal receipt releases the matching gate;
+path/DB absence and elapsed time never release it. Cancellation hashes persist across
+later captures and final retirement, bounded to 16,384 entries and the existing 4 MiB
+journal cap. Capacity refuses a new capture, and uncertain writes retain gates. Native
+terminal receipts bind the full fence hash. Old, nonce-swapped, foreign-generation or
+other-connection releases cannot clear another gate. This client settlement history
+is separate from the still-missing continuous native `recoverRelease` authority.
+
+## Closed epochs and compatibility
 
 Committed desktop/serve quit and orcad shutdown now close custody admissions
 irreversibly before teardown, rather than relying on the quit flag. A clean local
@@ -242,9 +276,9 @@ proof and does not cancel shutdown. Sealing is inactive before native coverage
 opt-in or prior effect state. Active reservations and all session/profile histories
 are retained. Recovery-write failure also restores the historical in-memory epoch.
 
-Storage writes v4 and reads v1–v4. Older binaries reject v4 instead of discarding
-new authority state. Downgrading across actual pending v4 effects therefore requires
-reconciling them with a v4-aware binary first; do not delete or rewrite the journals.
+Storage writes v5 and reads v1–v5. A frozen real v4 reader rejects v5 instead of
+discarding client fence settlements. Downgrading across actual v5 effects requires
+reconciling them with a v5-aware binary first; do not delete or rewrite the journals.
 Legacy claims and unsealed/crashed epochs stay unknown. In particular, a clean seal
 alone cannot renew a release: an intervening failed Start write could leave an old
 seal on disk. The existing profile lock removes its record on release and does not

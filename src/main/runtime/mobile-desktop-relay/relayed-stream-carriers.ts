@@ -3,6 +3,7 @@
 export type RelayedStreamCarrier = 'terminal-stream-id' | 'none' | 'phone-binary-frames'
 
 export const RELAYED_STREAM_CARRIERS: ReadonlyMap<string, RelayedStreamCarrier> = new Map([
+  ['workspace.selection.watch.v1', 'none'],
   ['terminal.subscribe', 'terminal-stream-id'],
   ['terminal.multiplex', 'phone-binary-frames'],
   ['browser.screencast', 'none'],

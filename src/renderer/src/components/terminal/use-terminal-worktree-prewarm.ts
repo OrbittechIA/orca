@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { useAppStore } from '@/store'
+import { canMountWorkspace } from '@/runtime/workspace-selection-custody'
 import type { TerminalTab } from '../../../../shared/terminal-tab-types'
 import { hasRegisteredRuntimeTerminalTab } from '../../runtime/mounted-terminal-tab-registry'
 import { canWatcherCoverParkedTerminalTab } from '../terminal-pane/terminal-parked-tab-watchers'
@@ -146,6 +147,7 @@ export function useTerminalWorktreePrewarm(controller: TerminalColdActivationCon
       if (
         // Without hidden-view parking nothing unmounts a released lease, so prewarm would pin every target.
         !c.terminalParkingEnabled ||
+        !canMountWorkspace(worktreeId) ||
         worktreeId === c.renderedActiveWorktreeId ||
         !c.workspaceSurfaceIdSet.has(worktreeId) ||
         // Until startup publishes PTY ownership, a hidden mount could duplicate shells.

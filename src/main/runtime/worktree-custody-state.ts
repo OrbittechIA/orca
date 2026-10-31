@@ -5,6 +5,7 @@ import {
 } from '../../shared/worktree/custody'
 import {
   digest,
+  custodyFenceHash,
   materialHash,
   overlaps,
   type CustodyRecord,
@@ -200,6 +201,7 @@ export class WorktreeCustodyState {
       throw new Error('custody_receipt_not_terminal')
     }
     const state = outcome.state
+    const fenceHash = record.fence ? custodyFenceHash(record.fence) : undefined
     this.commitEffects(() => {
       record.outcome = state === 'retired' ? outcome : null
       if (state === 'refused') {
@@ -215,7 +217,8 @@ export class WorktreeCustodyState {
         recordedAt: outcome.recordedAt,
         reason: outcome.reason,
         proof,
-        state
+        state,
+        ...(fenceHash ? { fenceHash } : {})
       })
     })
     if (state === 'retired') {
@@ -238,7 +241,10 @@ export class WorktreeCustodyState {
           !this.settled(record) &&
           (record.fence !== null || record.outcome !== null || record.recovery !== undefined)
       ),
-      receipts: this.effects.receipts
+      receipts: this.effects.receipts,
+      ...(this.effects.clientCancellations
+        ? { clientCancellations: this.effects.clientCancellations }
+        : {})
     }
     try {
       this.journal.write(candidate)

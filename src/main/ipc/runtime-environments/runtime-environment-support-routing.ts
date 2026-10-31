@@ -67,6 +67,7 @@ export function shouldRouteSubscriptionBySupport(method: string): boolean {
     return false
   }
   return (
+    method === 'workspace.selection.watch.v1' ||
     method === 'runtime.clientEvents.subscribe' ||
     method === 'session.tabs.subscribe' ||
     method === 'session.tabs.subscribeAll' ||
@@ -172,6 +173,9 @@ export async function subscribeSupportRoutedRuntimeEnvironment(args: {
     },
     unsupported: (route) => {
       supportOutcome = route.outcome
+      if (args.method === 'workspace.selection.watch.v1') {
+        throw new RemoteRuntimeClientError('custody_unsupported', 'Shared control required')
+      }
       return subscribeRemoteRuntimeRequest(
         route.connection,
         args.method,

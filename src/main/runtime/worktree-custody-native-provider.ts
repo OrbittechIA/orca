@@ -1,6 +1,8 @@
+import { acquireNativeCustodyGrant } from './worktree-custody-native-grant'
 import type {
   WorktreeCustodyObservation,
-  WorktreeCustodyResource
+  WorktreeCustodyResource,
+  WorktreeCustodyFence
 } from '../../shared/worktree/custody'
 import {
   isPathInsideOrEqual,
@@ -17,7 +19,6 @@ import {
 } from './worktree-custody-checkout-policy'
 
 const PRODUCER_OWNER = 'orchestration'
-const INSTALL_DRAIN_MS = 5_000
 const RECOVERABLE_WORKER_STATES = ['starting', 'ready', 'start_unknown', 'stopping', 'stop_unknown']
 
 type DomainProof = WorktreeCustodyObservation['domains'][number]
@@ -26,7 +27,8 @@ type DomainProof = WorktreeCustodyObservation['domains'][number]
 export type ExternalConsumerAuthority = {
   observe: (resource: WorktreeCustodyResource) => Promise<Omit<DomainProof, 'domain'>>
   acquire: (
-    resource: WorktreeCustodyResource
+    resource: WorktreeCustodyResource,
+    fence: WorktreeCustodyFence
   ) => Promise<{ check: () => boolean; release: () => void }>
 }
 
@@ -74,20 +76,6 @@ function overlapping(left: string, right: string): boolean {
   const a = normalizeRuntimePathForComparison(left)
   const b = normalizeRuntimePathForComparison(right)
   return isPathInsideOrEqual(a, b) || isPathInsideOrEqual(b, a)
-}
-
-async function withinDeadline(ready: Promise<void>, ms: number): Promise<boolean> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([
-      ready.then(() => true),
-      new Promise<boolean>((resolve) => {
-        timer = setTimeout(() => resolve(false), ms)
-      })
-    ])
-  } finally {
-    clearTimeout(timer)
-  }
 }
 
 export function createNativeWorktreeCustodyProvider(
@@ -199,7 +187,7 @@ export function createNativeWorktreeCustodyProvider(
       stamp({
         domain: 'workspace',
         // Without paired-client selection authority the domain can only add holds.
-        complete: ports.pairedSelection !== null && ports.pairedSelection.complete !== false,
+        complete: ports.pairedSelection?.complete === true,
         active: current,
         held:
           current ||
@@ -245,57 +233,18 @@ export function createNativeWorktreeCustodyProvider(
     ready:
       ports.external !== null &&
       ports.pairedSelection !== null &&
+      typeof ports.pairedSelection.complete === 'boolean' &&
+      Number.isSafeInteger(ports.pairedSelection.generation) &&
+      ports.pairedSelection.generation >= 0 &&
+      ports.pairedSelection.acquire !== undefined &&
+      ports.pairedSelection.settle !== undefined &&
       ports.releaseHistory !== undefined &&
       ports.checkoutPolicy !== undefined,
     retirementPolicy: ports.checkoutPolicy ?? WHOLE_CHECKOUT_RETIREMENT_POLICY,
     observe,
-    acquire: async (resource) => {
-      const selectionGeneration = ports.pairedSelection?.generation
-      // Admission already refuses Orca entrypoints for the fenced path; this also closes watcher/PTY installs.
-      const installs = ports.fenceInstalls(resource.path)
-      let external: { check: () => boolean; release: () => void } | null = null
-      try {
-        if (!(await withinDeadline(installs.ready, INSTALL_DRAIN_MS))) {
-          throw new Error('custody_consumer_install_pending')
-        }
-        if (registeredConsumers(resource.path) > 0) {
-          throw new Error('custody_registered_consumer_held')
-        }
-        if (!ports.external) {
-          throw new Error('custody_external_consumer_unproven')
-        }
-        if (!ports.pairedSelection || ports.pairedSelection.selects(resource.worktreeId)) {
-          throw new Error('custody_selection_held')
-        }
-        external = await ports.external.acquire(resource)
-      } catch (error) {
-        external?.release()
-        installs.release()
-        throw error
-      }
-      const grant = external
-      let released = false
-      return {
-        // Synchronous and side-effect-free: only registry reads.
-        check: () =>
-          !released &&
-          ports.pairedSelection?.generation === selectionGeneration &&
-          ports.pairedSelection?.selects(resource.worktreeId) === false &&
-          registeredConsumers(resource.path) === 0 &&
-          grant.check(),
-        release: () => {
-          if (released) {
-            return
-          }
-          released = true
-          try {
-            grant.release()
-          } finally {
-            installs.release()
-          }
-        }
-      }
-    },
+    acquire: (resource, fence) =>
+      acquireNativeCustodyGrant(ports, resource, fence, registeredConsumers),
+    settleClientFence: (fence) => ports.pairedSelection?.settle?.(fence),
     // No owning durable result store exists; an unknown effect stays unknown.
     reconcile: async (outcome) => ({
       resource: outcome.resource,

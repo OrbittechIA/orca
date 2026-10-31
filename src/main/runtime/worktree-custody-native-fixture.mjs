@@ -163,12 +163,14 @@ const leases = await moduleFromSource(
     '../../../ipc/filesystem/watcher-process/parcel-watcher-process-failure': './provider-ports.mjs'
   }
 )
+await moduleFromSource('native-grant.mjs', './worktree-custody-native-grant.ts')
 const providerCore = await moduleFromSource(
   'native-provider.mjs',
   './worktree-custody-native-provider.ts',
   {
     '../../shared/cross-platform-path': './provider-ports.mjs',
-    './worktree-custody-checkout-policy': './checkout-policy.mjs'
+    './worktree-custody-checkout-policy': './checkout-policy.mjs',
+    './worktree-custody-native-grant': './native-grant.mjs'
   }
 )
 const providerHost = await moduleFromSource(
@@ -356,7 +358,15 @@ async function providerFixture(checkout, options = {}) {
     preservation: (path) => proveWorktreePreservation(path, cleanGit(path, options.git)),
     // Stand in for the paired-selection and external-consumer authorities this host does not have.
     pairedSelection:
-      options.external === null ? null : (options.pairedSelection ?? { selects: () => false }),
+      options.external === null
+        ? null
+        : (options.pairedSelection ?? {
+            complete: true,
+            generation: 0,
+            selects: () => false,
+            acquire: async () => ({ check: () => true, release: () => {} }),
+            settle: () => {}
+          }),
     checkoutPolicy: options.checkoutPolicy ?? {
       id: 'bounded-checkout-v1',
       maxEntries: 4096,

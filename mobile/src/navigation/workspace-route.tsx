@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useLayoutEffect, useMemo, useSyncExternalStore, type ReactNode } from 'react'
 import { useLocalSearchParams } from 'expo-router'
 import { normalizeExecutionHostId } from '../../../src/shared/execution-host'
 import { firstParam } from './route-param-reader'
@@ -11,16 +11,20 @@ import { PageRouteUnavailableScreen } from '../mobile-web-shell/PageRouteUnavail
 import { useHostClient } from '../transport/host-client-hooks'
 import { WorkspaceServerContext } from '../transport/use-workspace-client'
 import { useWorkspaceServer } from '../transport/workspace-server'
+import { mobileWorkspaceSelection } from '../transport/workspace-selection-custody'
 
 const NO_CAPABILITIES: readonly string[] = []
 const UNREACHABLE_SERVER_MESSAGE =
   "Your phone can't reach this workspace's server through this desktop."
+const subscribeNothing = () => () => {}
+const emptyRevision = () => 0
 
 // Route calls, pushes and feature gates through executionHost; absent means the paired desktop. Unreachable servers get an explicit refusal after desktop status settles.
 export function WorkspaceRoute({ children }: { children: ReactNode }) {
   const params = useLocalSearchParams<{
     hostId?: string | string[]
     executionHost?: string | string[]
+    worktreeId?: string | string[]
   }>()
   const hostId = firstParam(params.hostId)
   const executionHost = normalizeExecutionHostId(firstParam(params.executionHost)) ?? undefined
@@ -32,6 +36,31 @@ export function WorkspaceRoute({ children }: { children: ReactNode }) {
     desktopCapabilities: desktopGates?.hostCapabilities ?? NO_CAPABILITIES,
     executionHost
   })
+  const routeClient = server ? server.client : client
+  const selection = useMemo(
+    () => (routeClient ? mobileWorkspaceSelection(routeClient) : null),
+    [routeClient]
+  )
+  useSyncExternalStore(
+    selection?.subscribe ?? subscribeNothing,
+    selection?.getSnapshot ?? emptyRevision,
+    selection?.getSnapshot ?? emptyRevision
+  )
+  const workspaceId = firstParam(params.worktreeId)
+  const admitted =
+    !selection ||
+    !workspaceId ||
+    selection.hasMounted(workspaceId) ||
+    selection.canSelect(workspaceId)
+  useLayoutEffect(() => {
+    if (!selection || !workspaceId || !admitted) {
+      return
+    }
+    return selection.mount(workspaceId) ?? undefined
+  }, [selection, workspaceId, admitted])
+  if (!admitted) {
+    return <PageRouteUnavailableScreen hostId={hostId} message="This workspace is being retired." />
+  }
   // Settled desktop status cannot become reachable by keeping this spinner open.
   if (state === 'connected' && desktopGates && !desktopGates.statusPending && routeHost === null) {
     return <PageRouteUnavailableScreen hostId={hostId} message={UNREACHABLE_SERVER_MESSAGE} />

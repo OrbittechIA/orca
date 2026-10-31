@@ -19,8 +19,13 @@ writeFileSync(
   export const WORKTREE_ID_SEPARATOR = '::';
   export function normalizeRuntimePathForComparison(value) { return value; }
   export function defineMethod(method) { return method; }
+  export function defineStreamingMethod(method) { return method; }
   export const WorktreeCustodyRequestSchema = {};
   export const WorktreeSelectionReportSchema = {};
+  export const SelectionAckSchema = {};
+  export const SelectionReconcileSchema = {};
+  export const SelectionWatchSchema = {};
+  export const SelectionUnsubscribeSchema = {};
   export let providerInstalls = 0;
   export function installNativeWorktreeCustodyProvider() { providerInstalls++; }
   export function heldOrcadInstanceLock() { return null; }

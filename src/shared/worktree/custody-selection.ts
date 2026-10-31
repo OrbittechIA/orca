@@ -1,10 +1,13 @@
 import { z } from 'zod'
+import { WorktreeCustodyFenceSchema } from './custody-schema'
 
 export const WORKTREE_SELECTION_CAPABILITY = 'workspace.selection.v1' as const
 
 export const WorktreeSelectionReportSchema = z
   .object({
     protocol: z.literal(WORKTREE_SELECTION_CAPABILITY),
+    kind: z.enum(['view', 'headless']).default('view'),
+    complete: z.boolean().default(true),
     workspaceIds: z
       .array(
         z
@@ -16,3 +19,59 @@ export const WorktreeSelectionReportSchema = z
       .max(64)
   })
   .strict()
+
+const nonce = z.string().uuid()
+const connectionId = z.string().min(1).max(1024)
+export const SelectionRoundSchema = z
+  .object({
+    nonce,
+    channelNonce: nonce,
+    clientIncarnation: nonce,
+    connectionId,
+    fence: WorktreeCustodyFenceSchema
+  })
+  .strict()
+export const SelectionWatchSchema = WorktreeSelectionReportSchema.extend({
+  kind: z.literal('view').default('view'),
+  clientIncarnation: nonce,
+  pendingFences: z.array(WorktreeCustodyFenceSchema).max(64)
+}).strict()
+export const SelectionAckSchema = SelectionRoundSchema.extend({
+  disposition: z.enum(['absent', 'held', 'unknown'])
+}).strict()
+export const SelectionReconcileSchema = z
+  .object({
+    channelNonce: nonce,
+    fences: z.array(WorktreeCustodyFenceSchema).max(64)
+  })
+  .strict()
+export const SelectionUnsubscribeSchema = z
+  .object({ subscriptionId: z.string().min(1).max(2048) })
+  .strict()
+export const SelectionFrameSchema = z.discriminatedUnion('type', [
+  z
+    .object({
+      type: z.literal('ready'),
+      channelNonce: nonce,
+      clientIncarnation: nonce,
+      connectionId,
+      subscriptionId: z.string().min(1).max(2048).optional()
+    })
+    .strict(),
+  z.object({ type: z.literal('end') }).strict(),
+  z.object({ type: z.literal('fence'), round: SelectionRoundSchema }).strict(),
+  z
+    .object({ type: z.literal('hold'), channelNonce: nonce, fence: WorktreeCustodyFenceSchema })
+    .strict(),
+  z
+    .object({
+      type: z.literal('settled'),
+      channelNonce: nonce,
+      fence: WorktreeCustodyFenceSchema,
+      proof: z.string().min(1).max(8192)
+    })
+    .strict()
+])
+export type SelectionRound = z.infer<typeof SelectionRoundSchema>
+export type SelectionAck = z.infer<typeof SelectionAckSchema>
+export type SelectionFrame = z.infer<typeof SelectionFrameSchema>
