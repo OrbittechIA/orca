@@ -127,15 +127,14 @@ export function registerWorkerStartTerminalTargetTests(): void {
       ['an alias of the coordinator pane', 'term_coord_alias']
     ])('refuses %s even when no agent is detected', async (_label, target) => {
       vi.spyOn(harness.runtime, 'isTerminalRunningAgent').mockResolvedValue(false)
-      vi.spyOn(harness.runtime, 'getOrchestrationDispatchAuthority').mockImplementation(
-        (handle) =>
-          handle === 'term_coord_alias'
-            ? localDispatchAuthority({
-                terminalHandle: handle,
-                paneKey: harness.coordinatorPaneKey,
-                processIncarnation: 'runtime_test:term_coord:1'
-              })
-            : null
+      vi.spyOn(harness.runtime, 'getOrchestrationDispatchAuthority').mockImplementation((handle) =>
+        handle === 'term_coord_alias'
+          ? localDispatchAuthority({
+              terminalHandle: handle,
+              paneKey: harness.coordinatorPaneKey,
+              processIncarnation: 'runtime_test:term_coord:1'
+            })
+          : null
       )
       const task = harness.db.createTask({
         spec: `self inject ${target}`,

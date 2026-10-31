@@ -156,8 +156,9 @@ export function buildUnitFailureReport({
         append('suiteErrors', () => ({
           file: file(module),
           project,
-          suite:
-            Number.isFinite(diagnosticBudgetBytes) ? clipText(suite.fullName).text : suite.fullName,
+          suite: Number.isFinite(diagnosticBudgetBytes)
+            ? clipText(suite.fullName).text
+            : suite.fullName,
           error: describeError(error)
         }))
       }
@@ -171,8 +172,9 @@ export function buildUnitFailureReport({
           const failure = {
             file: file(module),
             project,
-            test:
-              Number.isFinite(diagnosticBudgetBytes) ? clipText(test.fullName).text : test.fullName,
+            test: Number.isFinite(diagnosticBudgetBytes)
+              ? clipText(test.fullName).text
+              : test.fullName,
             line: test.location?.line ?? null,
             errors: []
           }
@@ -462,7 +464,10 @@ export default class UnitFailureReporter {
     }
     const delay = Math.min(
       FAILURE_CHECKPOINT_INTERVAL_MS,
-      Math.max(0, FAILURE_CHECKPOINT_INTERVAL_MS - (Date.now() - (this.lastCheckpointAt ?? -Infinity)))
+      Math.max(
+        0,
+        FAILURE_CHECKPOINT_INTERVAL_MS - (Date.now() - (this.lastCheckpointAt ?? -Infinity))
+      )
     )
     if (delay === 0) {
       this.checkpoint()

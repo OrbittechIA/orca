@@ -164,18 +164,16 @@ describe('Codex filesystem scope on the structured provider', () => {
       { 'mcpServerStatus/list': () => ({ data: [{ name: 'shell' }], nextCursor: null }) },
       /MCP servers.*shell/
     ],
-    ...(['ready', 'failed', undefined] as const).map(
-      (runtimeStatus): RefusedSurfaceCase => [
-        `an MCP server whose status is ${runtimeStatus}`,
-        {
-          'mcpServerStatus/list': () => ({
-            data: [{ ...disabledServer, runtimeStatus }],
-            nextCursor: null
-          })
-        },
-        /MCP servers.*seeded/
-      ]
-    ),
+    ...(['ready', 'failed', undefined] as const).map((runtimeStatus): RefusedSurfaceCase => [
+      `an MCP server whose status is ${runtimeStatus}`,
+      {
+        'mcpServerStatus/list': () => ({
+          data: [{ ...disabledServer, runtimeStatus }],
+          nextCursor: null
+        })
+      },
+      /MCP servers.*seeded/
+    ]),
     [
       'a disabled MCP server that still lists tools',
       {
@@ -297,7 +295,9 @@ describe('codexScopeLaunchViolation', () => {
       await mkdir(join(base, 'outside'))
       const scope = { ...writer, worktreePath: wt, roots: [join(wt, 'src')], cwd: join(wt, 'src') }
       await expect(codexScopeLaunchViolation(scope, wt)).resolves.toBeNull()
-      await expect(codexScopeLaunchViolation(scope, base)).resolves.toMatch(/not the scoped worktree/)
+      await expect(codexScopeLaunchViolation(scope, base)).resolves.toMatch(
+        /not the scoped worktree/
+      )
       await rename(join(wt, 'src'), join(base, 'old-src'))
       await symlink(join(base, 'outside'), join(wt, 'src'))
       await expect(codexScopeLaunchViolation(scope, wt)).resolves.toMatch(/symlink/)

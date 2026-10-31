@@ -305,7 +305,10 @@ describe('unit failure evidence', () => {
     const budgetBytes = 256 * 1024
     const reporter = new UnitFailureReporter({ directory, budgetBytes })
     const unhandledErrors = [{ message: 'worker exited unexpectedly' }]
-    reporter.onInit({ config: { root: ROOT }, state: { getUnhandledErrors: () => unhandledErrors } })
+    reporter.onInit({
+      config: { root: ROOT },
+      state: { getUnhandledErrors: () => unhandledErrors }
+    })
     reporter.onTestRunStart([{}])
     const module = testModule('large.test.ts', {
       state: 'failed',
