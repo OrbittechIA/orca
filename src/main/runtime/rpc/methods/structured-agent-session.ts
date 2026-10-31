@@ -31,7 +31,8 @@ import {
   requireStructuredCleanupHost,
   requireStructuredCreateSupportAdmission,
   requireStructuredSessionHost as requireSessionHost,
-  structuredCallerFor as callerFor
+  structuredCallerFor as callerFor,
+  structuredSessionProvablyAbsent
 } from './structured-agent-session-gate'
 import {
   handleStructuredAgentSessionCreate,
@@ -174,15 +175,20 @@ export const STRUCTURED_AGENT_SESSION_METHODS = [
     params: OptionsParams,
     handler: async (params, ctx) => {
       requireStructuredCapability(ctx)
-      const host = requireStructuredCleanupHost(ctx, params.sessionId)
+      const installed = getStructuredAgentSessionHost()
       // Record close before requiring host so even failed closes fence racing creates.
       if (ORCA_LAYOUT_OWNER_IS_MAIN) {
         noteStructuredAgentSessionClose(
           params.sessionId,
-          (getStructuredAgentSessionHost()?.deps.store.getConversation(params.sessionId) ??
-            null) !== null
+          (installed?.deps.store.getConversation(params.sessionId) ?? null) !== null,
+          structuredWorkItemStartCallerAuthority(ctx)
         )
       }
+      // Nothing exists to close yet; skipping host effects keeps a racing create's chat out of reach.
+      if (installed && structuredSessionProvablyAbsent(installed, params.sessionId)) {
+        return { ok: true as const }
+      }
+      const host = requireStructuredCleanupHost(ctx, params.sessionId)
       // Terminal-disposal closes use this RPC without the session-tabs retirement RPC.
       if (typeof host.setSessionTabVisibility === 'function') {
         await host.setSessionTabVisibility(params.sessionId, false)

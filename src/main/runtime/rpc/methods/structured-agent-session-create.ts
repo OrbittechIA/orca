@@ -39,7 +39,7 @@ import {
 import type { StructuredAgentId } from '../../../../shared/agent-session-provider-handle'
 import { resolveUncommittedStructuredCreate } from './structured-agent-session-precommit-refusal'
 import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../../shared/layout-owner-switch'
-import { structuredAgentSessionClosedBeforeCreate } from './structured-agent-session-close-before-create'
+import { structuredAgentSessionCreateClosedFirst } from './structured-agent-session-close-before-create'
 import type { ChatTabPlacement } from '../../agent-session/agent-session-tab-layout'
 
 export type PreparedStructuredAgentSessionCreate = {
@@ -213,7 +213,10 @@ export async function commitStructuredAgentSessionCreate(args: {
             // A chat closed while it was being made gets no tab to show before main closes it.
             publishTab: () =>
               ORCA_LAYOUT_OWNER_IS_MAIN &&
-              structuredAgentSessionClosedBeforeCreate(prepared.attachParams.envelope.sessionId)
+              structuredAgentSessionCreateClosedFirst(
+                prepared.attachParams.envelope.sessionId,
+                prepared.attachParams
+              )
                 ? Promise.resolve()
                 : args.runtime.publishStructuredAgentSessionTab({
                     workspaceId: tab.workspaceId,
@@ -239,7 +242,7 @@ export async function commitStructuredAgentSessionCreate(args: {
   // A chat closed while it was being made gets no tab to show before main closes it.
   if (
     ORCA_LAYOUT_OWNER_IS_MAIN &&
-    structuredAgentSessionClosedBeforeCreate(result.value.sessionId)
+    structuredAgentSessionCreateClosedFirst(result.value.sessionId, prepared.attachParams)
   ) {
     return result
   }

@@ -67,6 +67,35 @@ const create = (overrides: Record<string, unknown> = {}) =>
   })
 const close = () => call('agentSession.close', { sessionId: SESSION }, CLIENT)
 
+const owner = { ...CLIENT, caller: { kind: 'paired-device', deviceId: 'owner' } } as const
+const foreign = { ...CLIENT, caller: { kind: 'paired-device', deviceId: 'foreign' } } as const
+const scopedCreate = (overrides: Record<string, unknown> = {}) =>
+  call(
+    'agentSession.create',
+    structuredAgentSessionCreateParams({
+      sessionId: SESSION,
+      worktree: 'id:workspace-1',
+      agent: 'codex',
+      randomUuid: () => '00000000-0000-0000-0000-0000000000fb',
+      now: NOW,
+      launchOrigin: 'work-item-start'
+    }),
+    owner,
+    {
+      retireStructuredAgentSessionTabFromSnapshot: retireTab,
+      resolveStructuredAgentSessionCreateWorktreeTarget: async () => ({
+        worktreeId: 'workspace-1',
+        workspacePath: '/workspace',
+        instanceId: null,
+        identityKey: null,
+        executionHostId: 'local',
+        creatorKind: 'paired-device',
+        creatorDeviceId: 'owner'
+      }),
+      ...overrides
+    }
+  )
+
 const refusedAsClosed = {
   ok: true,
   result: {
@@ -164,6 +193,56 @@ describe('a close that reaches main before its create', () => {
 
     expect(await create()).toMatchObject(refusedAsClosed)
     expect(runtimeCalls.publishStructuredAgentSessionTab).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['another paired device', foreign],
+    ['an older client without launch authority', CLIENT]
+  ])(
+    'a close from %s neither fences nor closes a Work Item Start launch it cannot reach',
+    async (_, closer) => {
+      const closeAs = () => call('agentSession.close', { sessionId: SESSION }, closer)
+      expect(await closeAs()).toMatchObject({ ok: true })
+      let racing: Promise<unknown> | undefined
+      const result = await scopedCreate({
+        resolveStructuredAgentSessionCreateIntent: vi.fn(async (params: { envelope: unknown }) => {
+          expect(await closeAs()).toMatchObject({ ok: true })
+          return {
+            envelope: params.envelope,
+            location: {
+              executionHostId: 'local',
+              wslDistro: null,
+              workspaceId: 'workspace-1',
+              workspaceKind: 'git-worktree'
+            },
+            provider: 'codex',
+            agent: 'codex',
+            accountHome: { variable: 'CODEX_HOME', path: '/host/.codex' },
+            runtimeKind: 'native'
+          }
+        }),
+        publishStructuredAgentSessionTab: vi.fn(async () => {
+          racing = closeAs()
+        })
+      })
+
+      expect(result).toMatchObject({ ok: true, result: { ok: true } })
+      expect(await racing).toMatchObject({ ok: false })
+      expect(retireTab).not.toHaveBeenCalled()
+      expect(rig.store.getRecord(SESSION)).toMatchObject({
+        launchOrigin: 'work-item-start',
+        launchAuthority: owner.caller
+      })
+    }
+  )
+
+  it("the launch owner's close still refuses its Work Item Start create", async () => {
+    expect(await call('agentSession.close', { sessionId: SESSION }, owner)).toMatchObject({
+      ok: true
+    })
+
+    expect(await scopedCreate()).toMatchObject(refusedAsClosed)
+    expect(rig.store.getRecord(SESSION)).toBeNull()
   })
 
   it('switch off: a close before the create is not remembered', async () => {

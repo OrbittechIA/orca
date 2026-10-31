@@ -24,7 +24,7 @@ import {
 import { resolveUncommittedStructuredCreate } from './structured-agent-session-precommit-refusal'
 import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../../shared/layout-owner-switch'
 import {
-  structuredAgentSessionClosedBeforeCreate,
+  structuredAgentSessionCreateClosedFirst,
   structuredAgentSessionClosedBeforeCreateRefusal
 } from './structured-agent-session-close-before-create'
 
@@ -144,7 +144,7 @@ export async function handleStructuredAgentSessionCreate(
   // Nothing is created yet, so a close that came first refuses the create outright.
   if (
     ORCA_LAYOUT_OWNER_IS_MAIN &&
-    structuredAgentSessionClosedBeforeCreate(params.envelope.sessionId)
+    structuredAgentSessionCreateClosedFirst(params.envelope.sessionId, prepared.attachParams)
   ) {
     return { ok: false, refusal: structuredAgentSessionClosedBeforeCreateRefusal() }
   }
