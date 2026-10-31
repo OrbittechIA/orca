@@ -27,6 +27,7 @@ import {
 } from '../structured-agent-session-action-launch'
 import { holdEmptyWorkspaceDefaultSurfaceForLaunch } from '../empty-workspace-default-surface-claims'
 import type { OpenedAgentSessionTab } from '../structured-agent-session-tab-open-through-layout-owner'
+import { holdStructuredLaunchSourceForJoiner } from '../structured-agent-session-launch-source-handoff'
 import {
   captureStructuredLaunchSurfaceAddress,
   openStructuredAgentSessionProvisionalTab
@@ -110,6 +111,7 @@ export function beginStructuredAgentSessionProvisionalLaunch(
     }
     return launch
   }
+  let releaseSourceHold = (): void => {}
   try {
     const owner = worktreeId ? structuredLaunchOwner(args.plan, worktreeId, args.target) : null
     if (owner && worktreeId && !args.deferPublication && args.beforeOpen?.() === false) {
@@ -148,31 +150,45 @@ export function beginStructuredAgentSessionProvisionalLaunch(
         }
       }
     }
+    // Claimed now: the conversation's terminal may close before its host admits this joiner.
+    releaseSourceHold = holdStructuredLaunchSourceForJoiner({
+      worktreeId,
+      agent: args.plan.agent,
+      executionHostId: owner.executionHostId,
+      resumeFrom: args.plan.resumeFrom,
+      requestId: args.plan.requestId
+    })
     const launch = beginHostAdmittedStructuredLaunch({
       plan: args.plan,
       hooks: args.hooks,
       worktreeId,
       executionHostId: owner.executionHostId,
       target: owner.target,
-      openAdmitted: (seedOptions) =>
-        open(
-          beginLocalProvisionalLaunch({
-            ...args,
-            target: {
-              ...args.target,
-              worktreeId,
-              executionHostId: owner.executionHostId,
-              ...(seedOptions ? { seedOptions } : {})
-            },
-            beforeOpen: undefined
-          })
-        ),
+      openAdmitted: (seedOptions) => {
+        try {
+          return open(
+            beginLocalProvisionalLaunch({
+              ...args,
+              target: {
+                ...args.target,
+                worktreeId,
+                executionHostId: owner.executionHostId,
+                ...(seedOptions ? { seedOptions } : {})
+              },
+              beforeOpen: undefined
+            })
+          )
+        } finally {
+          releaseSourceHold()
+        }
+      },
       onHostDeclined: (target) => openDeclinedTerminal(args, worktreeId, target),
       ...(args.declinedOpensCallerSurface ? { declinedOpensCallerSurface: true as const } : {})
     })
-    void launch.settlement.then(cancelIfNoTab, cancelIfNoTab)
+    void launch.settlement.finally(releaseSourceHold).then(cancelIfNoTab, cancelIfNoTab)
     return launch
   } catch (error) {
+    releaseSourceHold()
     cancelIfNoTab()
     throw error
   }
