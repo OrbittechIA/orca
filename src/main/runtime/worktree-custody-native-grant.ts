@@ -23,7 +23,8 @@ export async function acquireNativeCustodyGrant(
   fence: WorktreeCustodyFence | undefined,
   registeredConsumers: (path: string) => number
 ): Promise<{ check(): boolean; release(): void }> {
-  const selectionGeneration = ports.pairedSelection?.generation
+  const selectionAuthority = ports.pairedSelection
+  const selectionGeneration = selectionAuthority?.generation
   // Admission already refuses Orca entrypoints for the fenced path; this also closes watcher/PTY installs.
   const installs = ports.fenceInstalls(resource.path)
   let external: { check: () => boolean; release: () => void } | null = null
@@ -39,16 +40,16 @@ export async function acquireNativeCustodyGrant(
       throw new Error('custody_external_consumer_unproven')
     }
     if (
-      ports.pairedSelection?.complete !== true ||
+      selectionAuthority?.complete !== true ||
       !Number.isSafeInteger(selectionGeneration) ||
-      ports.pairedSelection.selects(resource.worktreeId)
+      selectionAuthority.selects(resource.worktreeId, resource.path, resource.hostId)
     ) {
       throw new Error('custody_selection_held')
     }
-    if (!fence || !ports.pairedSelection.acquire) {
+    if (!fence || !selectionAuthority.acquire) {
       throw new Error('custody_selection_fence_unbound')
     }
-    paired = await ports.pairedSelection.acquire(fence)
+    paired = await selectionAuthority.acquire(fence)
     external = await ports.external.acquire(resource, fence)
   } catch (error) {
     external?.release()
@@ -64,9 +65,9 @@ export async function acquireNativeCustodyGrant(
     check: () =>
       !released &&
       !cleanupDone &&
-      ports.pairedSelection?.generation === selectionGeneration &&
+      ports.pairedSelection === selectionAuthority &&
+      selectionAuthority?.generation === selectionGeneration &&
       selection?.check() === true &&
-      ports.pairedSelection?.selects(resource.worktreeId) === false &&
       registeredConsumers(resource.path) === 0 &&
       grant.check(),
     release: () => {

@@ -4,9 +4,15 @@ import { join } from 'node:path'
 import type { WorktreeCustodyFence } from '../../shared/worktree/custody'
 import type { SelectionAck, SelectionFrame } from '../../shared/worktree/custody-selection'
 import { WorktreeCustodySelectionRounds } from './worktree-custody-selection-rounds'
+import type { CustodySelectionLocation } from './worktree-custody-selection-location'
+import {
+  isPathInsideOrEqual,
+  normalizeRuntimePathForComparison
+} from '../../shared/cross-platform-path'
 
 type SelectionConnection = {
   selected: Set<string> | null
+  locations: Map<string, CustodySelectionLocation | null>
   headless: boolean
   channel: { nonce: string; close(): void } | null
   reportedComplete: boolean
@@ -15,7 +21,7 @@ type SelectionConnection = {
 export type WorktreeSelectionAuthority = {
   readonly complete: boolean
   readonly generation: number
-  selects: (worktreeId: string) => boolean
+  selects: (worktreeId: string, path?: string, hostId?: string) => boolean
   acquire: (fence: WorktreeCustodyFence) => Promise<{ check(): boolean; release(): void }>
   settle: (fence: WorktreeCustodyFence) => void
 }
@@ -45,9 +51,10 @@ export class WorktreeCustodySelections {
   private readonly rounds: WorktreeCustodySelectionRounds
 
   constructor(
-    private readonly admit: (worktreeId: string) => () => void = admitWorktreeCustody,
+    private readonly admit: typeof admitWorktreeCustody = admitWorktreeCustody,
     settlement: (fence: WorktreeCustodyFence) => string | null = (fence) =>
-      nativeWorktreeCustody()?.clientFenceSettlement(fence) ?? null
+      nativeWorktreeCustody()?.clientFenceSettlement(fence) ?? null,
+    private readonly resolveLocation: (id: string) => CustodySelectionLocation | null = () => null
   ) {
     this.rounds = new WorktreeCustodySelectionRounds({
       generation: () => this.generation,
@@ -74,6 +81,7 @@ export class WorktreeCustodySelections {
     }
     const connection: SelectionConnection = {
       selected: null,
+      locations: new Map(),
       headless: false,
       channel: null,
       reportedComplete: false,
@@ -98,7 +106,8 @@ export class WorktreeCustodySelections {
     connectionId: string,
     workspaceIds: readonly string[],
     kind: 'headless' | 'view' = 'view',
-    complete = true
+    complete = true,
+    resolveLocation = this.resolveLocation
   ): void {
     const connection = this.connections.get(connectionId)
     if (!connection) {
@@ -121,31 +130,57 @@ export class WorktreeCustodySelections {
       throw new Error('custody_selection_report_invalid')
     }
     const selected = new Set(workspaceIds)
+    const locations = new Map(
+      [...selected].map((id) => {
+        let location: CustodySelectionLocation | null = null
+        try {
+          location = resolveLocation(id)
+        } catch {
+          // An unreadable owner keeps this view represented as unknown.
+        }
+        return [id, location] as const
+      })
+    )
+    const known = [...locations.values()].every((location) => location !== null)
     if (
       connection.selected?.size === selected.size &&
       connection.headless === (kind === 'headless') &&
       connection.reportedComplete &&
-      [...selected].every((id) => connection.selected?.has(id))
+      known &&
+      [...selected].every((id) => {
+        const previous = connection.locations.get(id)
+        const next = locations.get(id)
+        return (
+          connection.selected?.has(id) &&
+          previous?.hostId === next?.hostId &&
+          previous?.path === next?.path
+        )
+      })
     ) {
       return
     }
     const releases: (() => void)[] = []
     try {
-      // Selecting a fenced resource refuses before the client may acknowledge its selection.
-      for (const id of selected) {
-        if (!connection.selected?.has(id)) {
-          releases.push(this.admit(id))
+      for (const [id, location] of locations) {
+        if (location?.hostId === 'local') {
+          releases.push(this.admit(id, location.path, location.hostId, false))
         }
       }
       this.change(connection, () => {
         this.removeSelection(connection)
         connection.selected = selected
+        connection.locations = locations
         connection.headless = kind === 'headless'
-        connection.reportedComplete = true
+        connection.reportedComplete = known
         for (const id of selected) {
           this.selectedCounts.set(id, (this.selectedCounts.get(id) ?? 0) + 1)
         }
       })
+    } catch (error) {
+      this.change(connection, () => {
+        connection.reportedComplete = false
+      })
+      throw error
     } finally {
       for (const release of releases) {
         release()
@@ -203,8 +238,25 @@ export class WorktreeCustodySelections {
     return this.revision
   }
 
-  selects(worktreeId: string): boolean {
-    return this.unknown > 0 || this.selectedCounts.has(worktreeId)
+  selects(worktreeId: string, path?: string, hostId?: string): boolean {
+    if (this.unknown > 0) {
+      return true
+    }
+    if (path === undefined || hostId === undefined) {
+      return this.selectedCounts.has(worktreeId)
+    }
+    const target = normalizeRuntimePathForComparison(path)
+    for (const connection of this.connections.values()) {
+      for (const location of connection.locations.values()) {
+        if (location?.hostId === hostId) {
+          const selected = normalizeRuntimePathForComparison(location.path)
+          if (isPathInsideOrEqual(selected, target) || isPathInsideOrEqual(target, selected)) {
+            return true
+          }
+        }
+      }
+    }
+    return false
   }
 
   private removeSelection(connection: SelectionConnection): void {

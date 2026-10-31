@@ -9,7 +9,6 @@ import { useAppStore } from '@/store'
 import { tryRuntimeTargetForWorktreeOwner } from '@/store/slices/worktrees/listing/worktree-owner-target'
 import { callRuntimeRpc } from './runtime-rpc-client'
 import { subscribeRuntimeRpc } from './runtime-rpc-subscribe'
-import { hasRuntimeRpcErrorCode } from '../../../shared/runtime-rpc-error-code'
 import type { ExecutionHostId } from '../../../shared/execution-host'
 import { isWebClientLocation } from '@/lib/web-client-location'
 import {
@@ -27,7 +26,7 @@ type Host = {
   generation: number
   stop?: () => void
   opening: boolean
-  legacy: boolean
+  failed: boolean
   connection?: string
   signature: string
 }
@@ -43,7 +42,7 @@ function hostFor(target: RuntimeClientTarget): Host {
       client,
       generation: 0,
       opening: false,
-      legacy: false,
+      failed: false,
       signature: ''
     }
     client.subscribe(() => publish(created))
@@ -80,12 +79,14 @@ function publish(host: Host): void {
       if (host.generation !== generation) {
         return
       }
-      host.client.disconnect()
-      host.signature = ''
-      host.stop?.()
+      host.failed = true
+      host.generation++
+      const stop = host.stop
       host.stop = undefined
       host.opening = false
-      host.generation++
+      host.client.disconnect()
+      host.signature = ''
+      stop?.()
     })
 }
 
@@ -118,7 +119,7 @@ export function ensureWorkspaceSelectionCustody(target: RuntimeClientTarget): vo
   }
   target = canonical
   const host = hostFor(target)
-  if (host.stop || host.opening || host.legacy) {
+  if (host.stop || host.opening || host.failed) {
     return
   }
   host.opening = true
@@ -130,6 +131,7 @@ export function ensureWorkspaceSelectionCustody(target: RuntimeClientTarget): vo
     }
     const stop = host.stop
     host.generation++
+    host.failed = true
     host.client.disconnect()
     host.opening = false
     host.stop = undefined
@@ -177,15 +179,7 @@ export function ensureWorkspaceSelectionCustody(target: RuntimeClientTarget): vo
           void callRuntimeRpc(target, 'workspace.selection.ack.v1', ack).catch(() => {})
         }
       },
-      onError: (error) => {
-        if (!current()) {
-          return
-        }
-        if (hasRuntimeRpcErrorCode(error, 'method_not_found')) {
-          host.legacy = true
-        }
-        disconnect()
-      },
+      onError: disconnect,
       onClose: disconnect
     }
   ).then((subscription) => {
@@ -200,6 +194,25 @@ export function ensureWorkspaceSelectionCustody(target: RuntimeClientTarget): vo
 
 export function startWorkspaceSelectionCustody(): () => void {
   let stopped = false
+  const reconnect = (target: RuntimeClientTarget, connection: string) => {
+    if (stopped) {
+      return
+    }
+    const host = hostFor(target)
+    if (host.connection === connection) {
+      return
+    }
+    host.connection = connection
+    const stop = host.stop
+    host.generation++
+    host.stop = undefined
+    host.opening = false
+    host.client.disconnect()
+    stop?.()
+    host.failed = false
+    ensureWorkspaceSelectionCustody(target)
+  }
+  const browserConnections = new Map<string, { identity: string; ready: boolean; epoch: number }>()
   const refresh = () => {
     const state = useAppStore.getState()
     const ids = new Set(state.activeWorktreeId ? [state.activeWorktreeId] : [])
@@ -237,29 +250,32 @@ export function startWorkspaceSelectionCustody(): () => void {
   const unsubscribeState = useAppStore.subscribe(refresh)
   const unsubscribeStatus = isWebClientLocation()
     ? window.api.runtimeEnvironments.onStatusChanged((event) => {
-        if (event.transport === 'ready' && !event.retired) {
+        const previous = browserConnections.get(event.environmentId)
+        const ready = event.transport === 'ready' && !event.retired
+        const identity = `${event.pairingRevision}:${event.remoteControl?.lastConnectedAt}`
+        const changed = ready && (!previous?.ready || previous.identity !== identity)
+        const epoch = (previous?.epoch ?? 0) + Number(changed)
+        browserConnections.set(event.environmentId, { identity, ready, epoch })
+        if (ready) {
           setCustodyBrowserEnvironment(event.environmentId)
-          ensureWorkspaceSelectionCustody({
-            kind: 'environment',
-            environmentId: event.environmentId
-          })
+          if (changed) {
+            reconnect(
+              { kind: 'environment', environmentId: event.environmentId },
+              `browser:${identity}:${epoch}`
+            )
+          }
           refresh()
         }
       })
     : undefined
   const unsubscribe = window.api?.runtimeEnvironments?.onSharedControlDiagnostics?.((event) => {
-    if (event.diagnostics.state === 'ready') {
+    if (!isWebClientLocation() && event.diagnostics.state === 'ready') {
       const target: RuntimeClientTarget = {
         kind: 'environment',
         environmentId: event.environmentId
       }
-      const host = hostFor(target)
       const connection = `${event.transportGeneration}:${event.diagnostics.lastConnectedAt}`
-      if (host.connection !== connection) {
-        host.connection = connection
-        host.legacy = false
-        ensureWorkspaceSelectionCustody(target)
-      }
+      reconnect(target, connection)
     }
   })
   return () => {

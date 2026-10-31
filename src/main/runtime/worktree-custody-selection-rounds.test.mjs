@@ -12,7 +12,8 @@ const { WorktreeCustodySelections } = await moduleFromSource(
   {
     './worktree-custody-runtime': './native-ports.mjs',
     '../../shared/app-environment': './runtime-ports.mjs',
-    './worktree-custody-selection-rounds': './selection-rounds.mjs'
+    './worktree-custody-selection-rounds': './selection-rounds.mjs',
+    '../../shared/cross-platform-path': './cross-platform-path.mjs'
   }
 )
 const { WorktreeSelectionClient } = await moduleFromSource(

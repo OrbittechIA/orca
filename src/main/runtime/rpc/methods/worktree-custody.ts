@@ -2,6 +2,7 @@ import { defineMethod, defineStreamingMethod } from '../core'
 import { nativeWorktreeCustody } from '../../worktree-custody-runtime'
 import { WorktreeCustodyRequestSchema } from '../../../../shared/worktree/custody-schema'
 import { installNativeWorktreeCustodyProvider } from '../../worktree-custody-native-provider-host'
+import { resolveCustodySelectionLocation } from '../../worktree-custody-selection-location'
 import {
   WorktreeSelectionReportSchema,
   SelectionAckSchema,
@@ -55,7 +56,13 @@ export const WORKTREE_SELECTION_WATCH_METHOD = defineStreamingMethod({
             emit(frame)
           }
         })
-        runtime.custodySelections.report(connectionId, params.workspaceIds, 'view', params.complete)
+        runtime.custodySelections.report(
+          connectionId,
+          params.workspaceIds,
+          'view',
+          params.complete,
+          (id) => resolveCustodySelectionLocation(runtime.requireStore(), id)
+        )
         runtime.registerSubscriptionCleanup(subscriptionId, cleanup, connectionId)
         signal?.addEventListener('abort', release, { once: true })
         if (signal?.aborted) {
@@ -128,7 +135,8 @@ export const WORKTREE_SELECTION_REPORT_METHOD = defineMethod({
       connectionId,
       params.workspaceIds,
       params.kind,
-      params.complete
+      params.complete,
+      (id) => resolveCustodySelectionLocation(runtime.requireStore(), id)
     )
     return { reported: true }
   }

@@ -367,14 +367,17 @@ async function providerFixture(checkout, options = {}) {
             acquire: async () => ({ check: () => true, release: () => {} }),
             settle: () => {}
           }),
-    checkoutPolicy: options.checkoutPolicy ?? {
-      id: 'bounded-checkout-v1',
-      maxEntries: 4096,
-      maxFiles: 2048,
-      maxAllocatedBytes: 1024 ** 3,
-      maxDurationMs: 10_000,
-      maxDepth: 128
-    },
+    checkoutPolicy:
+      options.checkoutPolicy === null
+        ? undefined
+        : (options.checkoutPolicy ?? {
+            id: 'bounded-checkout-v1',
+            maxEntries: 4096,
+            maxFiles: 2048,
+            maxAllocatedBytes: 1024 ** 3,
+            maxDurationMs: 10_000,
+            maxDepth: 128
+          }),
     profileLock: options.profileLock ?? { current: () => null, exited: () => false },
     releaseHistory: async (release) => ({ release, confirmed: false, proof: null }),
     external:

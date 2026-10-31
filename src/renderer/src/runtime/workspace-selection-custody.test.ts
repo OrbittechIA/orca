@@ -3,6 +3,11 @@ import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
 import type { SelectionFrame } from '../../../shared/worktree/custody-selection'
 import type { RuntimeRpcSubscriptionHandlers } from './runtime-rpc-subscribe'
 
+type DiagnosticsListener = Parameters<
+  NonNullable<Window['api']['runtimeEnvironments']['onSharedControlDiagnostics']>
+>[0]
+type StatusListener = Parameters<Window['api']['runtimeEnvironments']['onStatusChanged']>[0]
+
 const mocks = vi.hoisted(() => {
   const owners = new Map<string, RuntimeClientTarget>()
   const state = { activeWorktreeId: 'selected', activeWorkspaceExecutionHostId: null }
@@ -12,8 +17,9 @@ const mocks = vi.hoisted(() => {
     web: false,
     call: vi.fn(),
     subscribe: vi.fn(),
-    stateSubscribe: vi.fn(() => () => {}),
-    diagnostics: vi.fn(() => () => {})
+    stateSubscribe: vi.fn((_callback: () => void) => () => {}),
+    diagnostics: vi.fn((_callback: DiagnosticsListener) => () => {}),
+    status: vi.fn((_callback: StatusListener) => () => {})
   }
 })
 vi.mock('@/store', () => ({
@@ -81,7 +87,7 @@ beforeEach(() => {
     api: {
       runtimeEnvironments: {
         list: async () => [{ id: 'browser-host' }],
-        onStatusChanged: () => () => {},
+        onStatusChanged: mocks.status,
         onSharedControlDiagnostics: mocks.diagnostics
       }
     }
@@ -166,4 +172,119 @@ it('uses a single real browser environment target, including local-owner aliases
   )
   streams[0].handlers.onEvent(round(streams[0], 'target'))
   expect(api.canSelectWorkspace('target')).toBe(false)
+})
+
+it.each([
+  'custody_unsupported',
+  'custody_selection_native_inventory_unknown',
+  'method_not_found'
+])('latches watch refusal until the actual connection changes: %s', async (code) => {
+  const target = { kind: 'environment', environmentId: 'paired-host' } as const
+  mocks.owners.set('selected', target)
+  mocks.owners.set('target', target)
+  const api = await import('./workspace-selection-custody')
+  stop = api.startWorkspaceSelectionCustody()
+  const diagnostics = mocks.diagnostics.mock.calls[0][0]
+  const event = {
+    environmentId: 'paired-host',
+    transportGeneration: 1,
+    diagnostics: {
+      state: 'ready',
+      pendingRequestCount: 0,
+      subscriptionCount: 0,
+      reconnectAttempt: 0,
+      lastConnectedAt: 100,
+      lastClose: null,
+      lastError: null
+    }
+  } as const
+  diagnostics(event)
+  const current = streams[streams.length - 1]
+  ready(current)
+  current.handlers.onEvent(round(current, 'target'))
+  current.handlers.onError({ code, message: code })
+  const attempts = mocks.subscribe.mock.calls.length
+  for (let i = 0; i < 20; i++) {
+    mocks.stateSubscribe.mock.calls[0][0]()
+    api.ensureWorkspaceSelectionCustody(target)
+    diagnostics(event)
+  }
+  expect(mocks.subscribe).toHaveBeenCalledTimes(attempts)
+  expect(api.canSelectWorkspace('target')).toBe(false)
+  expect(api.canSelectWorkspace('other')).toBe(true)
+  diagnostics({ ...event, transportGeneration: 2 })
+  expect(mocks.subscribe).toHaveBeenCalledTimes(attempts + 1)
+  expect(streams[streams.length - 1].params).toEqual(
+    expect.objectContaining({ pendingFences: [fence] })
+  )
+  current.handlers.onError({ code })
+  ready(streams[streams.length - 1])
+  expect(api.canSelectWorkspace('target')).toBe(false)
+})
+
+it('does not retry a rejected local watch promise on subsequent store updates', async () => {
+  mocks.subscribe.mockRejectedValueOnce(new Error('custody_selection_native_inventory_unknown'))
+  const api = await import('./workspace-selection-custody')
+  stop = api.startWorkspaceSelectionCustody()
+  await Promise.resolve()
+  await Promise.resolve()
+  for (let i = 0; i < 20; i++) {
+    mocks.stateSubscribe.mock.calls[0][0]()
+  }
+  expect(mocks.subscribe).toHaveBeenCalledTimes(1)
+  expect(api.canSelectWorkspace('other')).toBe(true)
+})
+
+it('keeps failed selection reports terminal for the current watch without affecting ordinary navigation', async () => {
+  const api = await import('./workspace-selection-custody')
+  stop = api.startWorkspaceSelectionCustody()
+  ready(streams[0])
+  await Promise.resolve()
+  await Promise.resolve()
+  mocks.call.mockRejectedValueOnce(new Error('custody_selection_report_unconfirmed'))
+  mocks.state.activeWorktreeId = 'other'
+  mocks.stateSubscribe.mock.calls[0][0]()
+  await Promise.resolve()
+  await Promise.resolve()
+  await Promise.resolve()
+  for (let i = 0; i < 20; i++) {
+    mocks.stateSubscribe.mock.calls[0][0]()
+  }
+  expect(mocks.subscribe).toHaveBeenCalledTimes(1)
+  expect(api.canSelectWorkspace('other')).toBe(true)
+})
+
+it('retries browser custody after actual contact returns while duplicate ready statuses leave a refusal latched', async () => {
+  mocks.web = true
+  const api = await import('./workspace-selection-custody')
+  stop = api.startWorkspaceSelectionCustody()
+  await Promise.resolve()
+  const status = mocks.status.mock.calls[0][0]
+  const event = {
+    environmentId: 'browser-host',
+    pairingRevision: 1,
+    sequence: 1,
+    checkedAt: 100,
+    status: null,
+    verification: 'verified',
+    transport: 'ready'
+  } as const
+  status(event)
+  const current = streams[streams.length - 1]
+  ready(current)
+  current.handlers.onEvent(round(current, 'target'))
+  current.handlers.onError({ code: 'custody_unsupported' })
+  const attempts = mocks.subscribe.mock.calls.length
+  for (let i = 0; i < 20; i++) {
+    status({ ...event, sequence: i + 2 })
+    mocks.stateSubscribe.mock.calls[0][0]()
+  }
+  expect(mocks.subscribe).toHaveBeenCalledTimes(attempts)
+  expect(api.canSelectWorkspace('target')).toBe(false)
+  status({ ...event, transport: 'disconnected' })
+  status(event)
+  expect(mocks.subscribe).toHaveBeenCalledTimes(attempts + 1)
+  expect(streams[streams.length - 1].params).toEqual(
+    expect.objectContaining({ pendingFences: [fence] })
+  )
 })

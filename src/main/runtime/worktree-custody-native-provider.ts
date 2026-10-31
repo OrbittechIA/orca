@@ -14,7 +14,7 @@ import type { NativeWorktreeCustodyProvider } from './worktree-custody-retiremen
 import type { CustodyFenceOwner } from './worktree-custody-records'
 import type { WorktreeSelectionAuthority } from './worktree-custody-selections'
 import {
-  WHOLE_CHECKOUT_RETIREMENT_POLICY,
+  LEGACY_CHECKOUT_RETIREMENT_POLICY,
   type CheckoutRetirementPolicy
 } from './worktree-custody-checkout-policy'
 
@@ -183,7 +183,7 @@ export function createNativeWorktreeCustodyProvider(
       const current =
         session.activeWorktreeId === id ||
         desktop?.activeWorktreeId === id ||
-        ports.pairedSelection?.selects(id) === true
+        ports.pairedSelection?.selects(id, resource.path, resource.hostId) === true
       stamp({
         domain: 'workspace',
         // Without paired-client selection authority the domain can only add holds.
@@ -240,7 +240,7 @@ export function createNativeWorktreeCustodyProvider(
       ports.pairedSelection.settle !== undefined &&
       ports.releaseHistory !== undefined &&
       ports.checkoutPolicy !== undefined,
-    retirementPolicy: ports.checkoutPolicy ?? WHOLE_CHECKOUT_RETIREMENT_POLICY,
+    retirementPolicy: ports.checkoutPolicy ?? LEGACY_CHECKOUT_RETIREMENT_POLICY,
     observe,
     acquire: (resource, fence) =>
       acquireNativeCustodyGrant(ports, resource, fence, registeredConsumers),
