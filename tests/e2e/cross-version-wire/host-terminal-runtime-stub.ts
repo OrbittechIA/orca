@@ -107,6 +107,7 @@ export function createHostTerminalRuntimeStub(
   }
 
   const runtime: Record<string, unknown> = {
+    custodySelections: undefined,
     getRuntimeId: () => 'cross-version-host',
     getPtyExecutionHostMetadata: () => ({ incarnationId: 'test-incarnation' }),
     getTerminalLaunchResult: () => undefined,
