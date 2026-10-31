@@ -1,7 +1,7 @@
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import UnitFailureReporter, {
   clipText,
   UNIT_FAILURE_REPORT_BUDGET_BYTES,
@@ -11,7 +11,19 @@ import UnitFailureReporter, {
 const ROOT = '/repo'
 const directories = []
 
+const runArgs = process.env.ORCA_VITEST_RUN_ARGS
+
+// Byte budgets below depend on record sizes, so the reporter must not echo this run's own arguments.
+beforeEach(() => {
+  process.env.ORCA_VITEST_RUN_ARGS = '["run"]'
+})
+
 afterEach(() => {
+  if (runArgs === undefined) {
+    delete process.env.ORCA_VITEST_RUN_ARGS
+  } else {
+    process.env.ORCA_VITEST_RUN_ARGS = runArgs
+  }
   for (const directory of directories.splice(0)) {
     rmSync(directory, { recursive: true, force: true })
   }
@@ -53,6 +65,13 @@ function earlierReport(directory, bytes) {
     JSON.stringify({ filler: 'z'.repeat(bytes) })
   )
 }
+
+function directoryBytes(directory) {
+  return readdirSync(directory).reduce((sum, name) => sum + statSync(join(directory, name)).size, 0)
+}
+
+const failingModule = (file) =>
+  testModule(file, { state: 'failed', tests: [testCase('fails', 'failed', [{ message: 'm' }])] })
 
 function reports(directory) {
   return readdirSync(directory)
@@ -231,35 +250,79 @@ describe('unit failure evidence', () => {
       'colocated.test.ts',
       'related.test.ts'
     ])
-    const total = readdirSync(directory).reduce(
-      (sum, name) => sum + statSync(join(directory, name)).size,
-      0
-    )
-    expect(total).toBeLessThanOrEqual(300 * 1024)
+    expect(directoryBytes(directory)).toBeLessThanOrEqual(300 * 1024)
   })
 
-  it('writes an over-budget marker rather than exceed the shared budget', () => {
+  it('writes an over-budget marker into the little room another invocation left', () => {
     const directory = reportDirectory()
-    earlierReport(directory, 64 * 1024)
-    run(
-      directory,
-      [
-        testModule('a.test.ts', {
-          state: 'failed',
-          tests: [testCase('fails', 'failed', [{ message: 'm' }])]
-        })
-      ],
-      [],
-      'failed',
-      64 * 1024
-    )
+    earlierReport(directory, 62 * 1024)
+    run(directory, [failingModule('a.test.ts')], [], 'failed', 64 * 1024)
 
     const marker = reports(directory).find(({ name }) => !name.endsWith('earlier.json'))
+    expect(marker?.name.endsWith('.started.json')).toBe(false)
     expect(marker?.report).toMatchObject({
       inventoryComplete: false,
       truncated: true,
       counts: { tests: { failed: 1 } }
     })
+    expect(directoryBytes(directory)).toBeLessThanOrEqual(64 * 1024)
+  })
+
+  it('adds nothing to a budget another invocation already filled, the default one included', () => {
+    for (const budgetBytes of [64 * 1024, UNIT_FAILURE_REPORT_BUDGET_BYTES]) {
+      const directory = reportDirectory()
+      earlierReport(directory, budgetBytes - JSON.stringify({ filler: '' }).length)
+      expect(directoryBytes(directory)).toBe(budgetBytes)
+      run(directory, [failingModule('a.test.ts')], [], 'failed', budgetBytes)
+
+      expect(directoryBytes(directory)).toBe(budgetBytes)
+      expect(readdirSync(directory)).toEqual([`${UNIT_FAILURE_REPORT_PREFIX}earlier.json`])
+    }
+  })
+
+  it('keeps the start record when only it fits, so the missing report stays evident', () => {
+    const measure = reportDirectory()
+    const probe = new UnitFailureReporter({ directory: measure })
+    probe.onInit({ config: { root: ROOT } })
+    probe.onTestRunStart()
+    const startBytes = directoryBytes(measure)
+
+    const directory = reportDirectory()
+    const budgetBytes = 64 * 1024
+    earlierReport(directory, budgetBytes - startBytes - 64)
+    run(directory, [failingModule('a.test.ts')], [], 'failed', budgetBytes)
+
+    const own = readdirSync(directory).filter((name) => !name.endsWith('earlier.json'))
+    expect(own).toHaveLength(1)
+    expect(own[0].endsWith('.started.json')).toBe(true)
+    expect(directoryBytes(directory)).toBeLessThanOrEqual(budgetBytes)
+  })
+
+  it('lets interleaved invocations share the budget without touching each other', () => {
+    const directory = reportDirectory()
+    const budgetBytes = 200 * 1024
+    const [first, second] = [0, 1].map(() => {
+      const reporter = new UnitFailureReporter({ directory, budgetBytes })
+      reporter.onInit({ config: { root: ROOT } })
+      reporter.onTestRunStart()
+      return reporter
+    })
+    const tests = Array.from({ length: 100 }, (_, index) =>
+      testCase(`case ${index}`, 'failed', [{ message: 'x'.repeat(2000) }])
+    )
+    first.onTestRunEnd([testModule('first.test.ts', { state: 'failed', tests })], [], 'failed')
+    const firstName = `${first.id}.json`
+    const firstText = readFileSync(join(directory, firstName), 'utf8')
+    second.onTestRunEnd([failingModule('second.test.ts')], [], 'failed')
+
+    expect(readFileSync(join(directory, firstName), 'utf8')).toBe(firstText)
+    expect(JSON.parse(firstText)).toMatchObject({ inventoryComplete: false, truncated: true })
+    expect(
+      reports(directory)
+        .map(({ name }) => name)
+        .sort()
+    ).toEqual([firstName, `${second.id}.json`].sort())
+    expect(directoryBytes(directory)).toBeLessThanOrEqual(budgetBytes)
   })
 
   it('keeps the default budget within half of a 16 MiB artifact', () => {

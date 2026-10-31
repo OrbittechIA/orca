@@ -148,7 +148,7 @@ export function fitUnitFailureReport(report, limitBytes) {
   const fitted = JSON.stringify(kept)
   return Buffer.byteLength(fitted) <= limitBytes
     ? fitted
-    : JSON.stringify(budgetMarker(report, 'entry-exceeds-budget'))
+    : JSON.stringify(budgetMarker(report, 'budget-exhausted'))
 }
 
 function budgetMarker(report, cause) {
@@ -164,11 +164,12 @@ function budgetMarker(report, cause) {
   }
 }
 
+/** Every report, start record and staged file of every invocation counts, read from disk each time. */
 function reportBytes(directory) {
   let total = 0
   for (const name of readdirSync(directory)) {
     if (name.startsWith(UNIT_FAILURE_REPORT_PREFIX)) {
-      total += statSync(join(directory, name)).size
+      total += statSync(join(directory, name), { throwIfNoEntry: false })?.size ?? 0
     }
   }
   return total
@@ -237,20 +238,38 @@ export default class UnitFailureReporter {
         return
       }
       this.remove(`${this.id}.started.json`)
-      if (reportBytes(this.directory) > this.budgetBytes) {
-        // A concurrent invocation spent the budget meanwhile; the rename swaps in a marker rather than exceed it.
-        this.write(name, () => JSON.stringify(budgetMarker(report, 'aggregate-budget-exhausted')))
+      const total = reportBytes(this.directory)
+      if (total > this.budgetBytes) {
+        // A concurrent invocation spent the budget meanwhile: shrink to a marker if it fits, else withdraw.
+        const own = statSync(join(this.directory, name), { throwIfNoEntry: false })?.size ?? 0
+        const marker = JSON.stringify(budgetMarker(report, 'aggregate-budget-raced'))
+        this.remove(name)
+        if (total - own + Buffer.byteLength(marker) <= this.budgetBytes) {
+          publish(this.directory, name, marker)
+        } else {
+          console.warn(`[unit-failures] ${name} withdrawn: the shared budget is spent`)
+        }
       }
     } catch (error) {
-      // The start record stays, so the missing report is still evident.
+      // Whatever was published stands; a report that is missing stays evident by its absence.
       console.warn(`[unit-failures] ${name} was not completed: ${String(error)}`)
     }
   }
 
+  /** Publish only what fits in the bytes still free, so the shared budget is never exceeded. */
   write(name, render) {
     try {
       mkdirSync(this.directory, { recursive: true })
-      publish(this.directory, name, render(this.budgetBytes - reportBytes(this.directory)))
+      const available = this.budgetBytes - reportBytes(this.directory)
+      const text = render(available)
+      const size = Buffer.byteLength(text)
+      if (size > available) {
+        console.warn(
+          `[unit-failures] ${name} not written: needs ${size} bytes, ${Math.max(0, available)} free`
+        )
+        return false
+      }
+      publish(this.directory, name, text)
       return true
     } catch (error) {
       // Logged, not thrown: the failure report must never decide the test verdict.
