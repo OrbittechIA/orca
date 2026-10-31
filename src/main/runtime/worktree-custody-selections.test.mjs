@@ -91,6 +91,8 @@ test('the composed provider refuses a transient late client before the fixed Git
   nativePorts.setRemove(async () => {
     effects++
   })
+  await assert.rejects(f.authority.capture(f.resource), /producer_release_unproven/)
+  f.authority.release(`dispatch:${f.resource.path}`, `native-worker-release:${f.resource.path}`)
   const fence = await f.authority.capture(f.resource)
   const close = selections.open('late-phone')
   close()

@@ -25,6 +25,8 @@ test('prepared whole-checkout policy admits a complete larger inventory as one e
   nativePorts.setRemove(async () => {
     effects++
   })
+  await assert.rejects(f.authority.capture(f.resource), /producer_release_unproven/)
+  f.authority.release(`dispatch:${f.resource.path}`, `native-worker-release:${f.resource.path}`)
   const fence = await f.authority.capture(f.resource)
   assert.equal((await f.authority.retire(fence, KEY)).state, 'retired')
   assert.equal(effects, 1)
