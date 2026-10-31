@@ -212,7 +212,8 @@ export const EXECUTION_HOST_METHODS = [
   'worktree.rm',
   'worktree.set',
   'worktree.show',
-  'worktree.sleep'
+  'worktree.sleep',
+  'workspace.selection.report.v1'
 ] as const
 
 export const MOBILE_RPC_METHOD_ROUTES: ReadonlyMap<string, MobileRpcMethodRoute> = new Map([

@@ -50,7 +50,8 @@ export class RuntimeRpcLifecycle extends RuntimeRpcWebSocketDispatch {
     const socketTransport = new UnixSocketTransport({
       endpoint: transportMeta.endpoint,
       kind: transportMeta.kind as 'unix' | 'named-pipe',
-      keepaliveIntervalMs: this.keepaliveIntervalMs
+      keepaliveIntervalMs: this.keepaliveIntervalMs,
+      onConnection: (id) => this.runtime.custodySelections?.open(id) ?? (() => {})
     })
 
     // Always reply on unexpected throws so clients and dispatch controllers cannot be stranded.
@@ -224,6 +225,7 @@ export class RuntimeRpcLifecycle extends RuntimeRpcWebSocketDispatch {
     this.unpairedDeviceAuthThrottle = new UnpairedDeviceAuthThrottle({
       onTrigger: () => this.onUnpairedDeviceAuthFailure?.()
     })
+    const selectionConnections = new Map<string, () => void>()
     const mobileSocketWiring = new MobileSocketWiring({
       deviceRegistry,
       e2eeKeypair,
@@ -245,6 +247,10 @@ export class RuntimeRpcLifecycle extends RuntimeRpcWebSocketDispatch {
         this.handleWebSocketBinaryMessage(bytes, socket.ws)
       },
       onReady: (socket) => {
+        const release = this.runtime.custodySelections?.open(socket.connectionId)
+        if (release) {
+          selectionConnections.set(socket.connectionId, release)
+        }
         this.mobileRelayPairingProvider?.onDemandStateChanged?.()
         if (socket.clientCapabilities.includes(AGENT_LAUNCH_RUNTIME_CAPABILITY)) {
           this.runtime.noteAgentLaunchClientReady?.()
@@ -266,6 +272,8 @@ export class RuntimeRpcLifecycle extends RuntimeRpcWebSocketDispatch {
           return
         }
         this.abortWebSocketDispatches(socket.ws)
+        selectionConnections.get(socket.connectionId)?.()
+        selectionConnections.delete(socket.connectionId)
         this.mobileDesktopRelay?.closePhoneConnection(socket.connectionId)
         // Stream cleanup is socket-scoped; disconnect state spans all transports for that device.
         this.runtime.cleanupSubscriptionsForConnection(socket.connectionId)

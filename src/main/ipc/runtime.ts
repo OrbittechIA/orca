@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain } from 'electron'
 import type { OrcaRuntimeService } from '../runtime/orca-runtime'
 import type {
   RuntimeBrowserDriverState,
@@ -26,9 +26,23 @@ function boundTerminalFitRestore(pending: Promise<boolean>): Promise<boolean> {
   return Promise.race([pending, deadline]).finally(() => clearTimeout(timer))
 }
 
+const desktopSenderLifecycles = new WeakMap<OrcaRuntimeService, DesktopRuntimeSenderLifecycle>()
+
 export function registerRuntimeHandlers(runtime: OrcaRuntimeService): void {
   const pendingTerminalFitRestores = new Map<string, Promise<boolean>>()
-  const desktopSenders = new DesktopRuntimeSenderLifecycle(runtime)
+  let desktopSenders = desktopSenderLifecycles.get(runtime)
+  if (!desktopSenders) {
+    desktopSenders = new DesktopRuntimeSenderLifecycle(runtime)
+    desktopSenderLifecycles.set(runtime, desktopSenders)
+    for (const window of BrowserWindow.getAllWindows()) {
+      desktopSenders.connectionIdFor(window.webContents)
+    }
+    const senderLifecycle = desktopSenders
+    app.on('browser-window-created', (_event, window) => {
+      senderLifecycle.connectionIdFor(window.webContents)
+    })
+  }
+  const runtimeSenders = desktopSenders
   ipcMain.removeHandler('runtime:syncWindowGraph')
   ipcMain.removeHandler('runtime:getStatus')
   ipcMain.removeHandler('runtime:call')
@@ -84,7 +98,7 @@ export function registerRuntimeHandlers(runtime: OrcaRuntimeService): void {
           clientId: 'desktop-renderer',
           caller: DESKTOP_RPC_CALLER,
           clientKind: 'runtime',
-          connectionId: desktopSenders.connectionIdFor(event.sender),
+          connectionId: runtimeSenders.connectionIdFor(event.sender),
           clientCapabilities: DESKTOP_RENDERER_RUNTIME_CLIENT_CAPABILITIES
         }
       )
@@ -100,8 +114,8 @@ export function registerRuntimeHandlers(runtime: OrcaRuntimeService): void {
       if (event.senderFrame !== event.sender.mainFrame) {
         throw new Error('Runtime subscription must originate from the current main frame')
       }
-      const senderSubscriptions = desktopSenders.subscriptionsFor(event.sender)
-      const connectionId = desktopSenders.connectionIdFor(event.sender)
+      const senderSubscriptions = runtimeSenders.subscriptionsFor(event.sender)
+      const connectionId = runtimeSenders.connectionIdFor(event.sender)
       const previous = senderSubscriptions.get(args.subscriptionId)
       previous?.abort()
       const controller = new AbortController()
@@ -134,7 +148,7 @@ export function registerRuntimeHandlers(runtime: OrcaRuntimeService): void {
   )
 
   ipcMain.on('runtime:unsubscribe', (event, args: { subscriptionId: string }) => {
-    const senderSubscriptions = desktopSenders.existingSubscriptionsFor(event.sender)
+    const senderSubscriptions = runtimeSenders.existingSubscriptionsFor(event.sender)
     senderSubscriptions?.get(args.subscriptionId)?.abort()
     senderSubscriptions?.delete(args.subscriptionId)
   })

@@ -16,6 +16,7 @@ import { OrchestrationError } from './orchestration/orchestration-error'
 import type { OrchestrationDb } from './orchestration/db'
 import { WORKER_RELEASABLE_STATES } from './orchestration/worker-terminal-ownership'
 import type { WorktreeCustodyResource } from '../../shared/worktree/custody'
+import { registerCustodyShutdownAuthority } from './worktree-custody-profile-lifecycle'
 
 export { WorktreeCustodyAdmissionError } from './worktree-custody-authority'
 
@@ -59,6 +60,7 @@ export function nativeWorktreeCustody(_runtimeId?: string): WorktreeCustodyAutho
     custodyFenceOwnerWitness
   )
   authorities.set(directory, custody)
+  registerCustodyShutdownAuthority(getAppEnvironment().getPath('userData'), custody)
   return custody
 }
 

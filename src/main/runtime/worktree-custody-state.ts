@@ -11,7 +11,8 @@ import {
   type CustodyState,
   type CustodyJournal,
   type CustodyCoverage,
-  type CustodyFenceOwner
+  type CustodyFenceOwner,
+  type CustodyEpochSeal
 } from './worktree-custody-records'
 
 export class WorktreeCustodyState {
@@ -20,7 +21,10 @@ export class WorktreeCustodyState {
   protected effects: CustodyState = { records: [], receipts: [] }
   protected effectsUnreadable = false
   protected effectsWriteUnknown = false
-  private claimsHealthy = true
+  protected claimsHealthy = true
+  protected admissionsClosed = false
+  private sealed = false
+  protected priorEpochSeal: CustodyEpochSeal | null = null
 
   constructor(
     private readonly journal: CustodyJournal,
@@ -50,7 +54,15 @@ export class WorktreeCustodyState {
     }
     if (claimsJournal) {
       try {
-        for (const record of claimsJournal.read().records) {
+        const claims = claimsJournal.read()
+        this.priorEpochSeal = claims.epochSeal ?? null
+        if (
+          this.priorEpochSeal &&
+          this.priorEpochSeal.recordsHash !== digest(JSON.stringify(claims.records))
+        ) {
+          this.claimsHealthy = false
+        }
+        for (const record of claims.records) {
           if (
             !this.records.some((entry) => entry.claim === record.claim) &&
             !this.effects.receipts.some(
@@ -117,22 +129,65 @@ export class WorktreeCustodyState {
     }
   }
 
-  protected persistClaims(): void {
+  protected persistClaims(): boolean {
+    if (this.sealed) {
+      this.claimsHealthy = false
+      return false
+    }
     if (
       !this.claimsJournal ||
       (this.coverage.size === 0 &&
         this.effects.records.length === 0 &&
         this.effects.receipts.length === 0)
     ) {
-      return
+      return false
     }
     try {
       this.claimsJournal.write({
         records: this.records.filter((record) => !record.fence && !record.outcome),
         receipts: []
       })
+      return true
     } catch {
       this.claimsHealthy = false
+      return false
+    }
+  }
+
+  protected sealClaims(): boolean {
+    if (this.sealed) {
+      return this.complete
+    }
+    const owner = this.currentFenceOwner()
+    if (
+      !this.admissionsClosed ||
+      !this.complete ||
+      !owner ||
+      (owner.startedAtMs === null && (!owner.linuxStartTicks || !owner.bootId)) ||
+      !this.claimsJournal ||
+      (this.coverage.size === 0 &&
+        this.effects.records.length === 0 &&
+        this.effects.receipts.length === 0)
+    ) {
+      return false
+    }
+    const records = this.records.filter((record) => !record.fence && !record.outcome)
+    try {
+      this.claimsJournal.write({
+        records,
+        receipts: [],
+        epochSeal: {
+          authorityId: this.authorityId,
+          owner,
+          recordsHash: digest(JSON.stringify(records)),
+          recordedAt: this.now()
+        }
+      })
+      this.sealed = true
+      return true
+    } catch {
+      this.claimsHealthy = false
+      return false
     }
   }
 

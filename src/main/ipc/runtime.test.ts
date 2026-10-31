@@ -10,7 +10,9 @@ const { handleMock, onMock, removeAllListenersMock, removeHandlerMock, fromWebCo
   }))
 
 vi.mock('electron', () => ({
+  app: { on: vi.fn() },
   BrowserWindow: {
+    getAllWindows: () => [],
     fromWebContents: fromWebContentsMock
   },
   ipcMain: {

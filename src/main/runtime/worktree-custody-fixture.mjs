@@ -34,6 +34,7 @@ writeFileSync(
   export const pendingWorktreeRemovals = new Map();
   export const failedWorktreeRemovals = new Map();
   export function reconcileWorkerWorktreeCustodyRelease() {}
+  export function admitWorktreeCustody() { throw new Error('owning admission stub required'); }
   let remove;
   export function setRemove(effect) { remove = effect; }
   export async function removeWorktree(...args) { return remove(...args); }
@@ -53,6 +54,7 @@ writeFileSync(
 `
 )
 const nativePorts = await import(pathToFileURL(join(fixtureRoot, 'native-ports.mjs')).href)
+await moduleFromSource('checkout-policy.mjs', './worktree-custody-checkout-policy.ts')
 await moduleFromSource('records.mjs', './worktree-custody-records.ts', {
   '../../shared/worktree/custody': './custody.mjs'
 })
@@ -73,7 +75,8 @@ const { installNativeWorktreeCustodyRetirement } = await moduleFromSource(
     './worktree-custody-observation': './native-ports.mjs',
     './worktree-custody-runtime': './native-ports.mjs',
     './worktree-custody-authority': './authority.mjs',
-    './worktree-custody-native-results': './native-results.mjs'
+    './worktree-custody-native-results': './native-results.mjs',
+    './worktree-custody-checkout-policy': './checkout-policy.mjs'
   }
 )
 
@@ -95,11 +98,13 @@ const { WorktreeCustodyAuthority } = await moduleFromSource(
   './worktree-custody-authority.ts',
   custodyModules
 )
+await moduleFromSource('epoch-seal.mjs', './worktree-custody-epoch-seal.ts')
 const { WorktreeCustodyFileJournal } = await moduleFromSource(
   'journal.mjs',
   './worktree-custody-journal.ts',
   {
-    '../../shared/worktree/custody': './custody.mjs'
+    '../../shared/worktree/custody': './custody.mjs',
+    './worktree-custody-epoch-seal': './epoch-seal.mjs'
   }
 )
 const BASE = {

@@ -35,9 +35,9 @@ export function nativeCustodyProviderPorts(
     runtimeWatchLeases: (path) => countRuntimeFileWatcherLeasesOverlapping(path),
     fenceInstalls: (path) => acquireWatcherRemovalGate(path),
     preservation: (path) => proveWorktreePreservation(path),
-    // No native authority attests processes outside Orca's registries or paired-client selection.
+    // External access still requires a separately qualified native OS authority.
     external: null,
-    pairedSelection: null,
+    pairedSelection: runtime.custodySelections ?? null,
     profileLock: { current: custodyFenceOwnerWitness, exited: orcadLockHolderHasExited }
   }
 }

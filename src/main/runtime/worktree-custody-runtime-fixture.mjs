@@ -20,12 +20,16 @@ writeFileSync(
   export function normalizeRuntimePathForComparison(value) { return value; }
   export function defineMethod(method) { return method; }
   export const WorktreeCustodyRequestSchema = {};
+  export const WorktreeSelectionReportSchema = {};
   export let providerInstalls = 0;
   export function installNativeWorktreeCustodyProvider() { providerInstalls++; }
   export function heldOrcadInstanceLock() { return null; }
 `
 )
 const runtimePorts = await import(pathToFileURL(join(fixtureRoot, 'runtime-ports.mjs')).href)
+await moduleFromSource('profile-lifecycle.mjs', './worktree-custody-profile-lifecycle.ts', {
+  '../../shared/app-environment': './runtime-ports.mjs'
+})
 await moduleFromSource('worktree-id.mjs', '../../shared/worktree/id.ts', {
   '../cross-platform-path': './runtime-ports.mjs',
   '../pty-session-id-format': './runtime-ports.mjs'
@@ -49,6 +53,7 @@ const DISPATCH_CONTEXTS_SQL = `CREATE TABLE dispatch_contexts (id TEXT PRIMARY K
   status TEXT NOT NULL DEFAULT 'pending'
     CHECK(status IN ('pending', 'dispatched', 'completed', 'failed', 'circuit_broken')));`
 const runtimeCustody = await moduleFromSource('runtime.mjs', './worktree-custody-runtime.ts', {
+  './worktree-custody-profile-lifecycle': './profile-lifecycle.mjs',
   './orchestration/worker-terminal-ownership': './worker-terminal-ownership.mjs',
   '../../shared/app-environment': './runtime-ports.mjs',
   '../../shared/worktree/id': './worktree-id.mjs',
@@ -65,6 +70,7 @@ const { WORKTREE_CUSTODY_METHOD } = await moduleFromSource(
     '../core': './runtime-ports.mjs',
     '../../worktree-custody-runtime': './runtime.mjs',
     '../../../../shared/worktree/custody-schema': './runtime-ports.mjs',
+    '../../../../shared/worktree/custody-selection': './runtime-ports.mjs',
     '../../worktree-custody-native-provider-host': './runtime-ports.mjs'
   }
 )

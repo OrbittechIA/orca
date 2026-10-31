@@ -44,7 +44,18 @@ export type CustodyReceipt = {
   state?: 'retired' | 'refused'
 }
 
-export type CustodyState = { records: CustodyRecord[]; receipts: CustodyReceipt[] }
+export type CustodyEpochSeal = {
+  authorityId: string
+  owner: CustodyFenceOwner
+  recordsHash: string
+  recordedAt: number
+}
+
+export type CustodyState = {
+  records: CustodyRecord[]
+  receipts: CustodyReceipt[]
+  epochSeal?: CustodyEpochSeal
+}
 
 export type CustodyJournal = {
   read: () => CustodyState

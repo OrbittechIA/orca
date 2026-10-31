@@ -701,6 +701,7 @@ import {
   SkillUploadCommitRequestSchema
 } from '../skill-upload-session-contract'
 import { WorktreeCustodyRequestSchema } from '../worktree/custody-schema'
+import { WorktreeSelectionReportSchema } from '../worktree/custody-selection'
 
 // Why: the host parses params with these schemas, so a client that matches this map
 // matches the dispatcher. Clients must import it for types only — parsing a params
@@ -1477,6 +1478,7 @@ export const RPC_PARAMS_BY_METHOD = {
   'updater.download': null,
   'updater.getStatus': null,
   'updater.install': null,
+  'workspace.selection.report.v1': WorktreeSelectionReportSchema,
   'workspacePorts.kill': WorkspacePortKillParams,
   'workspacePorts.killHost': WorkspacePortKillHostParams,
   'workspacePorts.probePage': WorkspacePortProbePageParams,

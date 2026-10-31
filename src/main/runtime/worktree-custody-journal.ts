@@ -26,6 +26,10 @@ import type {
   WorktreeCustodyResource
 } from '../../shared/worktree/custody'
 import { custodyResourceKey } from '../../shared/worktree/custody'
+import {
+  custodyEpochSealIsValid as epochSeal,
+  custodyFenceOwnerIsValid as fenceOwner
+} from './worktree-custody-epoch-seal'
 
 const MAX_JOURNAL_BYTES = 4 * 1024 * 1024
 
@@ -69,25 +73,6 @@ function outcome(value: unknown): value is WorktreeCustodyOutcome {
     typeof value.recordedAt === 'number' &&
     Number.isFinite(value.recordedAt) &&
     (value.reason === null || typeof value.reason === 'string')
-  )
-}
-
-function fenceOwner(value: unknown): boolean {
-  const text = (entry: unknown) =>
-    typeof entry === 'string' && entry.length > 0 && entry.length <= 1024
-  return (
-    object(value) &&
-    typeof value.pid === 'number' &&
-    Number.isSafeInteger(value.pid) &&
-    value.pid > 0 &&
-    (value.startedAtMs === null ||
-      (typeof value.startedAtMs === 'number' && Number.isFinite(value.startedAtMs))) &&
-    (value.linuxStartTicks === undefined ||
-      (typeof value.linuxStartTicks === 'string' && /^\d{1,32}$/.test(value.linuxStartTicks))) &&
-    (value.bootId === undefined || text(value.bootId)) &&
-    (value.machineIdentity === undefined || text(value.machineIdentity)) &&
-    text(value.nonce) &&
-    text(value.identity)
   )
 }
 
@@ -201,7 +186,10 @@ export class WorktreeCustodyFileJournal implements CustodyJournal {
       const parsed: unknown = JSON.parse(readFileSync(fd, 'utf8'))
       if (
         !object(parsed) ||
-        (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3) ||
+        (parsed.version !== 1 &&
+          parsed.version !== 2 &&
+          parsed.version !== 3 &&
+          parsed.version !== 4) ||
         typeof parsed.revision !== 'string' ||
         !Array.isArray(parsed.records) ||
         parsed.records.length > 2048 ||
@@ -211,6 +199,10 @@ export class WorktreeCustodyFileJournal implements CustodyJournal {
       }
       const receipts = parsed.version === 1 ? [] : parsed.receipts
       if (!Array.isArray(receipts) || receipts.length > 16384 || !receipts.every(receipt)) {
+        throw new Error('custody_journal_invalid')
+      }
+      const seal = parsed.epochSeal
+      if (seal !== undefined && (parsed.version !== 4 || !epochSeal(seal))) {
         throw new Error('custody_journal_invalid')
       }
       const claims = new Set(parsed.records.map((entry) => entry.claim))
@@ -228,7 +220,11 @@ export class WorktreeCustodyFileJournal implements CustodyJournal {
         throw new Error('custody_journal_duplicate')
       }
       this.revision = parsed.revision
-      return { records: parsed.records, receipts }
+      return {
+        records: parsed.records,
+        receipts,
+        ...(epochSeal(seal) ? { epochSeal: seal } : {})
+      }
     } finally {
       closeSync(fd)
     }
@@ -239,7 +235,7 @@ export class WorktreeCustodyFileJournal implements CustodyJournal {
       throw new Error('custody_durability_unsupported')
     }
     const revision = randomUUID()
-    const body = JSON.stringify({ version: 3, revision, ...state })
+    const body = JSON.stringify({ version: 4, revision, ...state })
     if (
       state.records.length > 2048 ||
       state.receipts.length > 16384 ||

@@ -2,6 +2,20 @@ import { defineMethod } from '../core'
 import { nativeWorktreeCustody } from '../../worktree-custody-runtime'
 import { WorktreeCustodyRequestSchema } from '../../../../shared/worktree/custody-schema'
 import { installNativeWorktreeCustodyProvider } from '../../worktree-custody-native-provider-host'
+import { WorktreeSelectionReportSchema } from '../../../../shared/worktree/custody-selection'
+
+export const WORKTREE_SELECTION_REPORT_METHOD = defineMethod({
+  name: 'workspace.selection.report.v1',
+  permission: 'workspace',
+  params: WorktreeSelectionReportSchema,
+  handler: (params, { runtime, connectionId, signal }) => {
+    if (!connectionId || signal?.aborted) {
+      throw new Error('custody_selection_connection_closed')
+    }
+    runtime.custodySelections.report(connectionId, params.workspaceIds)
+    return { reported: true }
+  }
+})
 
 export const WORKTREE_CUSTODY_METHOD = defineMethod({
   name: 'worktree.custody.v1',

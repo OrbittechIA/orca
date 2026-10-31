@@ -13,7 +13,7 @@ Its fixed native effect uses unforced Git worktree removal with
 `deleteBranch=false`, after fresh exact identity, consumer and preservation
 proof under an exclusive producer grant. Its local scan refuses symlinks,
 cross-device material, foreign ownership, hardlinks, special files, more than
-2,048 files, 4,096 entries, 1 GiB allocated, depth 128 or ten seconds. The Git
+2,048 files, 4,096 entries, 1 GiB allocated, depth 128 or ten seconds by default. The Git
 effect receives the remaining ten-second budget as an abort deadline. An
 uncertain effect stays unknown; timeout is never interpreted as process exit.
 
@@ -159,14 +159,14 @@ calls the same idempotent installer for hosts that skip that composition. Caller
 data never reaches it. The `orchestration` provider (`worktree-custody-native-provider.ts`)
 binds only existing owners:
 
-| domain              | owning source                                                                                                                                                                      | complete when                                                               |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| structured-session  | opened single-writer agent-session record store and open-journal work                                                                                                              | store opened                                                                |
-| recovery            | sleep records, pending/failed removals, recoverable `worker_dispatches`, session spawn reservations                                                                                | store and workspace session readable                                        |
-| workspace           | host workspace session: selection, open editor/browser/unified tabs; status, pin, children, removal                                                                                | never: paired/mobile selection has no host authority, so it only adds holds |
-| registered-consumer | desktop watched/suspended/in-flight watcher roots and runtime file-watch leases on any overlapping root, every runtime and connection                                              | always (in-process registries)                                              |
-| preservation        | Git: no tracked, untracked or ignored entry; only plain index entries; no gitlink; HEAD on a shared branch the fixed effect retains; no per-worktree refs or in-progress operation | Git answered                                                                |
-| external-consumer   | none on this host                                                                                                                                                                  | never                                                                       |
+| domain              | owning source                                                                                                                                                                      | complete when                                                                           |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| structured-session  | opened single-writer agent-session record store and open-journal work                                                                                                              | store opened                                                                            |
+| recovery            | sleep records, pending/failed removals, recoverable `worker_dispatches`, session spawn reservations                                                                                | store and workspace session readable                                                    |
+| workspace           | host workspace session plus transport-owned selection inventory; open editor/browser/unified tabs; status, pin, children, removal                                                  | every live connection has reported its selection protocol and none selects the resource |
+| registered-consumer | desktop watched/suspended/in-flight watcher roots and runtime file-watch leases on any overlapping root, every runtime and connection                                              | always (in-process registries)                                                          |
+| preservation        | Git: no tracked, untracked or ignored entry; only plain index entries; no gitlink; HEAD on a shared branch the fixed effect retains; no per-worktree refs or in-progress operation | Git answered                                                                            |
+| external-consumer   | none on this host                                                                                                                                                                  | never                                                                                   |
 
 Terminal and dispatch keep the native observation above. Native product is the
 physical `projectId`; a native Task has no product, so Core must bind its own
@@ -204,8 +204,75 @@ PID absence, lock-file age or journal existence alone are never proof.
 
 Coverage, and therefore the capability, is installed only when the provider is
 `ready`, which requires host-only external-consumer and paired-selection
-authorities. Neither exists, so this build installs observation only. A process scan or file-target guard cannot
+authorities and an explicitly adopted checkout policy. The external authority and policy adoption are absent,
+so this build installs observation only. A process scan or file-target guard cannot
 be that authority.
+
+## Staged selection inventory and closed epochs
+
+`WorktreeCustodySelections` is independent of the sidebar switch. Native local
+socket accept/close, authenticated paired/mobile socket ready/close (direct and
+relay), and desktop window/document lifecycle register connections before they
+can supply selection absence. Every connection starts unknown. The separate
+`workspace.selection.report.v1` method accepts the strict
+`{protocol:'workspace.selection.v1',workspaceIds:[...]}` report, bound to the
+transport's connection ID. Clients must receive its acknowledgement before
+selecting a newly reported workspace. Reports replace the complete selection,
+including background selections; presence expiry and focus never release it.
+The protocol is available to phones without granting them destructive custody RPCs.
+Shipped clients that do not implement this promise remain unknown and HOLD cleanup;
+this change does not silently upgrade their sidebar presence reports.
+
+An unknown direct in-process RPC caller also leaves a conservative hold. A native
+bridge must explicitly own a connection's open/report/close lifecycle to remove
+that uncertainty. Ordinary RPCs and Starts continue. Known connection close
+removes only its current selections; selecting a workspace first enters the
+existing custody admission guard and revokes the released generation. Late reports
+after close are refused. A monotonic in-memory generation invalidates a captured
+grant even if a new unknown client connected and disconnected between checks.
+The provider's selection check uses only counters and maps, with no process walk.
+
+Committed desktop/serve quit and orcad shutdown now close custody admissions
+irreversibly before teardown, rather than relying on the quit flag. A clean local
+epoch seal requires drained admission reservations, no pending custody effects,
+healthy writes, and this process's native profile-lock witness. It records the
+closed authority ID, owner and exact claims digest. A failed seal disables cleanup
+proof and does not cancel shutdown. Sealing is inactive before native coverage
+opt-in or prior effect state. Active reservations and all session/profile histories
+are retained. Recovery-write failure also restores the historical in-memory epoch.
+
+Storage writes v4 and reads v1–v4. Older binaries reject v4 instead of discarding
+new authority state. Downgrading across actual pending v4 effects therefore requires
+reconciling them with a v4-aware binary first; do not delete or rewrite the journals.
+Legacy claims and unsealed/crashed epochs stay unknown. In particular, a clean seal
+alone cannot renew a release: an intervening failed Start write could leave an old
+seal on disk. The existing profile lock removes its record on release and does not
+provide an unbroken admission-history witness. `recoverRelease` stays unconfirmed
+until an independent owning history authority proves that continuity.
+
+## Prepared whole-checkout policy
+
+The fixed effect accepts only the two exact, frozen policies in
+`worktree-custody-checkout-policy.ts`. `bounded-checkout-v1` remains the fallback.
+The prepared `whole-checkout-v2` policy inventories the entire resource once under
+one grant: at most 250,000 entries, 200,000 files, 16 GiB allocated, depth 128, and
+25 seconds shared by preflight and the one native removal. It does not extend the
+30-second grant or divide deletion into subresources. The directory queue, each
+enumerated entry, allocation arithmetic and effect timeout are bounded. Any limit,
+unreadable entry, symlink, foreign owner/device, hardlink, or special file refuses.
+
+Core must explicitly adopt this policy and its aggregate byte budget before the
+native host supplies `checkoutPolicy`; this patch does not change Core's existing
+1 GiB pass budget, 7-day completion retention, or 72-hour last-use policy. Until that
+review, the whole-checkout policy cannot enable capability advertising. The existing
+Git preservation proof is unchanged: clean plain tracked content is retained by the
+shared branch/commit, the branch is not deleted, detached HEAD and per-worktree
+state refuse, and any untracked or ignored material refuses. No ignored file is
+called reconstructible merely because it looks like a dependency cache. Session,
+chat and profile history are outside the fixed effect.
+
+The Linux native enforcement gap and the required adoption boundary are described
+in [Linux authority qualification](worktree-custody-linux-authority.md).
 
 ## Crash, reconciliation and rollback
 

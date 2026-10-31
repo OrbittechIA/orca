@@ -1,5 +1,4 @@
 import type {
-  WorktreeCustodyDomain,
   WorktreeCustodyObservation,
   WorktreeCustodyResource
 } from '../../shared/worktree/custody'
@@ -11,19 +10,17 @@ import type { OrcaRuntimeService } from './orca-runtime'
 import type { WorktreePreservation } from './worktree-custody-preservation'
 import type { NativeWorktreeCustodyProvider } from './worktree-custody-retirement'
 import type { CustodyFenceOwner } from './worktree-custody-records'
+import type { WorktreeSelectionAuthority } from './worktree-custody-selections'
+import {
+  WHOLE_CHECKOUT_RETIREMENT_POLICY,
+  type CheckoutRetirementPolicy
+} from './worktree-custody-checkout-policy'
 
 const PRODUCER_OWNER = 'orchestration'
 const INSTALL_DRAIN_MS = 5_000
 const RECOVERABLE_WORKER_STATES = ['starting', 'ready', 'start_unknown', 'stopping', 'stop_unknown']
 
-type DomainProof = {
-  domain: WorktreeCustodyDomain
-  observedAt: number
-  complete: boolean
-  active: boolean | null
-  held: boolean | null
-  proof: string | null
-}
+type DomainProof = WorktreeCustodyObservation['domains'][number]
 
 /** Host-only port for consumers outside Orca's registries; no RPC, CLI or caller data can supply it. */
 export type ExternalConsumerAuthority = {
@@ -56,13 +53,15 @@ export type NativeCustodyProviderPorts = {
   preservation: (path: string) => Promise<WorktreePreservation>
   external: ExternalConsumerAuthority | null
   /** Host-only authority for paired/mobile clients' current workspace selection. */
-  pairedSelection: { selects: (worktreeId: string) => boolean } | null
+  pairedSelection: WorktreeSelectionAuthority | null
   /** Exclusive profile lock: the holder now, and the lock's own exit judgment for a prior holder. */
   profileLock: {
     current: () => CustodyFenceOwner | null
     exited: (owner: CustodyFenceOwner) => boolean
   }
   now?: () => number
+  /** Native adoption package only, after Core accepts the exact policy and aggregate caps. */
+  checkoutPolicy?: CheckoutRetirementPolicy
 }
 
 export type NativeCustodyProvider = NativeWorktreeCustodyProvider & {
@@ -199,7 +198,7 @@ export function createNativeWorktreeCustodyProvider(
       stamp({
         domain: 'workspace',
         // Without paired-client selection authority the domain can only add holds.
-        complete: ports.pairedSelection !== null,
+        complete: ports.pairedSelection !== null && ports.pairedSelection.complete !== false,
         active: current,
         held:
           current ||
@@ -242,9 +241,14 @@ export function createNativeWorktreeCustodyProvider(
 
   return {
     owner: PRODUCER_OWNER,
-    ready: ports.external !== null && ports.pairedSelection !== null,
+    ready:
+      ports.external !== null &&
+      ports.pairedSelection !== null &&
+      ports.checkoutPolicy !== undefined,
+    retirementPolicy: ports.checkoutPolicy ?? WHOLE_CHECKOUT_RETIREMENT_POLICY,
     observe,
     acquire: async (resource) => {
+      const selectionGeneration = ports.pairedSelection?.generation
       // Admission already refuses Orca entrypoints for the fenced path; this also closes watcher/PTY installs.
       const installs = ports.fenceInstalls(resource.path)
       let external: { check: () => boolean; release: () => void } | null = null
@@ -258,6 +262,9 @@ export function createNativeWorktreeCustodyProvider(
         if (!ports.external) {
           throw new Error('custody_external_consumer_unproven')
         }
+        if (!ports.pairedSelection || ports.pairedSelection.selects(resource.worktreeId)) {
+          throw new Error('custody_selection_held')
+        }
         external = await ports.external.acquire(resource)
       } catch (error) {
         external?.release()
@@ -268,7 +275,12 @@ export function createNativeWorktreeCustodyProvider(
       let released = false
       return {
         // Synchronous and side-effect-free: only registry reads.
-        check: () => !released && registeredConsumers(resource.path) === 0 && grant.check(),
+        check: () =>
+          !released &&
+          ports.pairedSelection?.generation === selectionGeneration &&
+          ports.pairedSelection?.selects(resource.worktreeId) === false &&
+          registeredConsumers(resource.path) === 0 &&
+          grant.check(),
         release: () => {
           if (released) {
             return

@@ -18,7 +18,8 @@ const { dispatchMode, handlers, listeners, streams, unaryConnections } = vi.hois
 }))
 
 vi.mock('electron', () => ({
-  BrowserWindow: { fromWebContents: vi.fn() },
+  app: { on: vi.fn() },
+  BrowserWindow: { fromWebContents: vi.fn(), getAllWindows: () => [] },
   ipcMain: {
     handle: vi.fn((channel: string, handler: (_event: unknown, args?: unknown) => unknown) => {
       handlers.set(channel, handler)

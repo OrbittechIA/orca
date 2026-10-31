@@ -14,7 +14,7 @@ export async function recoverCustodyReleases({
   records: CustodyRecord[]
   authorityId: string
   recoveryFor: (owner: string) => CustodyCoverage['recoverRelease']
-  persist: () => void
+  persist: () => boolean
 }): Promise<void> {
   for (const record of records) {
     if (record.revoked || !record.releaseProof || record.releaseEpoch === authorityId) {
@@ -50,9 +50,28 @@ export async function recoverCustodyReleases({
       ) {
         continue
       }
+      const previousEpoch = record.releaseEpoch
+      const previousProof = record.releaseRecoveryProof
       record.releaseEpoch = authorityId
       record.releaseRecoveryProof = confirmation.proof
-      persist()
+      let persisted = false
+      try {
+        persisted = persist()
+      } catch {
+        /* A failed recovery commit cannot renew the in-memory epoch either. */
+      }
+      if (!persisted) {
+        if (previousEpoch === undefined) {
+          delete record.releaseEpoch
+        } else {
+          record.releaseEpoch = previousEpoch
+        }
+        if (previousProof === undefined) {
+          delete record.releaseRecoveryProof
+        } else {
+          record.releaseRecoveryProof = previousProof
+        }
+      }
     } catch {
       /* An unavailable owning authority cannot renew a prior release. */
     }
