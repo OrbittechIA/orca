@@ -10,6 +10,7 @@ import {
 import type { OrcaRuntimeService } from './orca-runtime'
 import type { WorktreePreservation } from './worktree-custody-preservation'
 import type { NativeWorktreeCustodyProvider } from './worktree-custody-retirement'
+import type { CustodyFenceOwner } from './worktree-custody-records'
 
 const PRODUCER_OWNER = 'orchestration'
 const INSTALL_DRAIN_MS = 5_000
@@ -55,6 +56,11 @@ export type NativeCustodyProviderPorts = {
   external: ExternalConsumerAuthority | null
   /** Host-only authority for paired/mobile clients' current workspace selection. */
   pairedSelection: { selects: (worktreeId: string) => boolean } | null
+  /** Exclusive profile lock: the holder now, and the lock's own exit judgment for a prior holder. */
+  profileLock: {
+    current: () => CustodyFenceOwner | null
+    exited: (owner: CustodyFenceOwner) => boolean
+  }
   now?: () => number
 }
 
@@ -282,8 +288,28 @@ export function createNativeWorktreeCustodyProvider(
       confirmed: false,
       proof: null
     }),
-    // Prior-incarnation grants are process memory; this host has no retained proof of their settlement.
-    recoverFence: async (fence) => ({ fence, recovered: false, proof: null }),
+    // Grants live in the capturing process; its successor lock plus its proven exit settle them.
+    recoverFence: async (fence, owner) => {
+      const current = owner ? ports.profileLock.current() : null
+      if (
+        !owner ||
+        !current ||
+        ((owner.linuxStartTicks === undefined || owner.bootId === undefined) &&
+          owner.startedAtMs === null) ||
+        owner.nonce === current.nonce ||
+        owner.identity !== current.identity ||
+        !owner.machineIdentity ||
+        owner.machineIdentity !== current.machineIdentity ||
+        !ports.profileLock.exited(owner)
+      ) {
+        return { fence, recovered: false, proof: null }
+      }
+      return {
+        fence,
+        recovered: true,
+        proof: `profile-lock-successor:${current.nonce}:exited:${owner.nonce}:${owner.pid}`
+      }
+    },
     // Durable producer rows lack consumer admission history across the gap; keep old epochs unknown.
     recoverRelease: async (release) => ({ release, confirmed: false, proof: null })
   }

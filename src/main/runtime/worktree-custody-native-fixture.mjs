@@ -140,6 +140,8 @@ writeFileSync(
   let authority = null;
   export function setAuthority(next) { authority = next; }
   export function nativeWorktreeCustody() { return authority; }
+  export function custodyFenceOwnerWitness() { return null; }
+  export function orcadLockHolderHasExited() { return false; }
 `
 )
 const providerPorts = await import(pathToFileURL(join(fixtureRoot, 'provider-ports.mjs')).href)
@@ -177,11 +179,53 @@ const providerHost = await moduleFromSource(
     '../ipc/watcher-removal-gate': './watcher-gate.mjs',
     './worktree-custody-preservation': './preservation.mjs',
     './worktree-custody-runtime': './provider-ports.mjs',
+    '../orcad/orcad-held-instance-lock': './provider-ports.mjs',
     './worktree-custody-retirement': './retirement.mjs',
     './worktree-custody-native-provider': './native-provider.mjs'
   }
 )
 const provider = { ...providerCore, ...providerHost }
+
+// Signal and incarnation answers mirror daemon-process-inspection.ts; no real process is queried.
+writeFileSync(
+  join(fixtureRoot, 'start-time-deps.mjs'),
+  `
+  export function parseLinuxStartTicks() { return null; }
+  export function getProcessStartedAtMs() { return null; }
+  export const START_TIME_TOLERANCE_MS = 1000;
+  export function startTimesWithinTolerance(a, b, t) { return Math.abs(a - b) <= t; }
+  export function readWindowsProcessCreationTime() { return null; }
+`
+)
+await moduleFromSource('process-start-time.mjs', '../orcad/orcad-process-start-time.ts', {
+  '../agent-hooks/managed-hook-owner-identity': './start-time-deps.mjs',
+  '../daemon/daemon-process-start-time': './start-time-deps.mjs',
+  '../windows/windows-process-table': './start-time-deps.mjs'
+})
+writeFileSync(
+  join(fixtureRoot, 'process-ports.mjs'),
+  `
+  let signal = 'missing';
+  let incarnation = null;
+  export function setProcess(next) { signal = next.signal; incarnation = next.incarnation; }
+  export function isProcessAlive() { return signal === 'occupied' || signal === 'permission_denied'; }
+  export function inspectProcessLiveness() {
+    if (signal === 'missing') return { status: 'exited' };
+    if (signal === 'unavailable') return { status: 'unverifiable', reason: 'fixture' };
+    return { status: 'live' };
+  }
+  export function readOrcadProcessIncarnation() { return incarnation; }
+  export function readOrcadProcessStartedAtMs() { return null; }
+  export function readBoundedLockFile() { return null; }
+  export { compareOrcadProcessIdentity } from './process-start-time.mjs';
+`
+)
+const processPorts = await import(pathToFileURL(join(fixtureRoot, 'process-ports.mjs')).href)
+const heldLock = await moduleFromSource('held-lock.mjs', '../orcad/orcad-held-instance-lock.ts', {
+  '../daemon/daemon-process-inspection': './process-ports.mjs',
+  './orcad-process-start-time': './process-ports.mjs',
+  './orcad-instance-lock-reclaim': './process-ports.mjs'
+})
 
 /** Git answers for a checkout whose only material is tracked, clean and on a retained branch. */
 function cleanGit(path, overrides = {}) {
@@ -231,16 +275,23 @@ async function providerFixture(checkout, options = {}) {
   nativePorts.setClean(() => {})
   let durable = { records: [], receipts: [] }
   const authority = new WorktreeCustodyAuthority(
-    { read: () => durable, write: (state) => (durable = structuredClone(state)) },
+    options.journal ?? {
+      read: () => durable,
+      write: (state) => (durable = structuredClone(state))
+    },
     options.authorityId ?? 'provider-fixture-authority',
     Date.now,
-    options.claims
+    options.claims,
+    options.witness
   )
   const worktreeId = `repo::${checkout}`
-  const resource = authority.claim(
-    { ...BASE, path: checkout, worktreeId, ...options.claim },
-    `dispatch:${checkout}`
-  )
+  // A restarted incarnation reads its fenced generation instead of enrolling again.
+  const resource =
+    options.resource ??
+    authority.claim(
+      { ...BASE, path: checkout, worktreeId, ...options.claim },
+      `dispatch:${checkout}`
+    )
   const session = {
     activeWorktreeId: null,
     sleepingAgentSessionsByPaneKey: {},
@@ -302,6 +353,7 @@ async function providerFixture(checkout, options = {}) {
     preservation: (path) => proveWorktreePreservation(path, cleanGit(path, options.git)),
     // Stand in for the paired-selection and external-consumer authorities this host does not have.
     pairedSelection: options.external === null ? null : { selects: () => false },
+    profileLock: options.profileLock ?? { current: () => null, exited: () => false },
     external:
       options.external === null
         ? null
@@ -338,6 +390,8 @@ function providerCheckout(name) {
 }
 
 export {
+  processPorts,
+  heldLock,
   providerPorts,
   gate,
   leases,

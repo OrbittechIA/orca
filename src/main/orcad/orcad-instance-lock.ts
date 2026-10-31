@@ -34,6 +34,10 @@ import {
   startOrcadLockHeartbeat
 } from './orcad-lock-clone-machine'
 import {
+  forgetHeldOrcadInstanceLock,
+  recordHeldOrcadInstanceLock
+} from './orcad-held-instance-lock'
+import {
   MAX_ORCAD_LOCK_BYTES,
   readBoundedLockFile,
   reclaimAndPublish,
@@ -312,7 +316,7 @@ function describeLockHolder(record: OrcadLockRecord): string {
 function makeLock(lockPath: string, record: OrcadLockRecord): OrcadInstanceLock {
   let released = false
   const stopHeartbeat = startOrcadLockHeartbeat(lockPath)
-  return {
+  const lock: OrcadInstanceLock = {
     path: lockPath,
     record,
     release: () => {
@@ -320,6 +324,7 @@ function makeLock(lockPath: string, record: OrcadLockRecord): OrcadInstanceLock 
         return
       }
       released = true
+      forgetHeldOrcadInstanceLock(lock)
       stopHeartbeat()
       // Re-read ownership before unlinking so a successor’s live runtime cannot be unlocked.
       const current = parseOrcadInstanceLockRecord(readBoundedLockFile(lockPath) ?? '')
@@ -333,4 +338,6 @@ function makeLock(lockPath: string, record: OrcadLockRecord): OrcadInstanceLock 
       }
     }
   }
+  recordHeldOrcadInstanceLock(lock)
+  return lock
 }

@@ -175,10 +175,20 @@ product to that projectId explicitly. Any positive hold skips the Git read.
 Its grant takes the existing watcher-removal gate for the exact path, which refuses
 fresh watcher and PTY installs on overlapping roots until release, waits at most
 five seconds for in-flight installs, and refuses if any registered consumer exists.
-`check()` only rereads the registries. Reconcile, prior-incarnation fence recovery
-and prior-epoch release recovery return unconfirmed: no owning durable result store,
-retained grant-settlement proof or durable consumer-admission history exists, so
-those stay unknown and protected.
+`check()` only rereads the registries. Reconcile and prior-epoch release recovery
+return unconfirmed: no owning durable result store or durable consumer-admission
+history exists, so those stay unknown and protected.
+
+Grants live only in the capturing process. Capture therefore persists a private
+`fenceOwner` witness with the fence: the exclusive desktop/orcad/serve profile-lock
+record (pid, start identity, boot, nonce, identity, machine) this process holds at
+that moment, re-read from the canonical lock file. `recoverFence` confirms a prior
+incarnation's fence only when this process holds the lock now under a different
+nonce, the witness carries a start identity, identity and machine match, and the
+lock's own judgment (`orcadLockHolderHasExited`: PID gone or start identity
+differs) says the witnessed holder exited. A fence without a witness, an
+unavailable lock, another machine, the same nonce or an unproven exit stays fenced.
+PID absence, lock-file age or journal existence alone are never proof.
 
 Coverage, and therefore the capability, is installed only when the provider is
 `ready`, which requires host-only external-consumer and paired-selection
