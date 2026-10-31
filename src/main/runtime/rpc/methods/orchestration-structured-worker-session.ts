@@ -1,4 +1,8 @@
 import {
+  boundOrchestrationFilesystemScopesEqual,
+  type BoundOrchestrationFilesystemScope
+} from '../../../../shared/orchestration-filesystem-scope'
+import {
   closeStructuredAgentSessionChild,
   type StructuredAgentSessionCloseOptions
 } from '../../agent-session/structured-agent-session-close'
@@ -74,6 +78,8 @@ export async function createStructuredWorkerSession(args: {
   dispatchId: string
   /** The dispatch's own `--model`/`--effort`, already narrowed to the seedable string subset. */
   options?: Readonly<Record<string, string>>
+  /** Pinned on the founded record; the provider enforces it on every launch and turn. */
+  filesystemScope?: BoundOrchestrationFilesystemScope
   /** Retried whenever the session's journal moves, which is the structured idle edge. */
   onJournalActivity: (sessionId: string) => void
 }): Promise<{
@@ -114,6 +120,7 @@ export async function createStructuredWorkerSession(args: {
       agent: args.agent,
       // Absent, the host seeds the user's saved selection — the same fallback a chat gets.
       ...(args.options ? { options: args.options } : {}),
+      ...(args.filesystemScope ? { filesystemScope: args.filesystemScope } : {}),
       // Dispatching a worker is background work; it must not pull the surface away from the user.
       atRest: true,
       activate: false
@@ -126,6 +133,15 @@ export async function createStructuredWorkerSession(args: {
     }
     const host = requireInstalledHost()
     const record = host.deps.store.requireWritableRecord(sessionId)
+    if (
+      record &&
+      !boundOrchestrationFilesystemScopesEqual(record.filesystemScope, args.filesystemScope)
+    ) {
+      throw new OrchestrationError(
+        'filesystem_scope_refused',
+        'The structured worker session was founded without its exact filesystem scope.'
+      )
+    }
     if (!record || !structuredWorkerHostScope(record.location)) {
       throw new OrchestrationError(
         'agent_unconfigured',

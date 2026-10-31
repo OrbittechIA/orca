@@ -166,7 +166,8 @@ export async function openCodexStructuredSession(
       ...(opened.sandbox ? { acquiredSandbox: opened.sandbox } : {}),
       launchSandboxIntact: true,
       cwd: launch.cwd,
-      ...(launch.visuals ? { visualsFolder: launch.visuals.folder } : {})
+      ...(launch.visuals ? { visualsFolder: launch.visuals.folder } : {}),
+      ...(launch.filesystemScope ? { filesystemScope: launch.filesystemScope } : {})
     },
     activeTurnIds: new Set(),
     abortedTurnIds: new Set(),

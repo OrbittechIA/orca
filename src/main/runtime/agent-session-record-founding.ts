@@ -19,6 +19,7 @@ export type AgentSessionRecordIdentity = Pick<
   | 'launchDirectory'
   | 'launchOrigin'
   | 'launchAuthority'
+  | 'filesystemScope'
 >
 
 export function agentSessionRecordIdentityFields(
@@ -38,6 +39,14 @@ export function agentSessionRecordIdentityFields(
     accountHome: identity.accountHome,
     ...(Object.keys(options).length > 0 ? { options } : {}),
     ...(permissionMode ? { permissionMode } : {}),
+    ...(identity.filesystemScope
+      ? {
+          filesystemScope: {
+            ...identity.filesystemScope,
+            roots: [...identity.filesystemScope.roots]
+          }
+        }
+      : {}),
     ...(identity.launchArgs ? { launchArgs: [...identity.launchArgs] } : {}),
     // /clear retains its tab and launch directory.
     ...(identity.launchDirectory ? { launchDirectory: identity.launchDirectory } : {}),

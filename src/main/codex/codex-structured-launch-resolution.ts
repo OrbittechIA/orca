@@ -21,6 +21,7 @@ import type { StructuredAgentLaunchPartResolver } from '../runtime/structured-ag
 import type { CodexStructuredLaunch } from './codex-structured-session-adapter'
 import { codexStructuredPermissionPolicy } from '../../shared/codex-permission-policy'
 import { codexStructuredLaunchArgs } from './codex-structured-launch-args'
+import { codexScopeLaunchViolation } from './codex-structured-filesystem-scope'
 import {
   LEGACY_NATIVE_CHAT_VISUALS_DIR_ENV,
   NATIVE_CHAT_SCRATCH_DIR_ENV,
@@ -121,8 +122,14 @@ export function codexStructuredLaunchPart(
     const resumeThreadId = head?.handle.nativeId ?? null
     // Match the first turn's model to avoid duplicate prompt injection on a model switch.
     const model = record.options?.model
-    const visuals = await basis.visuals()
-    await basis.launchDirectory()
+    const scope = record.filesystemScope
+    // The visuals folder would be a writable root outside the scope.
+    const visuals = scope ? null : await basis.visuals()
+    const launchDirectory = await basis.launchDirectory()
+    const scopeViolation = scope ? await codexScopeLaunchViolation(scope, launchDirectory) : null
+    if (scopeViolation) {
+      throw new Error(`Filesystem scope refused this launch: ${scopeViolation}`)
+    }
     return {
       launch: {
         command,
@@ -133,9 +140,11 @@ export function codexStructuredLaunchPart(
         // Only created threads may be unsaved; resumed, forked and adopted threads were persisted.
         ...(resumeThreadId && head?.origin === 'created' ? { supersedeIfUnsaved: true } : {}),
         // Own settings leaves a new thread to config and a resumed thread to its saved policy.
-        ...(basis.permissionMode === 'own'
-          ? {}
-          : { permissionPolicy: codexStructuredPermissionPolicy(basis.permissionMode ?? 'ask') }),
+        ...(scope
+          ? { filesystemScope: scope }
+          : basis.permissionMode === 'own'
+            ? {}
+            : { permissionPolicy: codexStructuredPermissionPolicy(basis.permissionMode ?? 'ask') }),
         ...(model ? { model } : {}),
         ...(visuals ? { visuals } : {})
       },

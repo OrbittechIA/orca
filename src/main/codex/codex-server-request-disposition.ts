@@ -29,8 +29,22 @@ type ResponseConnection = Pick<CodexAppServerConnection, 'respond' | 'respondWit
 export function disposeCodexServerRequest(
   registry: CodexPromptRegistry,
   connection: ResponseConnection,
-  request: CodexAppServerServerRequest
+  request: CodexAppServerServerRequest,
+  /** A filesystem-scoped thread runs with `never`; an approval here would be a way out of the sandbox. */
+  scoped = false
 ): CodexServerRequestDisposition {
+  if (
+    scoped &&
+    (request.method === CODEX_COMMAND_APPROVAL_METHOD ||
+      request.method === CODEX_FILE_CHANGE_APPROVAL_METHOD)
+  ) {
+    connection.respond(request.id, { decision: 'decline' })
+    return { kind: 'responded', method: request.method }
+  }
+  if (scoped && request.method === CODEX_MCP_ELICITATION_METHOD) {
+    connection.respond(request.id, { action: 'decline', content: null, _meta: null })
+    return { kind: 'responded', method: request.method }
+  }
   const prompt = registry.register(request)
   if (prompt) {
     return { kind: 'prompt', prompt }

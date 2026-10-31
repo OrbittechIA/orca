@@ -1,3 +1,7 @@
+import {
+  assertFilesystemScopeReservable,
+  assertFilesystemScopeUnchanged
+} from './agent-session-filesystem-scope-admission'
 import type { AgentSessionReserveRequest } from './agent-session-reservation-request'
 export type { AgentSessionReserveRequest } from './agent-session-reservation-request'
 import {
@@ -114,6 +118,7 @@ export function validateAgentSessionReservationInput(request: AgentSessionReserv
   ) {
     throw agentSessionRefusalError('agent_session_conflict', { reason: 'identityMismatch' })
   }
+  assertFilesystemScopeReservable(request)
   if (request.launchEnv && !isAgentSessionLaunchEnv(request.launchEnv)) {
     throw new Error('agent_session_launch_env_invalid')
   }
@@ -303,8 +308,9 @@ function reserveWithOperationRow(
 /** Internal reacquisition without launch metadata retains the record's immutable owner. */
 export function assertAgentSessionLaunchIdentity(
   record: AgentSessionRecord,
-  request: Pick<AgentSessionReserveRequest, 'launchOrigin' | 'launchAuthority'>
+  request: Pick<AgentSessionReserveRequest, 'launchOrigin' | 'launchAuthority' | 'filesystemScope'>
 ): void {
+  assertFilesystemScopeUnchanged(record, request)
   if (request.launchOrigin === undefined && request.launchAuthority === undefined) {
     return
   }

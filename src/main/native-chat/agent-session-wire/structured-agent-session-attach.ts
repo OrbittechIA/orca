@@ -1,3 +1,4 @@
+import type { BoundOrchestrationFilesystemScope } from '../../../shared/orchestration-filesystem-scope'
 import type {
   StructuredAgentSessionLaunchOrigin,
   StructuredAgentSessionLaunchAuthority
@@ -47,6 +48,8 @@ import { structuredAgentSessionRefusalMessage } from './structured-agent-session
 export type AgentSessionAttachParams = {
   launchOrigin?: StructuredAgentSessionLaunchOrigin
   launchAuthority?: StructuredAgentSessionLaunchAuthority
+  /** In-process orchestration creates only; remote schemas never carry it. */
+  filesystemScope?: BoundOrchestrationFilesystemScope
   envelope: AgentSessionMutationEnvelope
   location: AgentSessionExecutionLocation
   provider: StructuredAgentId
@@ -209,6 +212,7 @@ export function reserveRequestFor(input: {
     sessionId: input.sessionId,
     ...(params.launchOrigin ? { launchOrigin: params.launchOrigin } : {}),
     ...(params.launchAuthority ? { launchAuthority: params.launchAuthority } : {}),
+    ...(params.filesystemScope ? { filesystemScope: params.filesystemScope } : {}),
     location: params.location,
     provider: params.provider,
     accountHome: params.accountHome,

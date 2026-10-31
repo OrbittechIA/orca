@@ -70,6 +70,16 @@ export async function recordStructuredAgentSessionOptionIntent(
       )
     }
   }
+  if (record.filesystemScope && input.key === AGENT_CHAT_PERMISSION_MODE_OPTION_ID) {
+    return {
+      ok: false,
+      refusal: refuse(
+        'agent_session_operation_invalid',
+        { reason: 'optionRejected' },
+        'This worker runs under its Dispatch filesystem scope; its permissions cannot change.'
+      )
+    }
+  }
   let options: Readonly<Record<string, string>>
   if (input.key === AGENT_CHAT_PERMISSION_MODE_OPTION_ID) {
     const permissionMode = input.value

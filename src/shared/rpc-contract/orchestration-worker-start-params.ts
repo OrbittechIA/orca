@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { OrchestrationFilesystemScopeRequestSchema } from '../orchestration-filesystem-scope'
 import { OptionalFiniteNumber, OptionalString, requiredString } from './rpc-param-primitives'
 
 export const OptionalWorkerLaunchPreference = z
@@ -29,6 +30,8 @@ export const WorkerStartParams = z
     agent: OptionalString,
     model: OptionalWorkerLaunchPreference,
     effort: OptionalWorkerLaunchPreference,
+    /** Sent only to hosts advertising `orchestration.worker-filesystem-scope.v1`; older hosts strip it. */
+    filesystemScope: OrchestrationFilesystemScopeRequestSchema.optional(),
     retryOf: OptionalString,
     timeoutMs: OptionalFiniteNumber,
     devMode: z.boolean().optional()
@@ -46,6 +49,21 @@ export const WorkerStartParams = z
         code: z.ZodIssueCode.custom,
         path: ['spec'],
         message: '--task and --spec are mutually exclusive'
+      })
+    }
+    if (params.filesystemScope && params.on) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['filesystemScope'],
+        message: 'Filesystem scope runs only on the local host; it cannot be combined with --on'
+      })
+    }
+    if (params.filesystemScope && params.terminal) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['filesystemScope'],
+        message:
+          'Filesystem scope needs a new structured session; it cannot bind a reused --terminal'
       })
     }
     // spec creates a new Task, so retryOf cannot refer to a prior Dispatch for it.

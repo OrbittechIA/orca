@@ -6,6 +6,11 @@ import type { CodexAppServerConnection } from './app-server/codex-app-server-con
 import type { CodexStructuredPermissionPolicy } from '../../shared/codex-permission-policy'
 import { readCodexThreadId } from './codex-structured-thread-facts'
 import { readCodexSandboxPolicy, type CodexSandboxPolicy } from './codex-structured-sandbox-policy'
+import type { BoundOrchestrationFilesystemScope } from '../../shared/orchestration-filesystem-scope'
+import {
+  codexFilesystemScopeThreadSettings,
+  codexScopeReplyViolation
+} from './codex-structured-filesystem-scope'
 
 export type CodexOpenedThread = {
   threadId: string
@@ -54,16 +59,31 @@ export async function openCodexThread(
     model?: string
     threadConfig?: Record<string, unknown>
     commandEnv?: Record<string, string>
+    /** Replaces cwd and permission policy; the reply must confirm it or the open fails. */
+    filesystemScope?: BoundOrchestrationFilesystemScope
   },
   /** null: no deadline; the start that opens the thread bounds it (`signal`). */
   timeoutMs: number | null | undefined,
   signal?: AbortSignal
 ): Promise<CodexOpenedThread> {
   const resumeThreadId = launch.resumeThreadId
-  const config = { ...launch.threadConfig, ...shellEnvironmentSetConfig(launch.commandEnv) }
+  const scoped = launch.filesystemScope
+    ? codexFilesystemScopeThreadSettings(launch.filesystemScope)
+    : undefined
+  const config = {
+    ...launch.threadConfig,
+    ...shellEnvironmentSetConfig(launch.commandEnv),
+    ...scoped?.config
+  }
   const threadSettings = {
-    cwd: launch.cwd,
-    ...launch.permissionPolicy,
+    cwd: scoped?.cwd ?? launch.cwd,
+    ...(scoped
+      ? {
+          approvalPolicy: scoped.approvalPolicy,
+          approvalsReviewer: scoped.approvalsReviewer,
+          sandbox: scoped.sandbox
+        }
+      : launch.permissionPolicy),
     ...(Object.keys(config).length > 0 ? { config } : {})
   }
   const startThread = (): Promise<unknown> => {
@@ -132,6 +152,15 @@ export async function openCodexThread(
   const serviceTierKnown = Object.hasOwn(result, 'serviceTier')
   const serviceTier = nonEmptyString(result.serviceTier)
   const sandbox = readCodexSandboxPolicy(result.sandbox)
+  const scopeViolation = launch.filesystemScope
+    ? codexScopeReplyViolation(launch.filesystemScope, {
+        approvalPolicy: result.approvalPolicy,
+        ...(sandbox ? { sandbox } : {})
+      })
+    : null
+  if (scopeViolation) {
+    throw new Error(`Filesystem scope not applied: ${scopeViolation}`)
+  }
   return {
     threadId,
     reportedPermissionMode: reportedCodexPermissionMode(result),

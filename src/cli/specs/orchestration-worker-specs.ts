@@ -5,7 +5,7 @@ export const ORCHESTRATION_WORKER_COMMAND_SPECS: CommandSpec[] = [
     path: ['orchestration', 'worker-start'],
     summary: 'Start one supervised worker on the Run home or a connected Orca server',
     usage:
-      'orca orchestration worker-start (--task <task_id> | --spec <text>) [--on <saved-environment>] [--worktree <current|selector|new-child|new-top-level>] (--agent <agent> | --terminal <handle>) [--task-title <text>] [--deps <json_array>] [--parent <task_id>] [--model <id>] [--effort <level>] [--name <name>] [--repo <selector>] [--base-branch <ref>] [--display-name <text>] [--comment <text>] [--setup <run|skip|inherit>] [--retry-of <dispatch_id>] [--timeout-ms <n>] [--run <run_id>] [--from <handle>] [--retry-request <id>] [--json]',
+      'orca orchestration worker-start (--task <task_id> | --spec <text>) [--on <saved-environment>] [--worktree <current|selector|new-child|new-top-level>] (--agent <agent> | --terminal <handle>) [--task-title <text>] [--deps <json_array>] [--parent <task_id>] [--model <id>] [--effort <level>] [--scope <read-only|write-roots> [--scope-root <dir>]...] [--name <name>] [--repo <selector>] [--base-branch <ref>] [--display-name <text>] [--comment <text>] [--setup <run|skip|inherit>] [--retry-of <dispatch_id>] [--timeout-ms <n>] [--run <run_id>] [--from <handle>] [--retry-request <id>] [--json]',
     allowedFlags: [
       ...GLOBAL_FLAGS,
       'task',
@@ -24,6 +24,8 @@ export const ORCHESTRATION_WORKER_COMMAND_SPECS: CommandSpec[] = [
       'agent',
       'model',
       'effort',
+      'scope',
+      'scope-root',
       'terminal',
       'retry-of',
       'timeout-ms',
@@ -31,8 +33,10 @@ export const ORCHESTRATION_WORKER_COMMAND_SPECS: CommandSpec[] = [
       'from',
       'retry-request'
     ],
+    repeatableFlags: ['scope-root'],
     identityFlagRoles: { from: 'caller', terminal: 'target' },
     notes: [
+      '--scope binds a write scope to this Task and Dispatch, enforced by the Codex sandbox on every launch and turn: read-only allows no writes; write-roots allows writes only under the worktree-relative --scope-root directories (the first is the thread cwd). Reads stay unrestricted. /tmp, $TMPDIR, network, Git metadata and approval escalation are closed, so the worker cannot commit. Only local codex structured workers on Linux or macOS are supported; other agents, terminal workers, --on, --terminal, symlinked or missing roots are refused before launch. Its permissions cannot be changed later.',
       'Current and existing worktrees never rerun setup; a fresh agent terminal is created unless --terminal is explicit.',
       'When reusing --terminal, pass --worktree for that terminal; current means the coordinator worktree.',
       '--agent takes an Orca agent id enabled on the worker server, such as claude, codex, cursor, antigravity, muse, zcode, opencode, or opencode2.',

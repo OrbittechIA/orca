@@ -36,6 +36,8 @@ import { MOBILE_WEB_BUNDLE_CAPABILITY } from '../../shared/mobile-web-bundle/mob
 import { loadBundledMobileWebBundle } from './bundled-mobile-web-bundle'
 import { runtimeTerminalDegradation } from './native-terminal-availability'
 import { isWindowsProcessStartTimeAvailable } from '../windows/windows-process-table'
+import { ORCHESTRATION_WORKER_FILESYSTEM_SCOPE_RUNTIME_CAPABILITY } from '../../shared/orchestration-runtime-capabilities'
+import { hostSupportsWorkerFilesystemScope } from './orchestration/worker-filesystem-scope'
 import type { RuntimeWorktreeLifecycleEvent } from './orca-runtime-core'
 import { WORKTREE_CREATE_RESULT_TTL_MS } from './orca-runtime-core'
 import type { RuntimeNotifier } from './runtime-notifier-contract'
@@ -102,7 +104,9 @@ export abstract class OrcaRuntimeWithGetStatus extends OrcaRuntimeWithPtyControl
           supportsDurableTerminalPromptDelivery()) &&
         // Only hosts running their own usage poller can consume saved keys.
         (capability !== USAGE_CREDENTIALS_RUNTIME_CAPABILITY ||
-          statusHost.getUsageRateLimits() !== null)
+          statusHost.getUsageRateLimits() !== null) &&
+        (capability !== ORCHESTRATION_WORKER_FILESYSTEM_SCOPE_RUNTIME_CAPABILITY ||
+          hostSupportsWorkerFilesystemScope())
     )
     if (hasOffscreen || hasHeadlessCommands) {
       capabilities.push(BROWSER_HEADLESS_RUNTIME_CAPABILITY)

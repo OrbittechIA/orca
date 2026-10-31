@@ -14,7 +14,7 @@ import type { AgentSessionAccountHome } from '../../../../shared/agent-session-a
 
 export type AgentSessionReserveRequest = Pick<
   AgentSessionRecord,
-  'launchOrigin' | 'launchAuthority'
+  'launchOrigin' | 'launchAuthority' | 'filesystemScope'
 > & {
   /** Host-resolved floating directory committed with the first owner reservation. */
   launchDirectory?: string

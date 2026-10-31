@@ -3,6 +3,7 @@ import type { WorkerStartInput } from './worker-start-schema'
 import type { WorkerStartModeReceipt } from '../../orchestration-worker-start-mode'
 import type { WorkerWorktreeCreationTarget } from './worker-worktree-creation'
 import type { prepareLocalWorkerStart } from './worker-start-validation'
+import { assertWorkerFilesystemScopeAdmissible } from '../../../../orchestration/worker-filesystem-scope'
 
 export function localWorkerStartOptions(args: {
   params: WorkerStartInput
@@ -13,6 +14,10 @@ export function localWorkerStartOptions(args: {
   launch: ReturnType<typeof prepareLocalWorkerStart>['launch']
 }) {
   const { params, mode, resolvedWorktreeId, creationTarget, agent, launch } = args
+  if (params.filesystemScope) {
+    // Never pin a scope this host cannot enforce; this runs before the Dispatch exists.
+    assertWorkerFilesystemScopeAdmissible({ agent, mode: mode.mode })
+  }
   const requestedWorktree = params.worktree ?? 'current'
   const createsWorktree = requestedWorktree === 'new-child' || requestedWorktree === 'new-top-level'
   return {
@@ -25,6 +30,8 @@ export function localWorkerStartOptions(args: {
     terminal: params.terminal ?? null,
     agent: agent ?? null,
     launch: launch.receipt,
+    // The request is pinned with the Dispatch; the bound form is pinned on the session record.
+    ...(params.filesystemScope ? { filesystemScope: params.filesystemScope } : {}),
     timeoutMs: params.timeoutMs ?? 60_000,
     setup: createsWorktree ? (params.setup ?? 'run') : 'not_applicable',
     setupSource: createsWorktree

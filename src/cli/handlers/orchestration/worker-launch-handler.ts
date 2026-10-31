@@ -3,7 +3,11 @@ import { printResult } from '../../format'
 import { getOptionalStringFlag, getPresentStringFlag } from '../../flags'
 import { RuntimeClientError } from '../../runtime-client'
 import type { RuntimeStatus } from '../../../shared/runtime-types'
-import { ORCHESTRATION_WORKER_LAUNCH_PREFERENCES_RUNTIME_CAPABILITY } from '../../../shared/protocol-version'
+import {
+  ORCHESTRATION_WORKER_FILESYSTEM_SCOPE_RUNTIME_CAPABILITY,
+  ORCHESTRATION_WORKER_LAUNCH_PREFERENCES_RUNTIME_CAPABILITY
+} from '../../../shared/protocol-version'
+import { readWorkerFilesystemScopeFlags } from './worker-filesystem-scope-flags'
 import { callOrchestrationMutation } from './mutation-request'
 import { getOptionalPositiveIntegerValueFlag } from './numeric-flags'
 import { isDevCliInvocation } from './runtime-compatibility'
@@ -16,6 +20,21 @@ export const ORCHESTRATION_WORKER_LAUNCH_HANDLER: Record<string, CommandHandler>
     const terminal = getPresentStringFlag(flags, 'terminal')
     const model = getOptionalStringFlag(flags, 'model')
     const effort = getOptionalStringFlag(flags, 'effort')
+    const filesystemScope = readWorkerFilesystemScopeFlags(flags)
+    if (filesystemScope) {
+      // Older hosts strip unknown params; sending there would start an unscoped worker.
+      const status = await client.call<RuntimeStatus>('status.get')
+      if (
+        !status.result.capabilities?.includes(
+          ORCHESTRATION_WORKER_FILESYSTEM_SCOPE_RUNTIME_CAPABILITY
+        )
+      ) {
+        throw new RuntimeClientError(
+          'incompatible_runtime',
+          'The connected Orca runtime does not enforce worker filesystem scope on this host. Nothing was started.'
+        )
+      }
+    }
     if (model || effort) {
       const status = await client.call<RuntimeStatus>('status.get')
       if (
@@ -63,6 +82,7 @@ export const ORCHESTRATION_WORKER_LAUNCH_HANDLER: Record<string, CommandHandler>
       agent: getOptionalStringFlag(flags, 'agent'),
       model,
       effort,
+      ...(filesystemScope ? { filesystemScope } : {}),
       terminal,
       retryOf: getOptionalStringFlag(flags, 'retry-of'),
       timeoutMs: getOptionalPositiveIntegerValueFlag(flags, 'timeout-ms'),

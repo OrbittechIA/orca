@@ -16,6 +16,10 @@ import type {
   StructuredAgentSessionLaunchAuthority
 } from './structured-agent-session-create'
 import { isStructuredAgentSessionLaunchAuthority } from './structured-agent-session-launch-authority'
+import {
+  isBoundOrchestrationFilesystemScope,
+  type BoundOrchestrationFilesystemScope
+} from './orchestration-filesystem-scope'
 
 import { isAgentSessionRewindRecord, type AgentSessionRewindRecord } from './agent-session-rewind'
 import { isAgentSessionLaunchArgs } from './agent-session-launch-args'
@@ -90,6 +94,8 @@ export type AgentSessionRecord = {
   options?: Record<string, string>
   /** The permission mode the user chose; Orca's, so a provider's options answer never replaces it. */
   permissionMode?: string
+  /** Orchestration's write scope, bound at founding; it overrides permissionMode on every launch and turn. */
+  filesystemScope?: BoundOrchestrationFilesystemScope
   rewind?: AgentSessionRewindRecord
   conversationCommand?: AgentSessionConversationCommandRecord
   /** The conversation's one name: Orca's automatic name or the user's rename. Session History,
@@ -284,6 +290,10 @@ export function isPersistedAgentSessionObservationRecord(
       (record.options === undefined || isAgentSessionOptions(record.options)) &&
       (record.permissionMode === undefined ||
         isBoundedString(record.permissionMode, MAX_ID_LENGTH)) &&
+      // An unreadable scope makes the record unreadable rather than launchable without it.
+      (record.filesystemScope === undefined ||
+        (record.provider === 'codex' &&
+          isBoundOrchestrationFilesystemScope(record.filesystemScope))) &&
       (record.rewind === undefined || isAgentSessionRewindRecord(record.rewind)) &&
       (record.providerContextBoundary === undefined ||
         isAgentSessionProviderContextBoundary(record.providerContextBoundary)) &&

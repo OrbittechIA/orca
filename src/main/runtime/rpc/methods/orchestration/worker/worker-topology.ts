@@ -1,6 +1,8 @@
 import type { AgentLaunchPreferences } from '../../../../../../shared/agent-session-host-authority'
 import { narrowStructuredLaunchSeedOptions } from '../../../../../../shared/native-chat/input/native-chat-session-option-defaults'
 import type { TuiAgent } from '../../../../../../shared/tui-agent'
+import type { OrchestrationFilesystemScopeRequest } from '../../../../../../shared/orchestration-filesystem-scope'
+import { bindWorkerFilesystemScope } from '../../../../orchestration/worker-filesystem-scope'
 import type { OrcaRuntimeService } from '../../../../orca-runtime'
 import type { OrchestrationDb } from '../../../../orchestration/db'
 import { createStructuredWorkerSession } from '../../orchestration-structured-worker-session'
@@ -93,17 +95,30 @@ export async function createStructuredWorkerSessionForWorktree(args: {
   worktreeId: string
   agent: TuiAgent
   dispatchId: string
+  /** Required with filesystemScope: the policy binds to its Task. */
+  taskId?: string
   /** `--model`/`--effort`; the session seeds them exactly as a saved selection is seeded. */
   launchPreferences?: AgentLaunchPreferences
+  filesystemScope?: OrchestrationFilesystemScopeRequest
   effects: WorkerEffect[]
 }): Promise<Awaited<ReturnType<typeof createStructuredWorkerSession>>> {
   const options = narrowStructuredLaunchSeedOptions(args.launchPreferences)
+  const filesystemScope = args.filesystemScope
+    ? await bindWorkerFilesystemScope({
+        request: args.filesystemScope,
+        worktreePath: (await args.runtime.showManagedTerminalWorkspace(`id:${args.worktreeId}`))
+          .path,
+        taskId: args.taskId,
+        dispatchId: args.dispatchId
+      })
+    : undefined
   const created = await createStructuredWorkerSession({
     runtime: args.runtime,
     worktreeId: args.worktreeId,
     agent: args.agent,
     dispatchId: args.dispatchId,
     ...(options ? { options } : {}),
+    ...(filesystemScope ? { filesystemScope } : {}),
     onJournalActivity: (sessionId) =>
       args.runtime.notifyStructuredSessionJournalActivity?.(sessionId)
   })

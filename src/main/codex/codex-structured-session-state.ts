@@ -1,3 +1,4 @@
+import type { BoundOrchestrationFilesystemScope } from '../../shared/orchestration-filesystem-scope'
 import type { CodexAppliedSettings } from './codex-structured-applied-settings'
 import type { StructuredAgentSessionChildWorkProducer } from '../native-chat/agent-session-wire/structured-agent-session-subagent-rows'
 import type { StructuredAgentSessionLogger } from '../native-chat/agent-session-wire/structured-agent-session-logger'
@@ -50,6 +51,8 @@ export type CodexStructuredLaunch = {
   /** Replace an unsaved thread created by this session; never supersede a proven resume. */
   supersedeIfUnsaved?: boolean
   permissionPolicy?: CodexStructuredPermissionPolicy
+  /** Orchestration scope from the record; supersedes permissionPolicy and the chat's mode. */
+  filesystemScope?: BoundOrchestrationFilesystemScope
   /** Open on the chosen model to avoid a first-turn switch. */
   model?: string
   /** Sealed child environment; envToDelete removes inherited keys. */
@@ -156,6 +159,8 @@ export type CodexSession = {
     visualsFolder?: string
     preparedMode?: AgentChatPermissionChoice
     preparedAuto?: CodexSandboxPolicy
+    /** Every turn sends exactly this; no mode, Own setting or Auto readback replaces it. */
+    filesystemScope?: BoundOrchestrationFilesystemScope
   }
   /** Wire-observed open primary turns; rewind and untargeted Stop use these before journal admission. */
   activeTurnIds?: Set<string>

@@ -11,6 +11,7 @@ import { seededPermissionMode } from '../../../../shared/native-chat/input/nativ
 import { assertAgentPromptRequestActive } from '../../orca-runtime-core'
 import { AGENT_CHAT_PERMISSION_MODE_OPTION_ID } from '../../../../shared/agent-chat-permission-mode'
 import { refuse, AgentSessionRefusalError } from '../../../../shared/agent-session-wire-refusals'
+import type { BoundOrchestrationFilesystemScope } from '../../../../shared/orchestration-filesystem-scope'
 import { computeAgentSessionPayloadFingerprint } from '../../../../shared/agent-session-mutation-envelope'
 import type {
   AgentSessionAttachResult,
@@ -66,6 +67,8 @@ export async function prepareStructuredAgentSessionCreateForWorktree(args: {
   resumeFrom?: StructuredAgentSessionResumeSource
   launchOrigin?: StructuredAgentSessionLaunchOrigin
   launchAuthority?: StructuredAgentSessionLaunchAuthority
+  /** In-process orchestration only; reservation refuses it with an adopted conversation. */
+  filesystemScope?: BoundOrchestrationFilesystemScope
   expectedWorktreeTarget?: StructuredAgentSessionCreateWorktreeTarget
   structuredAgentCliSourceEvidence?: StructuredAgentCliSourceEvidence
   /** Explicit picks override seed keys at rest; acquired in-process launches replace the seed. */
@@ -163,6 +166,7 @@ export async function prepareStructuredAgentSessionCreateForWorktree(args: {
       ...resolvedAttach,
       ...(args.launchOrigin ? { launchOrigin: args.launchOrigin } : {}),
       ...(args.launchAuthority ? { launchAuthority: args.launchAuthority } : {}),
+      ...(args.filesystemScope ? { filesystemScope: args.filesystemScope } : {}),
       ...(picked ? { options: picked } : {}),
       ...(args.tabId ? { surfaceTabId: args.tabId } : {}),
       provider: resolved.provider,
@@ -286,6 +290,7 @@ export async function createStructuredAgentSessionForWorktree(args: {
   activate: boolean
   optionsMode?: 'replace-model-selection'
   options?: Readonly<Record<string, string>>
+  filesystemScope?: BoundOrchestrationFilesystemScope
   tabId?: string
   /** Create without starting the agent; its first message starts it. */
   atRest?: true

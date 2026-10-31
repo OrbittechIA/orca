@@ -10,6 +10,7 @@ import type { CodexSession } from './codex-structured-session-state'
 import { readCodexAutoSandbox } from './codex-structured-auto-sandbox'
 import { codexStructuredPermissionPolicy } from '../../shared/codex-permission-policy'
 import type { CodexSandboxPolicy } from './codex-structured-sandbox-policy'
+import { codexFilesystemScopeTurnPermission } from './codex-structured-filesystem-scope'
 
 type PermissionHost = {
   connection: Pick<CodexSession['connection'], 'request'>
@@ -23,7 +24,7 @@ export async function prepareCodexTurnPermission(
   signal?: AbortSignal
 ): Promise<void> {
   const state = session.permissions
-  if (!state) {
+  if (!state || state.filesystemScope) {
     return
   }
   const auto =
@@ -45,6 +46,7 @@ export function codexPermissionRequiresAcquisition(
   return (
     mode === 'auto' &&
     !!state &&
+    !state.filesystemScope &&
     !state.preparedAuto &&
     !(state.acquiredMode === 'auto' && state.launchSandboxIntact)
   )
@@ -55,10 +57,13 @@ export function codexTurnPermission(
   mode: AgentChatPermissionChoice,
   inheritRunning = false
 ): { approvalPolicy?: string; approvalsReviewer?: string; sandboxPolicy?: CodexSandboxPolicy } {
+  const state = session.permissions
+  if (state?.filesystemScope) {
+    return codexFilesystemScopeTurnPermission(state.filesystemScope)
+  }
   if (mode === 'own') {
     return {}
   }
-  const state = session.permissions
   const { approvalPolicy, approvalsReviewer, sandbox } = codexStructuredPermissionPolicy(mode)
   const sandboxPolicy: CodexSandboxPolicy | undefined =
     sandbox === 'read-only'

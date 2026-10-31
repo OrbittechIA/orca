@@ -5,6 +5,7 @@
 import type { AgentLaunchPreferences } from '../../../../../../shared/agent-session-host-authority'
 import type { Worktree } from '../../../../../../shared/worktree/types'
 import type { TuiAgent } from '../../../../../../shared/tui-agent'
+import { assertWorkerFilesystemScopeAdmissible } from '../../../../orchestration/worker-filesystem-scope'
 import { executeAgentLaunch } from '../../../../../agent-launch/agent-launch-executor'
 import type { AgentLaunchSurfaceFactory } from '../../../../../agent-launch/agent-launch-surface-factories'
 import type { OrcaRuntimeService } from '../../../../orca-runtime'
@@ -208,7 +209,9 @@ function workerSurfaceFactory(
         worktreeId,
         agent,
         dispatchId: args.dispatchId,
+        taskId: args.taskId,
         ...(args.launchPreferences ? { launchPreferences: args.launchPreferences } : {}),
+        ...(args.params.filesystemScope ? { filesystemScope: args.params.filesystemScope } : {}),
         effects: args.effects
       })
       onStructuredSession(session)
@@ -219,6 +222,10 @@ function workerSurfaceFactory(
       }
     },
     createTerminalAgent: async ({ worktreeId }) => {
+      if (args.params.filesystemScope) {
+        // A created worktree settles its mode late; never fall back to an unsandboxed terminal.
+        assertWorkerFilesystemScopeAdmissible({ agent, mode: 'terminal' })
+      }
       recordSurfaceStage(worktreeId)
       const terminal = await createExistingWorktreeWorkerTerminal({
         runtime: args.runtime,
