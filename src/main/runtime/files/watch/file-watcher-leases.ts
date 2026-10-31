@@ -1,4 +1,7 @@
-import { normalizeRuntimePathForComparison } from '../../../../shared/cross-platform-path'
+import {
+  isPathInsideOrEqual,
+  normalizeRuntimePathForComparison
+} from '../../../../shared/cross-platform-path'
 import { isWatcherProcessFailure } from '../../../ipc/filesystem/watcher-process/parcel-watcher-process-failure'
 
 const pendingRuntimeFileWatcherUnsubscribes = new Set<Promise<void>>()
@@ -184,6 +187,27 @@ export function registerRuntimeFileWatcherRelease(
     stopPromise = attempt
     return attempt
   }
+}
+
+/** Read-only: distinct leases whose root overlaps `rootPath`, across every runtime and connection. */
+export function countRuntimeFileWatcherLeasesOverlapping(rootPath: string): number {
+  const target = normalizeRuntimeWatcherRoot(rootPath)
+  const overlapping = new Set<RuntimeFileWatcherLease>()
+  for (const [key, leases] of runtimeFileWatcherLeasesByOwnerAndRoot) {
+    const parsed: unknown = JSON.parse(key)
+    const root = Array.isArray(parsed) ? parsed[2] : undefined
+    // An unreadable key counts: an omitted lease must never read as an idle checkout.
+    if (
+      typeof root !== 'string' ||
+      isPathInsideOrEqual(root, target) ||
+      isPathInsideOrEqual(target, root)
+    ) {
+      for (const lease of leases) {
+        overlapping.add(lease)
+      }
+    }
+  }
+  return overlapping.size
 }
 
 export async function awaitRuntimeFileWatcherUnsubscribes(): Promise<void> {

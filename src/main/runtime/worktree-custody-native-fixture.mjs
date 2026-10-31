@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
@@ -10,6 +10,7 @@ import {
   nativePorts,
   installNativeWorktreeCustodyRetirement
 } from './worktree-custody-fixture.mjs'
+import { createCoreTablesSql } from './worktree-custody-runtime-fixture.mjs'
 
 function nativeFixture(path, nativeHold = false, options = {}) {
   nativePorts.setClean(() => {})
@@ -134,8 +135,7 @@ writeFileSync(
     watchedRoots: new Map(), suspendedLocalWatcherListeners: new Map(),
     inFlightLocalInstalls: new Map(), pendingLocalInstallPromises: new Map()
   };
-  export const runtimeLeases = new Map();
-  export function getRuntimeFileWatcherLeases(_runtimeId, _connection, path) { return runtimeLeases.get(path); }
+  export function isWatcherProcessFailure() { return false; }
   export async function gitExecFileAsync() { throw new Error('production git is not reached by fixtures'); }
   let authority = null;
   export function setAuthority(next) { authority = next; }
@@ -152,6 +152,15 @@ const { proveWorktreePreservation } = await moduleFromSource(
   './worktree-custody-preservation.ts',
   { '../git/runner': './provider-ports.mjs' }
 )
+// The actual runtime file-watch lease registry, so inventory gaps cannot hide behind a port.
+const leases = await moduleFromSource(
+  'file-watcher-leases.mjs',
+  './files/watch/file-watcher-leases.ts',
+  {
+    '../../../../shared/cross-platform-path': './provider-ports.mjs',
+    '../../../ipc/filesystem/watcher-process/parcel-watcher-process-failure': './provider-ports.mjs'
+  }
+)
 const providerCore = await moduleFromSource(
   'native-provider.mjs',
   './worktree-custody-native-provider.ts',
@@ -164,7 +173,7 @@ const providerHost = await moduleFromSource(
     '../native-chat/agent-session-wire/structured-agent-session-registry': './provider-ports.mjs',
     '../worktree-removal-table': './provider-ports.mjs',
     '../ipc/filesystem/watchers/filesystem-watcher-lifecycle-state': './provider-ports.mjs',
-    './files/watch/file-watcher-leases': './provider-ports.mjs',
+    './files/watch/file-watcher-leases': './file-watcher-leases.mjs',
     '../ipc/watcher-removal-gate': './watcher-gate.mjs',
     './worktree-custody-preservation': './preservation.mjs',
     './worktree-custody-runtime': './provider-ports.mjs',
@@ -202,4 +211,140 @@ function cleanGit(path, overrides = {}) {
   }
 }
 
-export { providerPorts, gate, provider, proveWorktreePreservation, cleanGit }
+const RELEASED_LEASE = {
+  claimStatus: 'released',
+  unreconciled: false,
+  handoffStage: null,
+  reservedSpawnToken: null
+}
+
+/** Real authority, native observation, watcher gate and provider; only host stores are in memory. */
+async function providerFixture(checkout, options = {}) {
+  const { DatabaseSync } = await import('node:sqlite')
+  const sqlite = new DatabaseSync(':memory:')
+  sqlite.exec(createCoreTablesSql())
+  for (const state of options.workers ?? ['succeeded']) {
+    sqlite
+      .prepare('INSERT INTO worker_dispatches (dispatch_id, state, worktree_id) VALUES (?, ?, ?)')
+      .run(`dispatch-${state}`, state, `repo::${checkout}`)
+  }
+  nativePorts.setClean(() => {})
+  let durable = { records: [], receipts: [] }
+  const authority = new WorktreeCustodyAuthority(
+    { read: () => durable, write: (state) => (durable = structuredClone(state)) },
+    options.authorityId ?? 'provider-fixture-authority',
+    Date.now,
+    options.claims
+  )
+  const worktreeId = `repo::${checkout}`
+  const resource = authority.claim(
+    { ...BASE, path: checkout, worktreeId, ...options.claim },
+    `dispatch:${checkout}`
+  )
+  const session = {
+    activeWorktreeId: null,
+    sleepingAgentSessionsByPaneKey: {},
+    openFilesByWorktree: {},
+    ...options.session
+  }
+  const records = options.records ?? [
+    { sessionId: 'finished-session', location: { workspaceId: worktreeId }, lease: RELEASED_LEASE }
+  ]
+  const runtime = {
+    getRuntimeId: () => 'provider-fixture-runtime',
+    showManagedWorktree: async () => ({
+      id: worktreeId,
+      repoId: 'repo',
+      path: checkout,
+      instanceId: BASE.instanceId,
+      hostId: 'local',
+      projectId: options.physicalProject ?? BASE.product,
+      isMainWorktree: false,
+      isBare: false,
+      workspaceStatus: 'completed',
+      isPinned: false,
+      childWorktreeIds: [],
+      git: { path: checkout, head: 'preserved-head' }
+    }),
+    showRepo: async () => ({ kind: 'git', path: fixtureRoot }),
+    getWorkspaceSessionForWorktree: () => session,
+    requireStore: () => ({ getWorkspaceSession: () => ({ activeWorktreeId: null }) }),
+    listTerminals: async () => ({
+      terminals: [],
+      totalCount: 0,
+      truncated: false,
+      hostScope: { hostIds: ['local'], omittedHostIds: [] }
+    }),
+    openedAgentSessionRecordStore: () => ({ listRecords: () => records }),
+    getOrchestrationDb: () => ({
+      db: { prepare: (sql) => sqlite.prepare(sql) },
+      listWorkerTerminalResources: () => [
+        {
+          worktreeId,
+          dispatchStatus: 'completed',
+          terminalState: 'released',
+          pendingInput: false,
+          pendingApproval: false
+        }
+      ]
+    })
+  }
+  runtime.observeNative = (bound) => observeNativeWorktreeCustody(runtime, bound)
+  let externalReleases = 0
+  const ports = {
+    runtime,
+    structuredWork: () => undefined,
+    removals: () => [...providerPorts.pendingWorktreeRemovals.values()],
+    desktopWatchRoots: () =>
+      [...providerPorts.watcherLifecycleState.watchedRoots.values()].map((root) => root.rootPath),
+    runtimeWatchLeases: (path) => leases.countRuntimeFileWatcherLeasesOverlapping(path),
+    fenceInstalls: (path) => gate.acquireWatcherRemovalGate(path),
+    preservation: (path) => proveWorktreePreservation(path, cleanGit(path, options.git)),
+    // Stand in for the paired-selection and external-consumer authorities this host does not have.
+    pairedSelection: options.external === null ? null : { selects: () => false },
+    external:
+      options.external === null
+        ? null
+        : {
+            observe: async () => ({
+              observedAt: Date.now(),
+              complete: true,
+              active: false,
+              held: false,
+              proof: 'qualified-external-authority'
+            }),
+            acquire: async () => ({ check: () => true, release: () => externalReleases++ })
+          }
+  }
+  const created = provider.createNativeWorktreeCustodyProvider(ports)
+  if (created.ready) {
+    installNativeWorktreeCustodyRetirement(runtime, created)
+    authority.installCoverage(created.owner, nativePorts.installedCoverage())
+  }
+  return {
+    authority,
+    resource,
+    provider: created,
+    runtime,
+    sqlite,
+    externalReleases: () => externalReleases
+  }
+}
+
+function providerCheckout(name) {
+  const checkout = mkdtempSync(join(fixtureRoot, `provider-${name}-`))
+  writeFileSync(join(checkout, 'tracked-source'), 'fixture source')
+  return checkout
+}
+
+export {
+  providerPorts,
+  gate,
+  leases,
+  provider,
+  proveWorktreePreservation,
+  cleanGit,
+  RELEASED_LEASE,
+  providerFixture,
+  providerCheckout
+}

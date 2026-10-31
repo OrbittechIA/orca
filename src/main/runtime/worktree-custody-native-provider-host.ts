@@ -2,7 +2,7 @@ import type { OrcaRuntimeService } from './orca-runtime'
 import { getStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
 import { pendingWorktreeRemovals, failedWorktreeRemovals } from '../worktree-removal-table'
 import { watcherLifecycleState } from '../ipc/filesystem/watchers/filesystem-watcher-lifecycle-state'
-import { getRuntimeFileWatcherLeases } from './files/watch/file-watcher-leases'
+import { countRuntimeFileWatcherLeasesOverlapping } from './files/watch/file-watcher-leases'
 import { acquireWatcherRemovalGate } from '../ipc/watcher-removal-gate'
 import { proveWorktreePreservation } from './worktree-custody-preservation'
 import { nativeWorktreeCustody } from './worktree-custody-runtime'
@@ -31,12 +31,12 @@ export function nativeCustodyProviderPorts(
       ...watcherLifecycleState.inFlightLocalInstalls.keys(),
       ...watcherLifecycleState.pendingLocalInstallPromises.keys()
     ],
-    runtimeWatchLeases: (path) =>
-      getRuntimeFileWatcherLeases(runtime.getRuntimeId(), undefined, path)?.size ?? 0,
+    runtimeWatchLeases: (path) => countRuntimeFileWatcherLeasesOverlapping(path),
     fenceInstalls: (path) => acquireWatcherRemovalGate(path),
     preservation: (path) => proveWorktreePreservation(path),
-    // No native authority attests processes and tools outside Orca's registries.
-    external: null
+    // No native authority attests processes outside Orca's registries or paired-client selection.
+    external: null,
+    pairedSelection: null
   }
 }
 

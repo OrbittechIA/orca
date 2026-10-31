@@ -47,11 +47,14 @@ export type NativeCustodyProviderPorts = {
   removals: () => Iterable<{ worktreeId: string; worktreePath: string }>
   /** Desktop watcher roots, including suspended and in-flight installs. */
   desktopWatchRoots: () => Iterable<string>
+  /** Runtime file-watch leases on overlapping roots, across every runtime and connection. */
   runtimeWatchLeases: (path: string) => number
   /** Fences new watcher and fresh PTY installs for overlapping roots until released. */
   fenceInstalls: (path: string) => { ready: Promise<void>; release: () => void }
   preservation: (path: string) => Promise<WorktreePreservation>
   external: ExternalConsumerAuthority | null
+  /** Host-only authority for paired/mobile clients' current workspace selection. */
+  pairedSelection: { selects: (worktreeId: string) => boolean } | null
   now?: () => number
 }
 
@@ -182,10 +185,14 @@ export function createNativeWorktreeCustodyProvider(
         (session.clientHostedBrowserPagesByWorktree?.[id]?.length ?? 0) +
         (session.unifiedTabs?.[id]?.length ?? 0)
       const desktop = ports.runtime.requireStore().getWorkspaceSession?.('local')
-      const current = session.activeWorktreeId === id || desktop?.activeWorktreeId === id
+      const current =
+        session.activeWorktreeId === id ||
+        desktop?.activeWorktreeId === id ||
+        ports.pairedSelection?.selects(id) === true
       stamp({
         domain: 'workspace',
-        complete: true,
+        // Without paired-client selection authority the domain can only add holds.
+        complete: ports.pairedSelection !== null,
         active: current,
         held:
           current ||
@@ -194,7 +201,7 @@ export function createNativeWorktreeCustodyProvider(
           worktree.workspaceStatus !== 'completed' ||
           worktree.isPinned === true ||
           worktree.childWorktreeIds.length > 0,
-        proof: `native-workspace-session:${resource.instanceId}:tabs=${tabs}`
+        proof: `native-workspace-session:${resource.instanceId}:tabs=${tabs}:paired=${ports.pairedSelection ? 'covered' : 'unrepresented'}`
       })
     }
 
@@ -228,7 +235,7 @@ export function createNativeWorktreeCustodyProvider(
 
   return {
     owner: PRODUCER_OWNER,
-    ready: ports.external !== null,
+    ready: ports.external !== null && ports.pairedSelection !== null,
     observe,
     acquire: async (resource) => {
       // Admission already refuses Orca entrypoints for the fenced path; this also closes watcher/PTY installs.

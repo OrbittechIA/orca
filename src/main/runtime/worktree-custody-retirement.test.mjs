@@ -24,12 +24,12 @@ import {
   observeNativeWorktreeCustody,
   providerPorts,
   gate,
+  leases,
   provider,
-  proveWorktreePreservation,
-  cleanGit
+  RELEASED_LEASE,
+  providerFixture,
+  providerCheckout
 } from './worktree-custody-native-fixture.mjs'
-import { createCoreTablesSql } from './worktree-custody-runtime-fixture.mjs'
-import { installNativeWorktreeCustodyRetirement } from './worktree-custody-fixture.mjs'
 
 test('fixed native retirement reaches only unforced branch-preserving Git effect and keeps history', async () => {
   const checkout = mkdtempSync(join(fixtureRoot, 'native-checkout-'))
@@ -325,131 +325,6 @@ test('generic coverage cannot reuse a real fixed-port refusal by replacing its c
   assert.equal(effects, 1)
 })
 
-const RELEASED_LEASE = {
-  claimStatus: 'released',
-  unreconciled: false,
-  handoffStage: null,
-  reservedSpawnToken: null
-}
-
-/** Real authority, native observation, watcher gate and provider; only host stores are in memory. */
-async function providerFixture(checkout, options = {}) {
-  const { DatabaseSync } = await import('node:sqlite')
-  const sqlite = new DatabaseSync(':memory:')
-  sqlite.exec(createCoreTablesSql())
-  for (const state of options.workers ?? ['succeeded']) {
-    sqlite
-      .prepare('INSERT INTO worker_dispatches (dispatch_id, state, worktree_id) VALUES (?, ?, ?)')
-      .run(`dispatch-${state}`, state, `repo::${checkout}`)
-  }
-  nativePorts.setClean(() => {})
-  let durable = { records: [], receipts: [] }
-  const authority = new WorktreeCustodyAuthority(
-    { read: () => durable, write: (state) => (durable = structuredClone(state)) },
-    options.authorityId ?? 'provider-fixture-authority',
-    Date.now,
-    options.claims
-  )
-  const worktreeId = `repo::${checkout}`
-  const resource = authority.claim(
-    { ...BASE, path: checkout, worktreeId, ...options.claim },
-    `dispatch:${checkout}`
-  )
-  const session = {
-    activeWorktreeId: null,
-    sleepingAgentSessionsByPaneKey: {},
-    openFilesByWorktree: {},
-    ...options.session
-  }
-  const records = options.records ?? [
-    { sessionId: 'finished-session', location: { workspaceId: worktreeId }, lease: RELEASED_LEASE }
-  ]
-  const runtime = {
-    getRuntimeId: () => 'provider-fixture-runtime',
-    showManagedWorktree: async () => ({
-      id: worktreeId,
-      repoId: 'repo',
-      path: checkout,
-      instanceId: BASE.instanceId,
-      hostId: 'local',
-      projectId: options.physicalProject ?? BASE.product,
-      isMainWorktree: false,
-      isBare: false,
-      workspaceStatus: 'completed',
-      isPinned: false,
-      childWorktreeIds: [],
-      git: { path: checkout, head: 'preserved-head' }
-    }),
-    showRepo: async () => ({ kind: 'git', path: fixtureRoot }),
-    getWorkspaceSessionForWorktree: () => session,
-    requireStore: () => ({ getWorkspaceSession: () => ({ activeWorktreeId: null }) }),
-    listTerminals: async () => ({
-      terminals: [],
-      totalCount: 0,
-      truncated: false,
-      hostScope: { hostIds: ['local'], omittedHostIds: [] }
-    }),
-    openedAgentSessionRecordStore: () => ({ listRecords: () => records }),
-    getOrchestrationDb: () => ({
-      db: { prepare: (sql) => sqlite.prepare(sql) },
-      listWorkerTerminalResources: () => [
-        {
-          worktreeId,
-          dispatchStatus: 'completed',
-          terminalState: 'released',
-          pendingInput: false,
-          pendingApproval: false
-        }
-      ]
-    })
-  }
-  runtime.observeNative = (bound) => observeNativeWorktreeCustody(runtime, bound)
-  let externalReleases = 0
-  const ports = {
-    runtime,
-    structuredWork: () => undefined,
-    removals: () => [...providerPorts.pendingWorktreeRemovals.values()],
-    desktopWatchRoots: () =>
-      [...providerPorts.watcherLifecycleState.watchedRoots.values()].map((root) => root.rootPath),
-    runtimeWatchLeases: (path) => providerPorts.runtimeLeases.get(path)?.size ?? 0,
-    fenceInstalls: (path) => gate.acquireWatcherRemovalGate(path),
-    preservation: (path) => proveWorktreePreservation(path, cleanGit(path, options.git)),
-    // Stands in for the external-consumer authority this host does not have.
-    external:
-      options.external === null
-        ? null
-        : {
-            observe: async () => ({
-              observedAt: Date.now(),
-              complete: true,
-              active: false,
-              held: false,
-              proof: 'qualified-external-authority'
-            }),
-            acquire: async () => ({ check: () => true, release: () => externalReleases++ })
-          }
-  }
-  const created = provider.createNativeWorktreeCustodyProvider(ports)
-  if (created.ready) {
-    installNativeWorktreeCustodyRetirement(runtime, created)
-    authority.installCoverage(created.owner, nativePorts.installedCoverage())
-  }
-  return {
-    authority,
-    resource,
-    provider: created,
-    runtime,
-    sqlite,
-    externalReleases: () => externalReleases
-  }
-}
-
-function providerCheckout(name) {
-  const checkout = mkdtempSync(join(fixtureRoot, `provider-${name}-`))
-  writeFileSync(join(checkout, 'tracked-source'), 'fixture source')
-  return checkout
-}
-
 test('owned completed resource retires through the real provider, gate and fixed effect', async () => {
   const checkout = providerCheckout('positive')
   const retained = `${checkout}-preserved`
@@ -551,17 +426,34 @@ test('missing, active, held, reopened, foreign and legacy resources stay protect
     f.sqlite.close()
   }
 
-  const watched = providerCheckout('watched')
-  providerPorts.runtimeLeases.set(watched, new Set(['mobile-explorer']))
-  try {
-    const f = await providerFixture(watched)
-    release(f, watched)
-    assert.ok((await refusals(f)).includes('registered-consumer_unproven_or_held'))
-    await assert.rejects(f.provider.acquire(f.resource), /registered_consumer_held/)
-    gate.beginWatcherInstall(watched)()
-    f.sqlite.close()
-  } finally {
-    providerPorts.runtimeLeases.delete(watched)
+  // Leases under, above or beside the root, on any runtime or connection, are live consumers.
+  for (const [runtimeId, connection, root] of [
+    ['runtime-old', 'ssh-1', 'sub'],
+    ['provider-fixture-runtime', undefined, '..'],
+    ['provider-fixture-runtime', undefined, '.']
+  ]) {
+    const watched = providerCheckout(
+      `watched-${root === '.' ? 'exact' : root === '..' ? 'parent' : root}`
+    )
+    const target = join(watched, root)
+    const stop = leases.registerRuntimeFileWatcherRelease(
+      runtimeId,
+      connection,
+      [target, `${target}-realpath`],
+      async () => {},
+      async () => async () => {},
+      () => {}
+    )
+    try {
+      const f = await providerFixture(watched)
+      release(f, watched)
+      assert.ok((await refusals(f)).includes('registered-consumer_unproven_or_held'), root)
+      await assert.rejects(f.provider.acquire(f.resource), /registered_consumer_held/)
+      gate.beginWatcherInstall(watched)()
+      f.sqlite.close()
+    } finally {
+      await stop()
+    }
   }
 
   const reopened = providerCheckout('reopened')
@@ -605,9 +497,34 @@ test('host composition installs observation only while no external authority exi
       observed.domains.find((entry) => entry.domain === 'external-consumer').complete,
       false
     )
+    // Paired/mobile selection has no host authority, so the workspace domain cannot complete.
+    assert.equal(observed.domains.find((entry) => entry.domain === 'workspace').complete, false)
     await assert.rejects(f.authority.capture(f.resource), /custody_coverage_unsupported/)
     const ports = provider.nativeCustodyProviderPorts(f.runtime)
     assert.equal(ports.external, null)
+    assert.equal(ports.pairedSelection, null)
+    // Production binding reads the real lease registry across connections and nested roots.
+    const stop = leases.registerRuntimeFileWatcherRelease(
+      'runtime-before-restart',
+      'ssh-target',
+      [join(checkout, 'nested')],
+      async () => {},
+      async () => async () => {},
+      () => {}
+    )
+    try {
+      const watched = await f.authority.observe(f.resource)
+      assert.equal(
+        watched.domains.find((entry) => entry.domain === 'registered-consumer').held,
+        true
+      )
+      await assert.rejects(
+        provider.createNativeWorktreeCustodyProvider(ports).acquire(f.resource),
+        /registered_consumer_held/
+      )
+    } finally {
+      await stop()
+    }
     await assert.rejects(
       provider.createNativeWorktreeCustodyProvider(ports).acquire(f.resource),
       /external_consumer_unproven/

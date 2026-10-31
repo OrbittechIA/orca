@@ -159,14 +159,14 @@ calls the same idempotent installer for hosts that skip that composition. Caller
 data never reaches it. The `orchestration` provider (`worktree-custody-native-provider.ts`)
 binds only existing owners:
 
-| domain              | owning source                                                                                                                                                                      | complete when                        |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
-| structured-session  | opened single-writer agent-session record store and open-journal work                                                                                                              | store opened                         |
-| recovery            | sleep records, pending/failed removals, recoverable `worker_dispatches`, session spawn reservations                                                                                | store and workspace session readable |
-| workspace           | host workspace session: selection, open editor/browser/unified tabs; status, pin, children, removal                                                                                | workspace session readable           |
-| registered-consumer | desktop watched/suspended/in-flight watcher roots and runtime file-watch leases                                                                                                    | always (in-process registries)       |
-| preservation        | Git: no tracked, untracked or ignored entry; only plain index entries; no gitlink; HEAD on a shared branch the fixed effect retains; no per-worktree refs or in-progress operation | Git answered                         |
-| external-consumer   | none on this host                                                                                                                                                                  | never                                |
+| domain              | owning source                                                                                                                                                                      | complete when                                                               |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| structured-session  | opened single-writer agent-session record store and open-journal work                                                                                                              | store opened                                                                |
+| recovery            | sleep records, pending/failed removals, recoverable `worker_dispatches`, session spawn reservations                                                                                | store and workspace session readable                                        |
+| workspace           | host workspace session: selection, open editor/browser/unified tabs; status, pin, children, removal                                                                                | never: paired/mobile selection has no host authority, so it only adds holds |
+| registered-consumer | desktop watched/suspended/in-flight watcher roots and runtime file-watch leases on any overlapping root, every runtime and connection                                              | always (in-process registries)                                              |
+| preservation        | Git: no tracked, untracked or ignored entry; only plain index entries; no gitlink; HEAD on a shared branch the fixed effect retains; no per-worktree refs or in-progress operation | Git answered                                                                |
+| external-consumer   | none on this host                                                                                                                                                                  | never                                                                       |
 
 Terminal and dispatch keep the native observation above. Native product is the
 physical `projectId`; a native Task has no product, so Core must bind its own
@@ -181,8 +181,8 @@ retained grant-settlement proof or durable consumer-admission history exists, so
 those stay unknown and protected.
 
 Coverage, and therefore the capability, is installed only when the provider is
-`ready`, which requires a host-only external-consumer authority. None exists, so
-this build installs observation only. A process scan or file-target guard cannot
+`ready`, which requires host-only external-consumer and paired-selection
+authorities. Neither exists, so this build installs observation only. A process scan or file-target guard cannot
 be that authority.
 
 ## Crash, reconciliation and rollback
