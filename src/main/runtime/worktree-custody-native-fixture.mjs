@@ -186,6 +186,47 @@ const providerHost = await moduleFromSource(
 )
 const provider = { ...providerCore, ...providerHost }
 
+// Signal and incarnation answers mirror daemon-process-inspection.ts; no real process is queried.
+writeFileSync(
+  join(fixtureRoot, 'start-time-deps.mjs'),
+  `
+  export function parseLinuxStartTicks() { return null; }
+  export function getProcessStartedAtMs() { return null; }
+  export const START_TIME_TOLERANCE_MS = 1000;
+  export function startTimesWithinTolerance(a, b, t) { return Math.abs(a - b) <= t; }
+  export function readWindowsProcessCreationTime() { return null; }
+`
+)
+await moduleFromSource('process-start-time.mjs', '../orcad/orcad-process-start-time.ts', {
+  '../agent-hooks/managed-hook-owner-identity': './start-time-deps.mjs',
+  '../daemon/daemon-process-start-time': './start-time-deps.mjs',
+  '../windows/windows-process-table': './start-time-deps.mjs'
+})
+writeFileSync(
+  join(fixtureRoot, 'process-ports.mjs'),
+  `
+  let signal = 'missing';
+  let incarnation = null;
+  export function setProcess(next) { signal = next.signal; incarnation = next.incarnation; }
+  export function isProcessAlive() { return signal === 'occupied' || signal === 'permission_denied'; }
+  export function inspectProcessLiveness() {
+    if (signal === 'missing') return { status: 'exited' };
+    if (signal === 'unavailable') return { status: 'unverifiable', reason: 'fixture' };
+    return { status: 'live' };
+  }
+  export function readOrcadProcessIncarnation() { return incarnation; }
+  export function readOrcadProcessStartedAtMs() { return null; }
+  export function readBoundedLockFile() { return null; }
+  export { compareOrcadProcessIdentity } from './process-start-time.mjs';
+`
+)
+const processPorts = await import(pathToFileURL(join(fixtureRoot, 'process-ports.mjs')).href)
+const heldLock = await moduleFromSource('held-lock.mjs', '../orcad/orcad-held-instance-lock.ts', {
+  '../daemon/daemon-process-inspection': './process-ports.mjs',
+  './orcad-process-start-time': './process-ports.mjs',
+  './orcad-instance-lock-reclaim': './process-ports.mjs'
+})
+
 /** Git answers for a checkout whose only material is tracked, clean and on a retained branch. */
 function cleanGit(path, overrides = {}) {
   const answers = {
@@ -349,6 +390,8 @@ function providerCheckout(name) {
 }
 
 export {
+  processPorts,
+  heldLock,
   providerPorts,
   gate,
   leases,

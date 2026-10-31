@@ -3,7 +3,12 @@ import {
   interruptedRemovalPorts,
   interruptedLocalWorktreeRemovalJob
 } from './worktree-custody-runtime-fixture.mjs'
-import { proveWorktreePreservation, cleanGit } from './worktree-custody-native-fixture.mjs'
+import {
+  proveWorktreePreservation,
+  cleanGit,
+  processPorts,
+  heldLock
+} from './worktree-custody-native-fixture.mjs'
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, chmodSync } from 'node:fs'
 import { join } from 'node:path'
@@ -365,4 +370,30 @@ test('preservation proof is positive only for clean tracked material on a retain
     preserved: false,
     reason: 'operation_in_progress'
   })
+})
+
+test('a lock holder counts as exited only on ESRCH or a different incarnation', () => {
+  const holder = { pid: 41, startedAtMs: null, linuxStartTicks: '100', bootId: 'boot-1' }
+  const same = { linuxStartTicks: '100', bootId: 'boot-1' }
+  for (const [signal, incarnation, exited] of [
+    // An unqueryable PID with no readable incarnation proves nothing.
+    ['unavailable', null, false],
+    ['unavailable', same, false],
+    ['unavailable', { linuxStartTicks: '900', bootId: 'boot-1' }, true],
+    ['permission_denied', same, false],
+    ['permission_denied', null, false],
+    // PID reuse: EPERM or a live PID held by another start or boot is a different process.
+    ['permission_denied', { linuxStartTicks: '900', bootId: 'boot-1' }, true],
+    ['occupied', same, false],
+    ['occupied', { linuxStartTicks: '100', bootId: 'boot-2' }, true],
+    ['missing', null, true]
+  ]) {
+    processPorts.setProcess({ signal, incarnation })
+    assert.equal(
+      heldLock.orcadLockHolderHasExited(holder),
+      exited,
+      `${signal}:${JSON.stringify(incarnation)}`
+    )
+  }
+  assert.equal(heldLock.heldOrcadInstanceLock(), null)
 })

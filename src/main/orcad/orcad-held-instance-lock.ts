@@ -1,4 +1,4 @@
-import { isProcessAlive } from '../daemon/daemon-process-inspection'
+import { inspectProcessLiveness } from '../daemon/daemon-process-inspection'
 import {
   compareOrcadProcessIdentity,
   readOrcadProcessIncarnation,
@@ -39,12 +39,12 @@ export function heldOrcadInstanceLock(): OrcadInstanceLock | null {
   }
 }
 
-/** The lock's own exit judgment: a recorded holder whose PID is gone or whose incarnation differs. */
+/** Positive exit only: ESRCH, or a PID now held by another incarnation; unqueryable is not exit. */
 export function orcadLockHolderHasExited(
   record: Pick<OrcadLockRecord, 'pid' | 'startedAtMs' | 'linuxStartTicks' | 'bootId'>
 ): boolean {
   return (
-    !isProcessAlive(record.pid) ||
+    inspectProcessLiveness(record.pid).status === 'exited' ||
     compareOrcadProcessIdentity(record.pid, record, {
       startedAtMs: readOrcadProcessStartedAtMs,
       incarnation: readOrcadProcessIncarnation
