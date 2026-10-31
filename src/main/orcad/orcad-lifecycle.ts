@@ -12,6 +12,10 @@ import { recordAgentSessionRuntimeEnd } from '../runtime/agent-session-runtime-e
 import { ORCAD_SHUTDOWN_DEADLINE_MS } from './orcad-stop-deadlines'
 import { holdOrcadTerminalAdmissionUntilExit } from './orcad-stop-terminal-admission'
 import {
+  closeNativeWorktreeCustodyAdmissions,
+  sealNativeWorktreeCustodyEpochs
+} from '../runtime/worktree-custody-profile-lifecycle'
+import {
   acquireProfileStateRuntimeAdmission,
   type ProfileStateRuntimeAdmission
 } from '../persistence/profile-state/profile-state-access'
@@ -110,9 +114,11 @@ export async function startOrcadWithLifecycle<T extends object>(
     // Startup failures reach cleanup without shutdown admission while RPC may already be serving.
     markHostShuttingDown()
     let runtimeCleanupSucceeded = false
+    closeNativeWorktreeCustodyAdmissions()
     try {
       await runtime.stop()
       runtimeCleanupSucceeded = true
+      sealNativeWorktreeCustodyEpochs()
     } finally {
       await cleanupHost(runtimeCleanupSucceeded)
     }

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BrowserScreencastOpcode } from '../../transport/browser-screencast-protocol'
 import { isRpcDeliveryUnknown } from '../../transport/rpc-delivery-ambiguity'
+import { WORKTREE_SELECTION_BRIDGE_CAPABILITY } from '../../../../src/shared/worktree/custody-selection'
 import {
   BRIDGE_MAX_MESSAGE_BYTES,
   BRIDGE_MAX_PENDING_REQUESTS,
@@ -36,9 +37,18 @@ afterEach(() => {
 })
 
 describe('bridge client handshake', () => {
-  it('asks for a session as soon as it exists, declaring nothing', () => {
+  it('asks for a session with its stable document selection capability', () => {
     const page = createPageClient()
-    expect(page.frames()).toEqual([{ v: BRIDGE_PROTOCOL_VERSION, type: 'ready' }])
+    expect(page.frames()).toEqual([
+      {
+        v: BRIDGE_PROTOCOL_VERSION,
+        type: 'ready',
+        workspaceSelection: WORKTREE_SELECTION_BRIDGE_CAPABILITY,
+        workspaceSelectionDocument: expect.any(String)
+      }
+    ])
+    vi.advanceTimersByTime(BRIDGE_READY_RETRY_MIN_MS)
+    expect(page.frames()[1]).toEqual(page.frames()[0])
   })
 
   it('keeps asking on a widening backoff until init answers', () => {

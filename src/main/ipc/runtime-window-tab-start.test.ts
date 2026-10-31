@@ -10,7 +10,8 @@ import {
 const { handleMock } = vi.hoisted(() => ({ handleMock: vi.fn() }))
 
 vi.mock('electron', () => ({
-  BrowserWindow: { fromWebContents: vi.fn() },
+  app: { on: vi.fn() },
+  BrowserWindow: { fromWebContents: vi.fn(), getAllWindows: () => [] },
   ipcMain: { handle: handleMock, on: vi.fn(), removeAllListeners: vi.fn(), removeHandler: vi.fn() }
 }))
 vi.mock('../../shared/layout-owner-switch', () => ({ ORCA_LAYOUT_OWNER_IS_MAIN: true }))

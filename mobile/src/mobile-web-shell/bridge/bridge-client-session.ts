@@ -6,9 +6,11 @@ import type {
   BridgeInitRoute,
   BridgeUiLocale
 } from './bridge-envelope'
+import type { SelectionBootstrap } from '../../../../src/shared/worktree/custody-selection'
 import { ZERO_SAFE_AREA_INSETS, type BridgeSafeAreaInsets } from './bridge-safe-area-insets'
 
 export type BridgeShellSession = {
+  workspaceSelection?: SelectionBootstrap
   sessionId: string
   buildId: string
   grants: BridgeGrants
@@ -34,6 +36,7 @@ export function readShellSession(
   message: Extract<BridgeHostMessage, { type: 'init' }>
 ): BridgeShellSession {
   return {
+    ...(message.workspaceSelection ? { workspaceSelection: message.workspaceSelection } : {}),
     sessionId: message.sessionId,
     buildId: message.buildId,
     grants: message.grants,

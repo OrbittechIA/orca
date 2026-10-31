@@ -37,6 +37,10 @@ import { mainProcessState as state } from './main-process-state'
 import { isDevParentShutdownRequested } from './configure-process'
 import { getCanonicalUserDataPath } from '../persistence'
 import { flushUnsavedCloudSessions } from '../orca-profiles/profile-cloud-session-owner'
+import {
+  closeNativeWorktreeCustodyAdmissions,
+  sealNativeWorktreeCustodyEpochs
+} from '../runtime/worktree-custody-profile-lifecycle'
 
 // First will-quit pass awaits teardown; the re-fired pass must exit without starting writes again.
 let daemonDisconnectDone = false
@@ -109,6 +113,7 @@ function installWillQuitHandler(): void {
     if (!quitTeardownStartGate.tryStart(event)) {
       return
     }
+    closeNativeWorktreeCustodyAdmissions()
     // Include pane grids still inside their write burst in final save.
     const paneGridFlush = state.runtime?.flushPaneGrids() ?? null
     // A renderer can veto before-quit; push must survive until quit is committed.
@@ -293,6 +298,7 @@ function installWillQuitHandler(): void {
         /* swallow — telemetry must never prevent app.quit() */
       })
       .then(() => {
+        sealNativeWorktreeCustodyEpochs()
         daemonDisconnectDone = true
         app.quit()
       })

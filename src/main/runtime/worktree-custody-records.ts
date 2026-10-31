@@ -30,7 +30,7 @@ export type CustodyRecord = {
   /** Private witness; older readers ignore it. */
   fenceOwner?: CustodyFenceOwner
   outcome: WorktreeCustodyOutcome | null
-  recovery?: { token: string; authorityId: string; proof: string }
+  recovery?: { token: string; authorityId: string; proof: string; fence?: WorktreeCustodyFence }
 }
 
 export type CustodyReceipt = {
@@ -42,9 +42,45 @@ export type CustodyReceipt = {
   reason: string | null
   proof: string | null
   state?: 'retired' | 'refused'
+  fenceHash?: string
 }
 
-export type CustodyState = { records: CustodyRecord[]; receipts: CustodyReceipt[] }
+export type CustodyEpochSeal = {
+  authorityId: string
+  owner: CustodyFenceOwner
+  recordsHash: string
+  recordedAt: number
+}
+
+export type CustodyState = {
+  records: CustodyRecord[]
+  receipts: CustodyReceipt[]
+  clientCancellations?: { fenceHash: string; proofHash: string }[]
+  epochSeal?: CustodyEpochSeal
+}
+
+export const MAX_CLIENT_CANCELLATIONS = 16384
+
+export function custodyClientCancellationsValid(
+  value: unknown
+): value is CustodyState['clientCancellations'] {
+  return (
+    value === undefined ||
+    (Array.isArray(value) &&
+      value.length <= MAX_CLIENT_CANCELLATIONS &&
+      value.every(
+        (entry: unknown) =>
+          typeof entry === 'object' &&
+          entry !== null &&
+          'fenceHash' in entry &&
+          typeof entry.fenceHash === 'string' &&
+          /^[a-f0-9]{64}$/.test(entry.fenceHash) &&
+          'proofHash' in entry &&
+          typeof entry.proofHash === 'string' &&
+          /^[a-f0-9]{64}$/.test(entry.proofHash)
+      ))
+  )
+}
 
 export type CustodyJournal = {
   read: () => CustodyState
@@ -68,10 +104,14 @@ export type CustodyReleaseRecovery = Readonly<{
 
 export type CustodyCoverage = {
   observe: (resource: WorktreeCustodyResource) => Promise<WorktreeCustodyObservation>
-  acquire: (resource: WorktreeCustodyResource) => Promise<{
+  acquire: (
+    resource: WorktreeCustodyResource,
+    fence?: WorktreeCustodyFence
+  ) => Promise<{
     check: () => boolean
     release: () => void
   }>
+  settleClientFence?: (fence: WorktreeCustodyFence) => void
   /** `key` is the dispatched outcome key; providers written for two arguments ignore it. */
   retire: (resource: WorktreeCustodyResource, check: () => void, key?: string) => Promise<void>
   reconcile: (outcome: WorktreeCustodyOutcome) => Promise<CustodyRetirementConfirmation>
@@ -105,6 +145,18 @@ export function sameFence(left: WorktreeCustodyFence, right: WorktreeCustodyFenc
     left.authorityId === right.authorityId &&
     left.capturedAt === right.capturedAt &&
     left.expiresAt === right.expiresAt
+  )
+}
+
+export function custodyFenceHash(fence: WorktreeCustodyFence): string {
+  return digest(
+    JSON.stringify([
+      custodyResourceKey(fence.resource),
+      fence.token,
+      fence.authorityId,
+      fence.capturedAt,
+      fence.expiresAt
+    ])
   )
 }
 

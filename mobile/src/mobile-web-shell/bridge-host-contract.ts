@@ -15,6 +15,7 @@ import type { BridgeErrorCapture } from './bridge/bridge-error-capture'
 import type { BridgeNativeVerb } from './bridge/bridge-native-verbs'
 import type { BridgeNotifyRefusal } from './bridge/bridge-notify-grants'
 import type { PageStorageForInit } from './page-storage-keys'
+import type { BridgeWorkspaceSelection } from './bridge-workspace-selection'
 
 // Only popped moves the stack; nothing-to-pop means root entry, while pop-pending means a duplicate frame before the queued pop commits.
 export type BridgeNavigateBackOutcome = 'popped' | 'nothing-to-pop' | 'pop-pending'
@@ -52,6 +53,7 @@ export type BridgeHostDiagnostic =
     }
 
 export type BridgeHostOptions = {
+  workspaceSelection?: BridgeWorkspaceSelection
   client: RpcClient
   // Resolution proves native handoff, never page receipt; reject when no view can accept it.
   post: (json: string) => Promise<void>

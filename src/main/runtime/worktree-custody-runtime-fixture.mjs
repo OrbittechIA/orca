@@ -19,13 +19,22 @@ writeFileSync(
   export const WORKTREE_ID_SEPARATOR = '::';
   export function normalizeRuntimePathForComparison(value) { return value; }
   export function defineMethod(method) { return method; }
+  export function defineStreamingMethod(method) { return method; }
   export const WorktreeCustodyRequestSchema = {};
+  export const WorktreeSelectionReportSchema = {};
+  export const SelectionAckSchema = {};
+  export const SelectionReconcileSchema = {};
+  export const SelectionWatchSchema = {};
+  export const SelectionUnsubscribeSchema = {};
   export let providerInstalls = 0;
   export function installNativeWorktreeCustodyProvider() { providerInstalls++; }
   export function heldOrcadInstanceLock() { return null; }
 `
 )
 const runtimePorts = await import(pathToFileURL(join(fixtureRoot, 'runtime-ports.mjs')).href)
+await moduleFromSource('profile-lifecycle.mjs', './worktree-custody-profile-lifecycle.ts', {
+  '../../shared/app-environment': './runtime-ports.mjs'
+})
 await moduleFromSource('worktree-id.mjs', '../../shared/worktree/id.ts', {
   '../cross-platform-path': './runtime-ports.mjs',
   '../pty-session-id-format': './runtime-ports.mjs'
@@ -49,6 +58,7 @@ const DISPATCH_CONTEXTS_SQL = `CREATE TABLE dispatch_contexts (id TEXT PRIMARY K
   status TEXT NOT NULL DEFAULT 'pending'
     CHECK(status IN ('pending', 'dispatched', 'completed', 'failed', 'circuit_broken')));`
 const runtimeCustody = await moduleFromSource('runtime.mjs', './worktree-custody-runtime.ts', {
+  './worktree-custody-profile-lifecycle': './profile-lifecycle.mjs',
   './orchestration/worker-terminal-ownership': './worker-terminal-ownership.mjs',
   '../../shared/app-environment': './runtime-ports.mjs',
   '../../shared/worktree/id': './worktree-id.mjs',
@@ -58,14 +68,43 @@ const runtimeCustody = await moduleFromSource('runtime.mjs', './worktree-custody
   './orchestration/orchestration-error': './orchestration-error.mjs',
   '../orcad/orcad-held-instance-lock': './runtime-ports.mjs'
 })
-const { WORKTREE_CUSTODY_METHOD } = await moduleFromSource(
+await moduleFromSource('execution-host.mjs', '../../shared/execution-host.ts')
+await moduleFromSource('wsl-paths.mjs', '../../shared/wsl-paths.ts')
+await moduleFromSource('cross-platform-path.mjs', '../../shared/cross-platform-path.ts', {
+  './wsl-paths': './wsl-paths.mjs'
+})
+await moduleFromSource(
+  'host-qualified-identity.mjs',
+  '../../shared/worktree/host-qualified-identity.ts',
+  { '../execution-host': './execution-host.mjs' }
+)
+await moduleFromSource('workspace-scope.mjs', '../../shared/workspace-scope.ts', {
+  './worktree/host-qualified-identity': './host-qualified-identity.mjs'
+})
+await moduleFromSource('removal-repo-owner.mjs', '../worktree-removal-repo-owner.ts', {
+  '../shared/execution-host': './execution-host.mjs'
+})
+const { resolveCustodySelectionLocation } = await moduleFromSource(
+  'selection-location.mjs',
+  './worktree-custody-selection-location.ts',
+  {
+    '../../shared/execution-host': './execution-host.mjs',
+    '../../shared/worktree/id': './worktree-id.mjs',
+    '../../shared/workspace-scope': './workspace-scope.mjs',
+    '../../shared/wsl-paths': './wsl-paths.mjs',
+    '../worktree-removal-repo-owner': './removal-repo-owner.mjs'
+  }
+)
+const { WORKTREE_CUSTODY_METHOD, WORKTREE_SELECTION_REPORT_METHOD } = await moduleFromSource(
   'custody-rpc.mjs',
   './rpc/methods/worktree-custody.ts',
   {
     '../core': './runtime-ports.mjs',
     '../../worktree-custody-runtime': './runtime.mjs',
     '../../../../shared/worktree/custody-schema': './runtime-ports.mjs',
-    '../../worktree-custody-native-provider-host': './runtime-ports.mjs'
+    '../../../../shared/worktree/custody-selection': './runtime-ports.mjs',
+    '../../worktree-custody-native-provider-host': './runtime-ports.mjs',
+    '../../worktree-custody-selection-location': './selection-location.mjs'
   }
 )
 
@@ -86,6 +125,10 @@ function runtimeFixture(options = {}) {
     recoverFence: async (fence) => ({ fence, recovered: false, proof: null })
   })
   return { custody, resource }
+}
+
+function fixtureSelectionLocation(id) {
+  return { path: id, hostId: 'local' }
 }
 
 const { settleWorkerTerminalRelease } = await moduleFromSource(
@@ -220,6 +263,9 @@ export {
   createCoreTablesSql,
   DISPATCH_CONTEXTS_SQL,
   WORKTREE_CUSTODY_METHOD,
+  WORKTREE_SELECTION_REPORT_METHOD,
+  resolveCustodySelectionLocation,
+  fixtureSelectionLocation,
   runtimeFixture,
   settleWorkerTerminalRelease,
   OrcaRuntimeWithCreateTerminal,

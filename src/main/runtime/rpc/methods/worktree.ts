@@ -34,10 +34,22 @@ import { waitsForWorktreeRemoval } from '../worktree-removal-marker-projection'
 import { queueWorkspaceDelete } from '../../workspaces/workspace-lifecycle-commands'
 import { WORKTREE_SLEEP_METHOD } from './worktree-sleep-method'
 import { WORKTREE_SET_METHOD } from './worktree-set-method'
-import { WORKTREE_CUSTODY_METHOD } from './worktree-custody'
+import {
+  WORKTREE_CUSTODY_METHOD,
+  WORKTREE_SELECTION_REPORT_METHOD,
+  WORKTREE_SELECTION_WATCH_METHOD,
+  WORKTREE_SELECTION_ACK_METHOD,
+  WORKTREE_SELECTION_RECONCILE_METHOD,
+  WORKTREE_SELECTION_UNSUBSCRIBE_METHOD
+} from './worktree-custody'
 
 export const WORKTREE_METHODS = [
   WORKTREE_CUSTODY_METHOD,
+  WORKTREE_SELECTION_REPORT_METHOD,
+  WORKTREE_SELECTION_WATCH_METHOD,
+  WORKTREE_SELECTION_ACK_METHOD,
+  WORKTREE_SELECTION_RECONCILE_METHOD,
+  WORKTREE_SELECTION_UNSUBSCRIBE_METHOD,
   ...WORKTREE_CATALOG_METHODS,
   defineMethod({
     name: 'worktree.teardownMissingTerminals',

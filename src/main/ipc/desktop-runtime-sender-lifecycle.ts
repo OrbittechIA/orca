@@ -5,9 +5,11 @@ type SenderState = {
   connectionId: string
   sender: WebContents
   subscriptions: Map<string, AbortController>
+  releaseSelection: (() => void) | undefined
 }
 
-type CleanupRuntime = Pick<OrcaRuntimeService, 'cleanupSubscriptionsForConnection'>
+type CleanupRuntime = Pick<OrcaRuntimeService, 'cleanupSubscriptionsForConnection'> &
+  Partial<Pick<OrcaRuntimeService, 'custodySelections'>>
 
 export class DesktopRuntimeSenderLifecycle {
   private readonly senders = new Map<number, SenderState>()
@@ -36,10 +38,12 @@ export class DesktopRuntimeSenderLifecycle {
     if (existing) {
       this.retire(existing, true)
     }
+    const connectionId = this.mintConnectionId(sender.id)
     const state: SenderState = {
-      connectionId: this.mintConnectionId(sender.id),
+      connectionId,
       sender,
-      subscriptions: new Map()
+      subscriptions: new Map(),
+      releaseSelection: this.runtime.custodySelections?.open(connectionId)
     }
     this.senders.set(sender.id, state)
     const retireDocument = (): void => this.retire(state, false)
@@ -54,10 +58,12 @@ export class DesktopRuntimeSenderLifecycle {
       return
     }
     const retiredConnectionId = state.connectionId
+    state.releaseSelection?.()
     if (destroyed) {
       this.senders.delete(state.sender.id)
     } else {
       state.connectionId = this.mintConnectionId(state.sender.id)
+      state.releaseSelection = this.runtime.custodySelections?.open(state.connectionId)
     }
     for (const controller of state.subscriptions.values()) {
       controller.abort()

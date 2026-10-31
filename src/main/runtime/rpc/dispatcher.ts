@@ -65,6 +65,7 @@ export class RpcDispatcher {
   }
 
   async dispatch(request: RpcRequest, options?: RpcDispatchStreamingOptions): Promise<RpcResponse> {
+    this.holdUnrepresentedConnection(options)
     const meta = this.meta()
     const pendingAdmission = this.admit(
       request,
@@ -107,6 +108,7 @@ export class RpcDispatcher {
     reply: (response: string) => void,
     options?: RpcDispatchStreamingOptions
   ): Promise<void> {
+    this.holdUnrepresentedConnection(options)
     const meta = this.meta()
     const pendingAdmission = this.admit(
       rawRequest,
@@ -165,6 +167,13 @@ export class RpcDispatcher {
       )
     } catch (error) {
       reply(JSON.stringify(mapDispatcherError(request, meta, error)))
+    }
+  }
+
+  private holdUnrepresentedConnection(options?: RpcDispatchStreamingOptions): void {
+    const selections = this.runtime.custodySelections
+    if (selections && (!options?.connectionId || !selections.has(options.connectionId))) {
+      selections.holdUnrepresentedConnection()
     }
   }
 

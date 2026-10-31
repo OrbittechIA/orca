@@ -24,6 +24,8 @@ import { createBridgeNotifyForwarder } from './bridge-host-notify'
 import { createBridgeHostRoute } from './bridge-host-route'
 import type { BridgeSafeAreaInsets } from './bridge/bridge-safe-area-insets'
 import type { BridgeHostOptions } from './bridge-host-contract'
+import { BridgeWorkspaceSelection } from './bridge-workspace-selection'
+import { WORKTREE_SELECTION_BRIDGE_CAPABILITY } from '../../../src/shared/worktree/custody-selection'
 
 export type { BridgeHostDiagnostic, BridgeHostOptions } from './bridge-host-contract'
 
@@ -45,6 +47,8 @@ export type BridgeHost = {
 // Bind the host structurally to one RPC client; the protocol lets pages name no other host. Native origin checks reject expired sessions, and init caps are enforced here.
 export function createBridgeHost(options: BridgeHostOptions): BridgeHost {
   const { client, buildId, sessionId, pageRoutes, host } = options
+  const selection = options.workspaceSelection ?? new BridgeWorkspaceSelection()
+  selection.bind(client)
   const granted: readonly string[] = [
     BRIDGE_FAULT_GRANT,
     BRIDGE_RPC_ENVELOPE_GRANT,
@@ -76,6 +80,7 @@ export function createBridgeHost(options: BridgeHostOptions): BridgeHost {
   let serving = true
   // serving initially admits the first ready batch, but only an established session holds grants. Inherit establishment when rebuilding beneath a live page.
   let initSent = options.sessionEstablished
+  let readySeen = options.sessionEstablished
 
   const frames = createBridgeHostFrames({
     post: options.post,
@@ -94,7 +99,8 @@ export function createBridgeHost(options: BridgeHostOptions): BridgeHost {
     onTerminalBacklog: (report) => {
       options.onDiagnostic?.({ kind: 'terminal-backlog', ...report })
     },
-    terminalTimers: options.terminalTimers
+    terminalTimers: options.terminalTimers,
+    selection
   })
 
   // Use the event’s state; listeners can run before the mirrored getter updates.
@@ -112,7 +118,14 @@ export function createBridgeHost(options: BridgeHostOptions): BridgeHost {
   // Refused routes send nothing; failed posts produce one diagnostic with no held frame or retry. The page’s next ready repairs state (ruling 34).
   function sendInit(): void {
     const route = routes.current()
-    if (route === null) {
+    if (route === null || !selection.canInitialize()) {
+      return
+    }
+    let workspaceSelection
+    try {
+      workspaceSelection = selection.bootstrap()
+    } catch (error) {
+      options.onDiagnostic?.({ kind: 'post-failed', error })
       return
     }
     initSent = true
@@ -120,6 +133,7 @@ export function createBridgeHost(options: BridgeHostOptions): BridgeHost {
       JSON.stringify(
         createBridgeInitFrame({
           sessionId,
+          workspaceSelection,
           buildId,
           connection: snapshot(),
           route,
@@ -158,6 +172,7 @@ export function createBridgeHost(options: BridgeHostOptions): BridgeHost {
     sendError,
     capExceeded: (message) => new BridgeCapExceededError(message),
     readClientIdentity: () => options.readClientIdentity(),
+    selection,
     serveNative: createNativeVerbServer({
       granted,
       serveVerb: (verb, params) => options.serveNativeVerb(verb, params)
@@ -203,12 +218,21 @@ export function createBridgeHost(options: BridgeHostOptions): BridgeHost {
     settleAll(true)
     closed = true
     unsubscribeState()
+    unsubscribeSelection()
+    if (!options.workspaceSelection) {
+      selection.dispose()
+    }
   }
 
   function dispatch(message: BridgeClientMessage): void {
     // Every ready claims the view, whether a new document or a repeated ask.
     if (message.type === 'ready') {
       serving = true
+      readySeen = true
+      selection.ready(
+        message.workspaceSelection === WORKTREE_SELECTION_BRIDGE_CAPABILITY,
+        message.workspaceSelectionDocument
+      )
       back.readReady()
       // Answer every ready with current state; this repairs missed frames without host retries (ruling 34).
       sendInit()
@@ -250,6 +274,8 @@ export function createBridgeHost(options: BridgeHostOptions): BridgeHost {
         // Close is not host disposal; the next document sends ready over this same view.
         settleAll(false)
         serving = false
+        initSent = false
+        selection.documentClosed()
         back.drop()
         return
     }
@@ -257,6 +283,11 @@ export function createBridgeHost(options: BridgeHostOptions): BridgeHost {
 
   const unsubscribeState = client.onStateChange((state) => {
     send({ v: BRIDGE_PROTOCOL_VERSION, type: 'state', connection: snapshot(state) })
+  })
+  const unsubscribeSelection = selection.onChange(() => {
+    if (!closed && serving && readySeen && !initSent) {
+      sendInit()
+    }
   })
 
   if (routes.current() === null) {

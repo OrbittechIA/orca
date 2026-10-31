@@ -1,4 +1,5 @@
-import { useMemo, useRef } from 'react'
+import { useMemo, useRef, useLayoutEffect } from 'react'
+import { registerMountedWorkspaceReader } from '@/runtime/workspace-selection-custody'
 import { parseWorkspaceKey } from '../../../shared/workspace-scope'
 import type { TerminalTab } from '../../../shared/terminal-tab-types'
 import { useAppStore } from '../store'
@@ -23,6 +24,7 @@ export function useTerminalWorkspaceFoundation() {
   > | null>(null)
   terminalTopologyProjectionRef.current ??= createTerminalWorktreeTopologyProjection()
   const mountedWorktreeIdsRef = useRef(new Set<string>())
+  useLayoutEffect(() => registerMountedWorkspaceReader(() => mountedWorktreeIdsRef.current), [])
   const browserGuestWorktreeRecencyRef = useRef<string[]>([])
   const measurableBackgroundWorktreeIdsRef = useRef(new Set<string>())
   const terminalWorktreeHiddenSinceRef = useRef(new Map<string, number>())

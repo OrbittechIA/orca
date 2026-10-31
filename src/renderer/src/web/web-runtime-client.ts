@@ -10,6 +10,7 @@ import type { RuntimeRpcResponse } from '../../../shared/runtime-rpc-envelope'
 import { WebRuntimeConnectionTransport } from './web-runtime-connection-transport'
 import type { WebRuntimeCredentialSource } from './web-runtime-credential-source'
 import { subscribeWebRuntimeFileWatch } from './web-runtime-file-watch-subscription'
+import { subscribeWebRuntimeSelection } from './web-runtime-selection-subscription'
 import type { WebRuntimeConnectionState } from './web-runtime-connection-frame-router'
 import type {
   WebRuntimeSubscribeOptions,
@@ -119,6 +120,14 @@ export class WebRuntimeClient {
     options?: SubscribeOptions
   ): Promise<WebRuntimeSubscriptionHandle> {
     throwIfSignalAborted(options?.signal)
+    if (method === 'workspace.selection.watch.v1') {
+      return subscribeWebRuntimeSelection({
+        signal: options?.signal,
+        callbacks,
+        subscribe: (wrapped) => this.subscribeOnCurrentConnection(method, params, wrapped, options),
+        call: (callMethod, callParams) => this.call(callMethod, callParams, { timeoutMs: 5_000 })
+      })
+    }
     if (SHARED_CONNECTION_SUBSCRIPTION_METHODS.has(method)) {
       return subscribeWebRuntimeFileWatch({
         params,

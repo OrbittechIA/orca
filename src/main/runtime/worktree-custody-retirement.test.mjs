@@ -31,6 +31,21 @@ import {
   providerCheckout
 } from './worktree-custody-native-fixture.mjs'
 
+test('an exported native provider without Core policy adoption retains every legacy whole-effect cap', async () => {
+  const f = await providerFixture(providerCheckout('no-policy-adoption'), { checkoutPolicy: null })
+  assert.equal(f.provider.ready, false)
+  assert.deepEqual(f.provider.retirementPolicy, {
+    id: 'bounded-checkout-v1',
+    maxEntries: 4096,
+    maxFiles: 2048,
+    maxAllocatedBytes: 1024 ** 3,
+    maxDurationMs: 10_000,
+    maxDepth: 128
+  })
+  f.authority.release(`dispatch:${f.resource.path}`, `native-worker-release:${f.resource.path}`)
+  await assert.rejects(f.authority.capture(f.resource), /custody_coverage_unsupported/)
+})
+
 test('fixed native retirement reaches only unforced branch-preserving Git effect and keeps history', async () => {
   const checkout = mkdtempSync(join(fixtureRoot, 'native-checkout-'))
   const retained = `${checkout}-preserved`
@@ -586,7 +601,7 @@ test('a crashed capture is recovered only by a successor profile lock and proven
   ]) {
     const f = await providerFixture(checkout, {
       ...shared,
-      authorityId: `a-${name}`,
+      authorityId: `a-${String(name)}`,
       profileLock: lock
     })
     await assert.rejects(

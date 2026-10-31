@@ -2,6 +2,7 @@
 // Own per-connection cancellation and opt-in long-poll keepalives (design §3.1).
 import { createServer, type Server, type Socket } from 'node:net'
 import { chmodSync, existsSync, rmSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import type { RpcMessageContext, RpcTransport } from './transport'
 
 const MAX_RUNTIME_RPC_MESSAGE_BYTES = 1024 * 1024
@@ -14,6 +15,7 @@ export type UnixSocketTransportOptions = {
   kind: 'unix' | 'named-pipe'
   // Keepalive writes reset host and supporting-client idle timers; tests shorten the 10s interval.
   keepaliveIntervalMs?: number
+  onConnection?: (connectionId: string) => () => void
 }
 
 type MessageHandler = (
@@ -30,11 +32,14 @@ export class UnixSocketTransport implements RpcTransport {
   private messageHandler: MessageHandler | null = null
   private readonly activeSockets = new Set<Socket>()
 
-  constructor({ endpoint, kind, keepaliveIntervalMs }: UnixSocketTransportOptions) {
+  constructor({ endpoint, kind, keepaliveIntervalMs, onConnection }: UnixSocketTransportOptions) {
     this.endpoint = endpoint
     this.kind = kind
     this.keepaliveIntervalMs = keepaliveIntervalMs ?? DEFAULT_KEEPALIVE_INTERVAL_MS
+    this.onConnection = onConnection
   }
+
+  private readonly onConnection: UnixSocketTransportOptions['onConnection']
 
   onMessage(handler: MessageHandler): void {
     this.messageHandler = handler
@@ -95,6 +100,8 @@ export class UnixSocketTransport implements RpcTransport {
   }
 
   private handleConnection(socket: Socket): void {
+    const connectionId = `local-rpc:${randomUUID()}`
+    const releaseConnection = this.onConnection?.(connectionId)
     this.activeSockets.add(socket)
     let buffer = ''
     let retainedBytes = 0
@@ -122,6 +129,7 @@ export class UnixSocketTransport implements RpcTransport {
       }
       inflight.clear()
       this.activeSockets.delete(socket)
+      releaseConnection?.()
     })
     socket.on('data', (chunk: string) => {
       if (oversized) {
@@ -147,7 +155,7 @@ export class UnixSocketTransport implements RpcTransport {
         const rawMessage = buffer.slice(0, newlineIndex).trim()
         buffer = buffer.slice(newlineIndex + 1)
         if (rawMessage) {
-          this.dispatchMessage(socket, rawMessage, inflight, rearmIdleTimer)
+          this.dispatchMessage(socket, rawMessage, inflight, rearmIdleTimer, connectionId)
         }
         newlineIndex = buffer.indexOf('\n')
       }
@@ -160,7 +168,8 @@ export class UnixSocketTransport implements RpcTransport {
     socket: Socket,
     rawMessage: string,
     inflight: Set<() => void>,
-    rearmIdleTimer: () => void
+    rearmIdleTimer: () => void,
+    connectionId: string
   ): void {
     let replied = false
     let keepaliveTimer: NodeJS.Timeout | null = null
@@ -216,6 +225,7 @@ export class UnixSocketTransport implements RpcTransport {
 
     this.messageHandler?.(rawMessage, reply, {
       signal: abortController.signal,
+      connectionId,
       startKeepalive
     })
   }

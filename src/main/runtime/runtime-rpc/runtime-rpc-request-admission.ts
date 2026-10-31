@@ -44,6 +44,7 @@ export class RuntimeRpcRequestAdmission extends RuntimeRpcBinaryRouting {
 
     try {
       return await this.dispatcher.dispatch(request, {
+        connectionId: context?.connectionId,
         signal:
           longPoll ||
           request.method.startsWith('linear.') ||

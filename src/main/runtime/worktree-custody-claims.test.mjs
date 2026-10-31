@@ -270,6 +270,73 @@ test('capacity never evicts a revoked generation or its unknown path aggregate',
   await assert.rejects(f.authority.capture(sibling), /producer_release_unproven/)
 })
 
+test('owning recovery cannot renew an epoch when its durability write fails', async () => {
+  const f = setup()
+  const successor = new WorktreeCustodyAuthority(f.journal, 'failed-recovery', () => 100_000, {
+    read: f.claimsJournal.read,
+    write: () => {
+      throw new Error('ENOSPC')
+    }
+  })
+  successor.installCoverage(BASE.owner, {
+    ...f.coverage,
+    recoverRelease: async (release) => ({ release, confirmed: true, proof: 'owning-history' })
+  })
+  assert.equal((await successor.observe(f.resource)).disposition, 'unknown')
+  assert.equal(successor.complete, false)
+  assert.notEqual(f.claimsJournal.read().records[0].releaseEpoch, 'failed-recovery')
+  successor.admit('other', '/unrelated')()
+  await assert.rejects(
+    successor.capture(f.resource),
+    /producer_release_unproven|coverage_unsupported/
+  )
+})
+
+test('clean epoch seals require native admission closure, drained reservations and a healthy owner', async () => {
+  const f = setup()
+  let claims = { records: [], receipts: [] }
+  const owner = {
+    pid: 42,
+    startedAtMs: 1,
+    identity: 'fixture-owner',
+    machineIdentity: 'fixture-machine',
+    nonce: 'fixture-lock'
+  }
+  const authority = new WorktreeCustodyAuthority(
+    { read: () => ({ records: [], receipts: [] }), write: () => {} },
+    'clean-epoch',
+    () => 100_000,
+    {
+      read: () => structuredClone(claims),
+      write: (state) => {
+        claims = structuredClone(state)
+      }
+    },
+    () => owner
+  )
+  authority.installCoverage(BASE.owner, f.coverage)
+  const resource = authority.claim(BASE, 'sealed-claim')
+  authority.release('sealed-claim', 'native-release')
+  const release = authority.admit('unrelated', '/unrelated', false)
+  assert.equal(authority.sealClosedEpoch(), false)
+  authority.closeAdmissions()
+  assert.equal(authority.sealClosedEpoch(), false)
+  assert.throws(() => authority.admit('other', '/other'), /admissions_closed/)
+  release()
+  assert.equal(authority.sealClosedEpoch(), true)
+  assert.equal(claims.epochSeal.authorityId, 'clean-epoch')
+  assert.equal(claims.records[0].releaseProof, 'native-release')
+  const successor = new WorktreeCustodyAuthority(
+    { read: () => ({ records: [], receipts: [] }), write: () => {} },
+    'next-epoch',
+    () => 100_000,
+    { read: () => structuredClone(claims), write: () => {} }
+  )
+  successor.installCoverage(BASE.owner, f.coverage)
+  assert.equal((await successor.observe(resource)).disposition, 'unknown')
+  successor.admit('unrelated', '/unrelated')()
+})
+
 /** A custody effects journal whose writes fail while `failing` returns true for the state. */
 function flakyJournal() {
   let state = { records: [], receipts: [] }

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BRIDGE_PROTOCOL_VERSION } from './bridge-envelope'
+import { WORKTREE_SELECTION_BRIDGE_CAPABILITY } from '../../../../src/shared/worktree/custody-selection'
 import { BRIDGE_BACK_CLAIM_NOTIFY } from './bridge-page-back'
 import {
   createFakeBridgePortPair as createPair,
@@ -49,7 +50,9 @@ describe('a Back press crossing from the shell to the page', () => {
     expect(took).toHaveBeenCalledTimes(1)
     expect(pair.readToShell().find((frame) => frame.type === 'ready')).toEqual({
       v: 1,
-      type: 'ready'
+      type: 'ready',
+      workspaceSelection: WORKTREE_SELECTION_BRIDGE_CAPABILITY,
+      workspaceSelectionDocument: expect.stringMatching(/\S/)
     })
     expect(notifies(pair)).toEqual([BRIDGE_BACK_CLAIM_NOTIFY])
   })

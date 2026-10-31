@@ -53,6 +53,7 @@ import { sidebarInputsFeedDomains } from './sidebar-inputs/sidebar-inputs-feed-d
 import { requireSwitchedOn } from './sidebar-inputs/require-switched-on'
 import { HEADLESS_RUNTIME_WINDOW_ID } from '../../shared/runtime-session-contracts'
 import { getHostDisplayLabelOverrides } from '../../shared/host-setting-overrides'
+import { nativeWorktreeCustodySelections } from './worktree-custody-selections'
 
 const OrcaRuntimeSidebarBase: typeof OrcaRuntimeWithAgentTransitions = ORCA_SIDEBAR_INPUTS_IS_MAIN
   ? OrcaRuntimeWithSidebarTemporal
@@ -60,6 +61,7 @@ const OrcaRuntimeSidebarBase: typeof OrcaRuntimeWithAgentTransitions = ORCA_SIDE
 
 // oxlint-disable-next-line typescript/no-unsafe-declaration-merging -- SAFETY: The existing Linear installer supplies the canonical prototype surface.
 class OrcaRuntimeService extends OrcaRuntimeSidebarBase {
+  readonly custodySelections = nativeWorktreeCustodySelections()
   /** Sidebar facts are absent unless ORCA_SIDEBAR_INPUTS=main. */
   get sidebarFacts() {
     return sidebarFactsRuntime(this)

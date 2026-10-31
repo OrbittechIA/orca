@@ -18,7 +18,7 @@ export const WorktreeCustodyResourceSchema = z
   })
   .strict()
 
-const WorktreeCustodyFenceSchema = z
+export const WorktreeCustodyFenceSchema = z
   .object({
     resource: WorktreeCustodyResourceSchema,
     token: z.string().uuid(),

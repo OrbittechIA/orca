@@ -1,4 +1,8 @@
 import { z } from 'zod'
+import {
+  SelectionBootstrapSchema,
+  WORKTREE_SELECTION_BRIDGE_CAPABILITY
+} from '../../../../src/shared/worktree/custody-selection'
 import { salvagedOptional } from '../../../../src/shared/zod-salvage'
 import { SUPPORTED_UI_LOCALES } from '../../../../src/shared/ui-locale'
 import { NODE_PLATFORM_NAMES } from '../../transport/mobile-runtime-host-platform'
@@ -148,7 +152,9 @@ const replyPartSchema = z.object({
 const BridgeClientMessageSchema = z.discriminatedUnion('type', [
   z.object({
     v: versionSchema,
-    type: z.literal('ready')
+    type: z.literal('ready'),
+    workspaceSelection: z.literal(WORKTREE_SELECTION_BRIDGE_CAPABILITY).optional(),
+    workspaceSelectionDocument: z.string().uuid().optional()
   }),
   z.object({
     v: versionSchema,
@@ -243,6 +249,7 @@ const BridgeHostMessageSchema = z.union([
   z.object({
     v: versionSchema,
     type: z.literal('init'),
+    workspaceSelection: SelectionBootstrapSchema.optional(),
     sessionId: z.string().min(1),
     buildId: z.string().min(1),
     connection: BridgeConnectionSnapshotSchema,

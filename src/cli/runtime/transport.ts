@@ -9,6 +9,7 @@ import { isKeepaliveFrame, RuntimeRpcEnvelopeSchema } from './envelope-schema'
 import { RuntimeClientError, type RuntimeRpcResponse } from './types'
 import { MAX_TIMER_DELAY_MS, isSafeTimerDelayMs } from '../../shared/timer-delay'
 import { runtimeAccessDeniedError } from './runtime-access-denied'
+import { WORKTREE_SELECTION_CAPABILITY } from '../../shared/worktree/custody-selection'
 
 export async function sendRequest<TResult>(
   metadata: RuntimeMetadata,
@@ -40,6 +41,24 @@ export async function sendRequest<TResult>(
     let lineSegments: string[] = []
     let settled = false
     const requestId = randomUUID()
+    const selectionRequestId = method === 'worktree.custody.v1' ? randomUUID() : null
+    let selectionAcknowledged = selectionRequestId === null
+    const sendRequest = (): void => {
+      socket.write(
+        `${JSON.stringify({
+          id: requestId,
+          authToken: metadata.authToken,
+          method,
+          params,
+          orchestrationCapability: envelope?.orchestrationCapability,
+          orchestrationContractVersion: envelope?.orchestrationContractVersion,
+          orchestrationRequestId: envelope?.orchestrationRequestId,
+          compatibilityInvocationId: envelope?.compatibilityInvocationId,
+          orchestrationCompatibilityEvidence: envelope?.orchestrationCompatibilityEvidence,
+          expectedRuntimeSource
+        })}\n`
+      )
+    }
 
     const timeout = setTimeout(() => {
       if (settled) {
@@ -156,6 +175,39 @@ export async function sendRequest<TResult>(
         }
 
         const response = frame as RuntimeRpcResponse<TResult>
+        if (selectionRequestId && response.id === selectionRequestId) {
+          if (
+            selectionAcknowledged ||
+            response.ok !== true ||
+            response._meta?.runtimeId !== metadata.runtimeId ||
+            typeof response.result !== 'object' ||
+            response.result === null ||
+            !('reported' in response.result) ||
+            response.result.reported !== true
+          ) {
+            finish({
+              ok: false,
+              error: new RuntimeClientError(
+                'custody_selection_unavailable',
+                'The host did not acknowledge this headless custody connection.'
+              )
+            })
+            return
+          }
+          selectionAcknowledged = true
+          sendRequest()
+          continue
+        }
+        if (!selectionAcknowledged) {
+          finish({
+            ok: false,
+            error: new RuntimeClientError(
+              'invalid_runtime_response',
+              'Custody response preceded selection acknowledgement.'
+            )
+          })
+          return
+        }
         if (response.id !== requestId) {
           finish({
             ok: false,
@@ -181,17 +233,16 @@ export async function sendRequest<TResult>(
       }
     })
     socket.on('connect', () => {
+      if (!selectionRequestId) {
+        sendRequest()
+        return
+      }
       socket.write(
         `${JSON.stringify({
-          id: requestId,
+          id: selectionRequestId,
           authToken: metadata.authToken,
-          method,
-          params,
-          orchestrationCapability: envelope?.orchestrationCapability,
-          orchestrationContractVersion: envelope?.orchestrationContractVersion,
-          orchestrationRequestId: envelope?.orchestrationRequestId,
-          compatibilityInvocationId: envelope?.compatibilityInvocationId,
-          orchestrationCompatibilityEvidence: envelope?.orchestrationCompatibilityEvidence,
+          method: 'workspace.selection.report.v1',
+          params: { protocol: WORKTREE_SELECTION_CAPABILITY, kind: 'headless', workspaceIds: [] },
           expectedRuntimeSource
         })}\n`
       )

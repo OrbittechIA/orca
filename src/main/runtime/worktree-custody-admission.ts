@@ -31,6 +31,7 @@ export class WorktreeCustodyAdmission extends WorktreeCustodyState {
   get supported(): boolean {
     return (
       this.complete &&
+      !this.admissionsClosed &&
       this.coverage.size > 0 &&
       [...this.coverage.values()].every((coverage) => typeof coverage.recoverFence === 'function')
     )
@@ -41,6 +42,9 @@ export class WorktreeCustodyAdmission extends WorktreeCustodyState {
   }
 
   checkAdmission(worktreeId: string, path: string): void {
+    if (this.admissionsClosed) {
+      throw new WorktreeCustodyAdmissionError('custody_admissions_closed')
+    }
     if (this.effectsUnreadable) {
       throw new WorktreeCustodyAdmissionError('custody_effects_unknown')
     }
@@ -54,6 +58,21 @@ export class WorktreeCustodyAdmission extends WorktreeCustodyState {
     ) {
       throw new WorktreeCustodyAdmissionError('worktree_custody_fenced')
     }
+  }
+
+  /** Committed quit only; closure is irreversible for this process incarnation. */
+  closeAdmissions(): void {
+    this.admissionsClosed = true
+  }
+
+  sealClosedEpoch(): boolean {
+    if ([...this.admissions.values()].some((count) => count > 0)) {
+      return false
+    }
+    if (this.records.some((record) => record.fence || record.outcome)) {
+      return false
+    }
+    return this.sealClaims()
   }
 
   admit(worktreeId: string, path: string, reopen = true): () => void {

@@ -1,4 +1,5 @@
 import { useAppStore } from '../store'
+import { canMountWorkspace } from '@/runtime/workspace-selection-custody'
 import {
   canAdmitTerminalTabsForStartup,
   canDeferColdActivationTabsForHost,
@@ -61,7 +62,11 @@ export function applyTerminalColdActivation(controller: TerminalParkingFoundatio
     mountedWorktreeIdsRef.current,
     startupHeldWorktreeId
   )
-  if (renderedActiveWorktreeId && !startupHeldWorktreeId) {
+  if (
+    renderedActiveWorktreeId &&
+    !startupHeldWorktreeId &&
+    canMountWorkspace(renderedActiveWorktreeId, activeWorktreeDeferralHostId ?? undefined)
+  ) {
     const worktreeTabs = tabsByWorktree[renderedActiveWorktreeId] ?? []
     const coldActivationDeferralEnabled =
       terminalParkingEnabled && terminalTitleSnapshotAuthorityEnabled

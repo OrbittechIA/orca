@@ -14,133 +14,16 @@ import {
 } from 'node:fs'
 import { dirname, join, parse, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import type {
-  CustodyJournal,
-  CustodyReceipt,
-  CustodyState,
-  CustodyRecord
-} from './worktree-custody-authority'
-import type {
-  WorktreeCustodyFence,
-  WorktreeCustodyOutcome,
-  WorktreeCustodyResource
-} from '../../shared/worktree/custody'
+import type { CustodyJournal, CustodyState } from './worktree-custody-records'
 import { custodyResourceKey } from '../../shared/worktree/custody'
+import { custodyJournalRecord, custodyJournalReceipt } from './worktree-custody-journal-records'
+import { custodyClientCancellationsValid } from './worktree-custody-records'
+import { custodyEpochSealIsValid as epochSeal } from './worktree-custody-epoch-seal'
 
 const MAX_JOURNAL_BYTES = 4 * 1024 * 1024
 
 function object(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function resource(value: unknown): value is WorktreeCustodyResource {
-  return (
-    object(value) &&
-    ['worktreeId', 'path', 'instanceId', 'hostId', 'owner', 'product', 'task', 'generation'].every(
-      (key) =>
-        typeof value[key] === 'string' &&
-        value[key].length > 0 &&
-        value[key].length <= 8192 &&
-        !value[key].includes('\0')
-    )
-  )
-}
-
-function fence(value: unknown): value is WorktreeCustodyFence {
-  return (
-    object(value) &&
-    resource(value.resource) &&
-    typeof value.token === 'string' &&
-    typeof value.authorityId === 'string' &&
-    typeof value.capturedAt === 'number' &&
-    Number.isFinite(value.capturedAt) &&
-    typeof value.expiresAt === 'number' &&
-    Number.isFinite(value.expiresAt)
-  )
-}
-
-function outcome(value: unknown): value is WorktreeCustodyOutcome {
-  return (
-    object(value) &&
-    resource(value.resource) &&
-    typeof value.key === 'string' &&
-    typeof value.state === 'string' &&
-    ['dispatched', 'retired', 'unknown', 'refused'].includes(value.state) &&
-    typeof value.recordedAt === 'number' &&
-    Number.isFinite(value.recordedAt) &&
-    (value.reason === null || typeof value.reason === 'string')
-  )
-}
-
-function fenceOwner(value: unknown): boolean {
-  const text = (entry: unknown) =>
-    typeof entry === 'string' && entry.length > 0 && entry.length <= 1024
-  return (
-    object(value) &&
-    typeof value.pid === 'number' &&
-    Number.isSafeInteger(value.pid) &&
-    value.pid > 0 &&
-    (value.startedAtMs === null ||
-      (typeof value.startedAtMs === 'number' && Number.isFinite(value.startedAtMs))) &&
-    (value.linuxStartTicks === undefined ||
-      (typeof value.linuxStartTicks === 'string' && /^\d{1,32}$/.test(value.linuxStartTicks))) &&
-    (value.bootId === undefined || text(value.bootId)) &&
-    (value.machineIdentity === undefined || text(value.machineIdentity)) &&
-    text(value.nonce) &&
-    text(value.identity)
-  )
-}
-
-function record(value: unknown): value is CustodyRecord {
-  if (
-    !object(value) ||
-    !resource(value.resource) ||
-    typeof value.claim !== 'string' ||
-    !(value.releaseProof === null || typeof value.releaseProof === 'string') ||
-    typeof value.revoked !== 'boolean' ||
-    !(
-      value.releaseEpoch === undefined ||
-      (typeof value.releaseEpoch === 'string' && value.releaseEpoch.length > 0)
-    ) ||
-    !(
-      value.releaseRecoveryProof === undefined ||
-      (typeof value.releaseRecoveryProof === 'string' &&
-        value.releaseRecoveryProof.length > 0 &&
-        value.releaseRecoveryProof.length <= 8192)
-    ) ||
-    !(value.fence === null || fence(value.fence)) ||
-    !(value.fenceOwner === undefined || (value.fence !== null && fenceOwner(value.fenceOwner))) ||
-    !(value.outcome === null || outcome(value.outcome)) ||
-    !(
-      value.recovery === undefined ||
-      (object(value.recovery) &&
-        typeof value.recovery.token === 'string' &&
-        typeof value.recovery.authorityId === 'string' &&
-        typeof value.recovery.proof === 'string' &&
-        value.recovery.proof.length > 0)
-    )
-  ) {
-    return false
-  }
-  const key = custodyResourceKey(value.resource)
-  return (
-    (value.fence === null || custodyResourceKey(value.fence.resource) === key) &&
-    (value.outcome === null || custodyResourceKey(value.outcome.resource) === key)
-  )
-}
-
-function receipt(value: unknown): value is CustodyReceipt {
-  return (
-    object(value) &&
-    (value.state === undefined || value.state === 'retired' || value.state === 'refused') &&
-    ['resourceHash', 'materialHash', 'claimHash', 'keyHash'].every(
-      (key) => typeof value[key] === 'string' && /^[a-f0-9]{64}$/.test(value[key])
-    ) &&
-    typeof value.recordedAt === 'number' &&
-    Number.isFinite(value.recordedAt) &&
-    (value.reason === null || typeof value.reason === 'string') &&
-    (value.proof === null || (typeof value.proof === 'string' && value.proof.length > 0))
-  )
 }
 
 function noSymlinkAncestors(path: string): void {
@@ -201,16 +84,32 @@ export class WorktreeCustodyFileJournal implements CustodyJournal {
       const parsed: unknown = JSON.parse(readFileSync(fd, 'utf8'))
       if (
         !object(parsed) ||
-        (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3) ||
+        (parsed.version !== 1 &&
+          parsed.version !== 2 &&
+          parsed.version !== 3 &&
+          parsed.version !== 4 &&
+          parsed.version !== 5) ||
         typeof parsed.revision !== 'string' ||
         !Array.isArray(parsed.records) ||
         parsed.records.length > 2048 ||
-        !parsed.records.every(record)
+        !parsed.records.every(custodyJournalRecord)
       ) {
         throw new Error('custody_journal_invalid')
       }
       const receipts = parsed.version === 1 ? [] : parsed.receipts
-      if (!Array.isArray(receipts) || receipts.length > 16384 || !receipts.every(receipt)) {
+      if (
+        !Array.isArray(receipts) ||
+        receipts.length > 16384 ||
+        !receipts.every(custodyJournalReceipt) ||
+        !custodyClientCancellationsValid(parsed.clientCancellations)
+      ) {
+        throw new Error('custody_journal_invalid')
+      }
+      const seal = parsed.epochSeal
+      if (
+        seal !== undefined &&
+        ((parsed.version !== 4 && parsed.version !== 5) || !epochSeal(seal))
+      ) {
         throw new Error('custody_journal_invalid')
       }
       const claims = new Set(parsed.records.map((entry) => entry.claim))
@@ -228,7 +127,12 @@ export class WorktreeCustodyFileJournal implements CustodyJournal {
         throw new Error('custody_journal_duplicate')
       }
       this.revision = parsed.revision
-      return { records: parsed.records, receipts }
+      return {
+        records: parsed.records,
+        receipts,
+        ...(parsed.clientCancellations ? { clientCancellations: parsed.clientCancellations } : {}),
+        ...(epochSeal(seal) ? { epochSeal: seal } : {})
+      }
     } finally {
       closeSync(fd)
     }
@@ -239,10 +143,11 @@ export class WorktreeCustodyFileJournal implements CustodyJournal {
       throw new Error('custody_durability_unsupported')
     }
     const revision = randomUUID()
-    const body = JSON.stringify({ version: 3, revision, ...state })
+    const body = JSON.stringify({ version: 5, revision, ...state })
     if (
       state.records.length > 2048 ||
       state.receipts.length > 16384 ||
+      !custodyClientCancellationsValid(state.clientCancellations) ||
       Buffer.byteLength(body) > MAX_JOURNAL_BYTES
     ) {
       throw new Error('custody_journal_full')

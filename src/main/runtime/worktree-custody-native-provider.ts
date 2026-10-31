@@ -1,7 +1,8 @@
+import { acquireNativeCustodyGrant } from './worktree-custody-native-grant'
 import type {
-  WorktreeCustodyDomain,
   WorktreeCustodyObservation,
-  WorktreeCustodyResource
+  WorktreeCustodyResource,
+  WorktreeCustodyFence
 } from '../../shared/worktree/custody'
 import {
   isPathInsideOrEqual,
@@ -11,25 +12,23 @@ import type { OrcaRuntimeService } from './orca-runtime'
 import type { WorktreePreservation } from './worktree-custody-preservation'
 import type { NativeWorktreeCustodyProvider } from './worktree-custody-retirement'
 import type { CustodyFenceOwner } from './worktree-custody-records'
+import type { WorktreeSelectionAuthority } from './worktree-custody-selections'
+import {
+  LEGACY_CHECKOUT_RETIREMENT_POLICY,
+  type CheckoutRetirementPolicy
+} from './worktree-custody-checkout-policy'
 
 const PRODUCER_OWNER = 'orchestration'
-const INSTALL_DRAIN_MS = 5_000
 const RECOVERABLE_WORKER_STATES = ['starting', 'ready', 'start_unknown', 'stopping', 'stop_unknown']
 
-type DomainProof = {
-  domain: WorktreeCustodyDomain
-  observedAt: number
-  complete: boolean
-  active: boolean | null
-  held: boolean | null
-  proof: string | null
-}
+type DomainProof = WorktreeCustodyObservation['domains'][number]
 
 /** Host-only port for consumers outside Orca's registries; no RPC, CLI or caller data can supply it. */
 export type ExternalConsumerAuthority = {
   observe: (resource: WorktreeCustodyResource) => Promise<Omit<DomainProof, 'domain'>>
   acquire: (
-    resource: WorktreeCustodyResource
+    resource: WorktreeCustodyResource,
+    fence: WorktreeCustodyFence
   ) => Promise<{ check: () => boolean; release: () => void }>
 }
 
@@ -56,13 +55,16 @@ export type NativeCustodyProviderPorts = {
   preservation: (path: string) => Promise<WorktreePreservation>
   external: ExternalConsumerAuthority | null
   /** Host-only authority for paired/mobile clients' current workspace selection. */
-  pairedSelection: { selects: (worktreeId: string) => boolean } | null
+  pairedSelection: WorktreeSelectionAuthority | null
   /** Exclusive profile lock: the holder now, and the lock's own exit judgment for a prior holder. */
   profileLock: {
     current: () => CustodyFenceOwner | null
     exited: (owner: CustodyFenceOwner) => boolean
   }
   now?: () => number
+  /** Native adoption package only, after Core accepts the exact policy and aggregate caps. */
+  checkoutPolicy?: CheckoutRetirementPolicy
+  releaseHistory?: NativeWorktreeCustodyProvider['recoverRelease']
 }
 
 export type NativeCustodyProvider = NativeWorktreeCustodyProvider & {
@@ -74,20 +76,6 @@ function overlapping(left: string, right: string): boolean {
   const a = normalizeRuntimePathForComparison(left)
   const b = normalizeRuntimePathForComparison(right)
   return isPathInsideOrEqual(a, b) || isPathInsideOrEqual(b, a)
-}
-
-async function withinDeadline(ready: Promise<void>, ms: number): Promise<boolean> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([
-      ready.then(() => true),
-      new Promise<boolean>((resolve) => {
-        timer = setTimeout(() => resolve(false), ms)
-      })
-    ])
-  } finally {
-    clearTimeout(timer)
-  }
 }
 
 export function createNativeWorktreeCustodyProvider(
@@ -195,11 +183,11 @@ export function createNativeWorktreeCustodyProvider(
       const current =
         session.activeWorktreeId === id ||
         desktop?.activeWorktreeId === id ||
-        ports.pairedSelection?.selects(id) === true
+        ports.pairedSelection?.selects(id, resource.path, resource.hostId) === true
       stamp({
         domain: 'workspace',
         // Without paired-client selection authority the domain can only add holds.
-        complete: ports.pairedSelection !== null,
+        complete: ports.pairedSelection?.complete === true,
         active: current,
         held:
           current ||
@@ -242,46 +230,21 @@ export function createNativeWorktreeCustodyProvider(
 
   return {
     owner: PRODUCER_OWNER,
-    ready: ports.external !== null && ports.pairedSelection !== null,
+    ready:
+      ports.external !== null &&
+      ports.pairedSelection !== null &&
+      typeof ports.pairedSelection.complete === 'boolean' &&
+      Number.isSafeInteger(ports.pairedSelection.generation) &&
+      ports.pairedSelection.generation >= 0 &&
+      ports.pairedSelection.acquire !== undefined &&
+      ports.pairedSelection.settle !== undefined &&
+      ports.releaseHistory !== undefined &&
+      ports.checkoutPolicy !== undefined,
+    retirementPolicy: ports.checkoutPolicy ?? LEGACY_CHECKOUT_RETIREMENT_POLICY,
     observe,
-    acquire: async (resource) => {
-      // Admission already refuses Orca entrypoints for the fenced path; this also closes watcher/PTY installs.
-      const installs = ports.fenceInstalls(resource.path)
-      let external: { check: () => boolean; release: () => void } | null = null
-      try {
-        if (!(await withinDeadline(installs.ready, INSTALL_DRAIN_MS))) {
-          throw new Error('custody_consumer_install_pending')
-        }
-        if (registeredConsumers(resource.path) > 0) {
-          throw new Error('custody_registered_consumer_held')
-        }
-        if (!ports.external) {
-          throw new Error('custody_external_consumer_unproven')
-        }
-        external = await ports.external.acquire(resource)
-      } catch (error) {
-        external?.release()
-        installs.release()
-        throw error
-      }
-      const grant = external
-      let released = false
-      return {
-        // Synchronous and side-effect-free: only registry reads.
-        check: () => !released && registeredConsumers(resource.path) === 0 && grant.check(),
-        release: () => {
-          if (released) {
-            return
-          }
-          released = true
-          try {
-            grant.release()
-          } finally {
-            installs.release()
-          }
-        }
-      }
-    },
+    acquire: (resource, fence) =>
+      acquireNativeCustodyGrant(ports, resource, fence, registeredConsumers),
+    settleClientFence: (fence) => ports.pairedSelection?.settle?.(fence),
     // No owning durable result store exists; an unknown effect stays unknown.
     reconcile: async (outcome) => ({
       resource: outcome.resource,
@@ -312,6 +275,7 @@ export function createNativeWorktreeCustodyProvider(
       }
     },
     // Durable producer rows lack consumer admission history across the gap; keep old epochs unknown.
-    recoverRelease: async (release) => ({ release, confirmed: false, proof: null })
+    recoverRelease:
+      ports.releaseHistory ?? (async (release) => ({ release, confirmed: false, proof: null }))
   }
 }

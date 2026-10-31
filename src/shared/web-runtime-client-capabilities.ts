@@ -1,4 +1,5 @@
 import { STRUCTURED_AGENT_SESSION_RENDERER_CLIENT_CAPABILITIES } from './structured-agent-session-renderer-client-capabilities'
+import { WORKTREE_SELECTION_CAPABILITY } from './worktree/custody-selection'
 import {
   AGENT_SESSION_BOUNDARY_RUNTIME_CAPABILITY,
   AGENT_STATUS_RESTORED_UNCONFIRMED_RUNTIME_CAPABILITY,
@@ -18,6 +19,7 @@ import {
 
 /** What the browser client advertises in its handshake with the host it is paired to. */
 export const WEB_RUNTIME_CLIENT_CAPABILITIES = [
+  WORKTREE_SELECTION_CAPABILITY,
   // The desktop's chat, over the same `agentSession.*` calls.
   ...STRUCTURED_AGENT_SESSION_RENDERER_CLIENT_CAPABILITIES,
   SESSION_TAB_CLOSE_INTENT_RUNTIME_CAPABILITY,

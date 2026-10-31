@@ -15,6 +15,10 @@ import {
 } from './worktree-custody-runtime'
 import { NativeRetirementResults } from './worktree-custody-native-results'
 import type { CustodyCoverage } from './worktree-custody-authority'
+import {
+  resolveCheckoutRetirementPolicy,
+  type CheckoutRetirementPolicy
+} from './worktree-custody-checkout-policy'
 
 const preEffectRefusals = new WeakMap<
   object,
@@ -46,11 +50,15 @@ export type NativeWorktreeCustodyProvider = {
   reconcile: CustodyCoverage['reconcile']
   recoverFence: CustodyCoverage['recoverFence']
   recoverRelease?: CustodyCoverage['recoverRelease']
+  retirementPolicy?: CheckoutRetirementPolicy
+  settleClientFence?: CustodyCoverage['settleClientFence']
 }
 
 async function boundedCheckout(
   resource: WorktreeCustodyResource,
-  check: () => void
+  check: () => void,
+  policy: CheckoutRetirementPolicy,
+  deadline: number
 ): Promise<string> {
   const startedAt = Date.now()
   let ancestor = resource.path
@@ -71,7 +79,12 @@ async function boundedCheckout(
   let bytes = 0
   for (let next = pending.pop(); next; next = pending.pop()) {
     check()
-    if (++entries > 4096 || next.depth > 128 || Date.now() - startedAt > 10_000) {
+    if (
+      ++entries > policy.maxEntries ||
+      next.depth > policy.maxDepth ||
+      Date.now() >= deadline ||
+      Date.now() - startedAt > policy.maxDurationMs
+    ) {
       throw new Error('custody_effect_budget')
     }
     const info = await lstat(next.path)
@@ -86,14 +99,24 @@ async function boundedCheckout(
       // Bound enumeration before retaining an arbitrary directory listing.
       const directory = await opendir(next.path)
       for await (const entry of directory) {
-        if (pending.length + entries >= 4096) {
+        check()
+        if (pending.length + entries >= policy.maxEntries || Date.now() >= deadline) {
           throw new Error('custody_effect_budget')
         }
         pending.push({ path: join(next.path, entry.name), depth: next.depth + 1 })
       }
     } else {
+      if (!Number.isSafeInteger(info.blocks) || info.blocks < 0) {
+        throw new Error('custody_checkout_allocation_unproven')
+      }
       bytes += info.blocks * 512
-      if (!info.isFile() || info.nlink !== 1 || ++files > 2048 || bytes > 1024 ** 3) {
+      if (
+        !info.isFile() ||
+        !Number.isSafeInteger(bytes) ||
+        info.nlink !== 1 ||
+        ++files > policy.maxFiles ||
+        bytes > policy.maxAllocatedBytes
+      ) {
         throw new Error('custody_checkout_material_unsafe_or_oversized')
       }
     }
@@ -140,10 +163,11 @@ export function installNativeWorktreeCustodyRetirement(
   producer: NativeWorktreeCustodyProvider,
   results = new NativeRetirementResults(nativeWorktreeCustodyResultJournal(), producer.owner)
 ): () => void {
+  const policy = resolveCheckoutRetirementPolicy(producer.retirementPolicy)
   const retire: CustodyCoverage['retire'] = async (resource, check, key) => {
     const prepared = await (async () => {
       try {
-        const deadline = Date.now() + 10_000
+        const deadline = Date.now() + policy.maxDurationMs
         check()
         const worktree = await runtime.showManagedWorktree(`id:${resource.worktreeId}`)
         if (
@@ -163,7 +187,7 @@ export function installNativeWorktreeCustodyRetirement(
         if (repo.kind === 'folder' || repo.path === resource.path) {
           throw new Error('custody_folder_unsupported')
         }
-        const identity = await boundedCheckout(resource, check)
+        const identity = await boundedCheckout(resource, check, policy, deadline)
         await assertWorktreeCleanForRemoval(resource.path, false)
         const current = await lstat(resource.path)
         if (`${current.dev}:${current.ino}:${current.ctimeMs}` !== identity) {
@@ -218,6 +242,7 @@ export function installNativeWorktreeCustodyRetirement(
       reconcile: async (outcome) => results.confirmed(outcome) ?? producer.reconcile(outcome),
       recoverFence: producer.recoverFence,
       recoverRelease: producer.recoverRelease,
+      settleClientFence: producer.settleClientFence,
       observe: observeWithNativeProducer(runtime, producer),
       retire
     },

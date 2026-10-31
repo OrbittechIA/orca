@@ -6,7 +6,12 @@ import {
   type WorktreeCustodyOutcome,
   type WorktreeCustodyResource
 } from '../../shared/worktree/custody'
-import { digest, type CustodyRetirementConfirmation } from './worktree-custody-records'
+import {
+  digest,
+  custodyFenceHash,
+  sameFence,
+  type CustodyRetirementConfirmation
+} from './worktree-custody-records'
 import { WorktreeCustodyFences } from './worktree-custody-fences'
 
 export { WorktreeCustodyAdmissionError } from './worktree-custody-records'
@@ -21,6 +26,39 @@ export type {
 } from './worktree-custody-records'
 
 export class WorktreeCustodyAuthority extends WorktreeCustodyFences {
+  clientFenceSettlement(fence: WorktreeCustodyFence): string | null {
+    if (this.effectsUnreadable || this.effectsWriteUnknown) {
+      return null
+    }
+    const hash = custodyFenceHash(fence)
+    const previous = this.effects.clientCancellations?.find((entry) => entry.fenceHash === hash)
+    if (previous) {
+      return `native-client-cancel:${previous.proofHash}:${hash}`
+    }
+    const cancellation = this.effects.records.find(
+      (record) => record.recovery?.fence && sameFence(record.recovery.fence, fence)
+    )?.recovery
+    if (cancellation) {
+      return `native-client-cancel:${digest(cancellation.proof)}:${hash}`
+    }
+    const receipt = this.effects.receipts.find(
+      (entry) =>
+        entry.fenceHash === hash &&
+        entry.resourceHash === digest(custodyResourceKey(fence.resource))
+    )
+    return receipt
+      ? `native-client-${receipt.state === 'refused' ? 'cancel' : 'result'}:${receipt.keyHash}:${hash}`
+      : null
+  }
+
+  activeClientFences(): WorktreeCustodyFence[] | null {
+    if (this.effectsUnreadable || this.effectsWriteUnknown) {
+      return null
+    }
+    return this.effects.records.flatMap((record) =>
+      record.fence ? [structuredClone(record.fence)] : []
+    )
+  }
   override resources(): WorktreeCustodyResource[] {
     this.releaseTerminalGrants()
     return super.resources()
@@ -86,7 +124,7 @@ export class WorktreeCustodyAuthority extends WorktreeCustodyFences {
       let result: WorktreeCustodyOutcome
       let proof: string | null = null
       try {
-        await Reflect.apply(retire, coverage, [fence.resource, () => this.check(fence), key])
+        await retire.call(coverage, fence.resource, () => this.check(fence), key)
         result = this.outcome(fence.resource, key, 'retired', null)
       } catch (error) {
         proof = nativeWorktreePreEffectRefusal(retire, error, fence.resource)

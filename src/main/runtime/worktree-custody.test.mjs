@@ -335,7 +335,7 @@ test('private journal forward compatibility preserves v2 retired receipts and re
     'forward-reader'
   )
   assert.equal((await forward.reconcile(f.resource, KEY)).state, 'retired')
-  envelope.version = 4
+  envelope.version = 99
   writeFileSync(path, JSON.stringify(envelope))
   const unsupported = new WorktreeCustodyAuthority(
     new WorktreeCustodyFileJournal(directory),

@@ -1,6 +1,6 @@
 import type { WebRuntimeTransportSubscription } from './web-runtime-subscription-contract'
 
-const REPLAYABLE_SUBSCRIPTION_METHODS = new Set(['files.watch'])
+const REPLAYABLE_SUBSCRIPTION_METHODS = new Set(['files.watch', 'workspace.selection.watch.v1'])
 
 type WebRuntimeSubscriptionRegistryOptions = {
   deviceToken: string

@@ -1,6 +1,6 @@
 # Native worktree custody v1
 
-This is a source foundation for a trusted material-lifecycle adapter. It does not
+This is staged native integration for a trusted material-lifecycle adapter. It does not
 certify existing worktrees for cleanup. Startup installs the native orchestration
 provider for observation, but no native authority attests external consumers, so
 coverage is not installed and the runtime does not advertise
@@ -13,7 +13,7 @@ Its fixed native effect uses unforced Git worktree removal with
 `deleteBranch=false`, after fresh exact identity, consumer and preservation
 proof under an exclusive producer grant. Its local scan refuses symlinks,
 cross-device material, foreign ownership, hardlinks, special files, more than
-2,048 files, 4,096 entries, 1 GiB allocated, depth 128 or ten seconds. The Git
+2,048 files, 4,096 entries, 1 GiB allocated, depth 128 or ten seconds by default. The Git
 effect receives the remaining ten-second budget as an abort deadline. An
 uncertain effect stays unknown; timeout is never interpreted as process exit.
 
@@ -159,14 +159,14 @@ calls the same idempotent installer for hosts that skip that composition. Caller
 data never reaches it. The `orchestration` provider (`worktree-custody-native-provider.ts`)
 binds only existing owners:
 
-| domain              | owning source                                                                                                                                                                      | complete when                                                               |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| structured-session  | opened single-writer agent-session record store and open-journal work                                                                                                              | store opened                                                                |
-| recovery            | sleep records, pending/failed removals, recoverable `worker_dispatches`, session spawn reservations                                                                                | store and workspace session readable                                        |
-| workspace           | host workspace session: selection, open editor/browser/unified tabs; status, pin, children, removal                                                                                | never: paired/mobile selection has no host authority, so it only adds holds |
-| registered-consumer | desktop watched/suspended/in-flight watcher roots and runtime file-watch leases on any overlapping root, every runtime and connection                                              | always (in-process registries)                                              |
-| preservation        | Git: no tracked, untracked or ignored entry; only plain index entries; no gitlink; HEAD on a shared branch the fixed effect retains; no per-worktree refs or in-progress operation | Git answered                                                                |
-| external-consumer   | none on this host                                                                                                                                                                  | never                                                                       |
+| domain              | owning source                                                                                                                                                                      | complete when                                                                           |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| structured-session  | opened single-writer agent-session record store and open-journal work                                                                                                              | store opened                                                                            |
+| recovery            | sleep records, pending/failed removals, recoverable `worker_dispatches`, session spawn reservations                                                                                | store and workspace session readable                                                    |
+| workspace           | host workspace session plus transport-owned selection inventory; open editor/browser/unified tabs; status, pin, children, removal                                                  | every live connection owns a complete view channel or explicit headless declaration; no view selects the resource |
+| registered-consumer | desktop watched/suspended/in-flight watcher roots and runtime file-watch leases on any overlapping root, every runtime and connection                                              | always (in-process registries)                                                          |
+| preservation        | Git: no tracked, untracked or ignored entry; only plain index entries; no gitlink; HEAD on a shared branch the fixed effect retains; no per-worktree refs or in-progress operation | Git answered                                                                            |
+| external-consumer   | none on this host                                                                                                                                                                  | never                                                                                   |
 
 Terminal and dispatch keep the native observation above. Native product is the
 physical `projectId`; a native Task has no product, so Core must bind its own
@@ -204,8 +204,120 @@ PID absence, lock-file age or journal existence alone are never proof.
 
 Coverage, and therefore the capability, is installed only when the provider is
 `ready`, which requires host-only external-consumer and paired-selection
-authorities. Neither exists, so this build installs observation only. A process scan or file-target guard cannot
+authorities, an owning release-history authority, and an explicitly adopted checkout policy. The external/history authorities and policy adoption are absent,
+so this build installs observation only. A process scan or file-target guard cannot
 be that authority.
+
+## Target-specific live client admissions
+
+`WorktreeCustodySelections` belongs to the profile across runtime replacement. Local
+socket accept/close, authenticated paired/mobile direct/relay sockets, and desktop
+window/document lifecycle register connections before selection absence can count.
+Unknown, legacy, incomplete and unrepresented clients HOLD cleanup. Presence expiry,
+focus, sidebar configuration and disconnect history do not establish absence.
+
+`workspace.selection.watch.v1` opens a live view channel on that actual connection;
+a report alone never qualifies a view. Initial and later complete reports include
+selected plus mounted background/folder workspaces, at most 64 IDs. An incomplete
+report preserves prior selections and adds an unknown hold. Native selection
+admission still revokes released eligibility. Ordinary Start and navigation retain
+their synchronous contracts outside the particular retiring target.
+
+Capture first commits the exact native fence, then sends every view a round bound
+to connection ID, channel nonce, client incarnation, round nonce and the full native
+resource/fence. Before replying, the client synchronously closes new local admission
+for that target and reads its actual selection/mount snapshot. Only ABSENT from every
+current view permits acquisition; HELD, UNKNOWN, five-second timeout, late connection,
+report change or disconnect/reopen invalidates it. Existing mounted consumers stay
+running and refuse retirement. Synchronous native grant checks read cached authority
+and generation state; they perform no process walk or filesystem census.
+
+The renderer adapter starts independently of sidebar presence and reads actual
+active selection plus retained mounted workspace IDs. Its synchronous selection and
+terminal/prewarm guards cover only the fenced target, including folder keys. Web
+local-owner aliases normalize to the browser's actual environment, avoiding an empty
+local report on the same remote socket. Electron paired subscriptions use the shared
+control connection; old hosts without that seam stay unknown. The web watch, reports,
+ACKs and exact ready-ID unsubscribe use its parent socket; unrelated subscriptions
+retain their existing child-socket behavior. Physical reconnect replays the channel,
+then reconciles the client's retained full fences against native durable evidence.
+
+Mobile initializes the adapter on the stable logical client. The common workspace
+route guards new deep links before content mounts and tracks retained background
+routes with mount leases; it never unmounts an existing consumer for retirement.
+Logical migration replays current mounted IDs and pending fences, while stale physical
+callbacks cannot release a new connection's gates. Execution-host views carry the
+existing host envelope over one delegated phone/server socket. A legacy or malformed
+reply leaves cleanup unknown without closing the user's working RPC client.
+
+The native mobile document owns one aggregate physical channel for its route and
+every embedded page. Page selection methods terminate at that document owner,
+which waits for each page's exact round ACK before acknowledging native absence.
+Ready declares the page capability and stable document identity; init carries
+active full fences by execution host before new page content can mount. Unknown,
+legacy, overflowed or duplicate views hold retirement. A page's close message
+invalidates its report; only native document disposal removes its inventory.
+Native host replacement preserves unknown history for the prior transport and
+existing page streams continue while a cleanup fence targets another workspace.
+
+Only custody CLI requests send an acknowledged explicit empty headless report before
+the original request on the same local socket. No generic method-name exemption is
+used. Other CLI/Start requests retain the existing one-request path. Any unrepresented
+remote/legacy path continues to HOLD rather than silently falling back.
+
+Client gates survive disconnects and deadline expiry. A reconnect receives active
+native fences and asks for exact settlement of retained fences. Only an owning,
+healthy durable native cancellation or terminal receipt releases the matching gate;
+path/DB absence and elapsed time never release it. Cancellation hashes persist across
+later captures and final retirement, bounded to 16,384 entries and the existing 4 MiB
+journal cap. Capacity refuses a new capture, and uncertain writes retain gates. Native
+terminal receipts bind the full fence hash. Old, nonce-swapped, foreign-generation or
+other-connection releases cannot clear another gate. This client settlement history
+is separate from the still-missing continuous native `recoverRelease` authority.
+
+## Closed epochs and compatibility
+
+Committed desktop/serve quit and orcad shutdown now close custody admissions
+irreversibly before teardown, rather than relying on the quit flag. A clean local
+epoch seal requires drained admission reservations, no pending custody effects,
+healthy writes, and this process's native profile-lock witness. It records the
+closed authority ID, owner and exact claims digest. A failed seal disables cleanup
+proof and does not cancel shutdown. Sealing is inactive before native coverage
+opt-in or prior effect state. Active reservations and all session/profile histories
+are retained. Recovery-write failure also restores the historical in-memory epoch.
+
+Storage writes v5 and reads v1–v5. A frozen real v4 reader rejects v5 instead of
+discarding client fence settlements. Downgrading across actual v5 effects requires
+reconciling them with a v5-aware binary first; do not delete or rewrite the journals.
+Legacy claims and unsealed/crashed epochs stay unknown. In particular, a clean seal
+alone cannot renew a release: an intervening failed Start write could leave an old
+seal on disk. The existing profile lock removes its record on release and does not
+provide an unbroken admission-history witness. `recoverRelease` stays unconfirmed
+until an independent owning history authority proves that continuity.
+
+## Prepared whole-checkout policy
+
+The fixed effect accepts only the two exact, frozen policies in
+`worktree-custody-checkout-policy.ts`. `bounded-checkout-v1` remains the fallback.
+The prepared `whole-checkout-v2` policy inventories the entire resource once under
+one grant: at most 250,000 entries, 200,000 files, 16 GiB allocated, depth 128, and
+25 seconds shared by preflight and the one native removal. It does not extend the
+30-second grant or divide deletion into subresources. The directory queue, each
+enumerated entry, allocation arithmetic and effect timeout are bounded. Any limit,
+unreadable entry, symlink, foreign owner/device, hardlink, or special file refuses.
+
+Core must explicitly adopt this policy and its aggregate byte budget before the
+native host supplies `checkoutPolicy`; this patch does not change Core's existing
+1 GiB pass budget, 7-day completion retention, or 72-hour last-use policy. Until that
+review, the whole-checkout policy cannot enable capability advertising. The existing
+Git preservation proof is unchanged: clean plain tracked content is retained by the
+shared branch/commit, the branch is not deleted, detached HEAD and per-worktree
+state refuse, and any untracked or ignored material refuses. No ignored file is
+called reconstructible merely because it looks like a dependency cache. Session,
+chat and profile history are outside the fixed effect.
+
+The Linux native enforcement gap and the required adoption boundary are described
+in [Linux authority qualification](worktree-custody-linux-authority.md).
 
 ## Crash, reconciliation and rollback
 

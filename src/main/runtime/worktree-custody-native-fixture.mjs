@@ -163,10 +163,15 @@ const leases = await moduleFromSource(
     '../../../ipc/filesystem/watcher-process/parcel-watcher-process-failure': './provider-ports.mjs'
   }
 )
+await moduleFromSource('native-grant.mjs', './worktree-custody-native-grant.ts')
 const providerCore = await moduleFromSource(
   'native-provider.mjs',
   './worktree-custody-native-provider.ts',
-  { '../../shared/cross-platform-path': './provider-ports.mjs' }
+  {
+    '../../shared/cross-platform-path': './provider-ports.mjs',
+    './worktree-custody-checkout-policy': './checkout-policy.mjs',
+    './worktree-custody-native-grant': './native-grant.mjs'
+  }
 )
 const providerHost = await moduleFromSource(
   'native-provider-host.mjs',
@@ -352,8 +357,29 @@ async function providerFixture(checkout, options = {}) {
     fenceInstalls: (path) => gate.acquireWatcherRemovalGate(path),
     preservation: (path) => proveWorktreePreservation(path, cleanGit(path, options.git)),
     // Stand in for the paired-selection and external-consumer authorities this host does not have.
-    pairedSelection: options.external === null ? null : { selects: () => false },
+    pairedSelection:
+      options.external === null
+        ? null
+        : (options.pairedSelection ?? {
+            complete: true,
+            generation: 0,
+            selects: () => false,
+            acquire: async () => ({ check: () => true, release: () => {} }),
+            settle: () => {}
+          }),
+    checkoutPolicy:
+      options.checkoutPolicy === null
+        ? undefined
+        : (options.checkoutPolicy ?? {
+            id: 'bounded-checkout-v1',
+            maxEntries: 4096,
+            maxFiles: 2048,
+            maxAllocatedBytes: 1024 ** 3,
+            maxDurationMs: 10_000,
+            maxDepth: 128
+          }),
     profileLock: options.profileLock ?? { current: () => null, exited: () => false },
+    releaseHistory: async (release) => ({ release, confirmed: false, proof: null }),
     external:
       options.external === null
         ? null
