@@ -1,5 +1,15 @@
 import { translate } from '../i18n/mobile-i18n'
 
+type LegacyWorkItemStartJournal = {
+  v: 1
+  attempts?: unknown
+  identities?: unknown
+}
+
+function isLegacyWorkItemStartJournal(value: unknown): value is LegacyWorkItemStartJournal {
+  return value !== null && typeof value === 'object' && 'v' in value && value.v === 1
+}
+
 export async function readLegacyWorkItemStartRecovery(
   storage: { getItem(key: string): Promise<string | null> },
   worktreeId: string
@@ -14,18 +24,12 @@ export async function readLegacyWorkItemStartRecovery(
       continue
     }
     const journal: unknown = JSON.parse(raw)
-    if (
-      !journal ||
-      typeof journal !== 'object' ||
-      !('v' in journal) ||
-      journal.v !== 1 ||
-      !(field in journal)
-    ) {
+    if (!isLegacyWorkItemStartJournal(journal) || !(field in journal)) {
       throw new Error(
         'Earlier Work Item Start recovery data is unreadable. Review the existing conversation before sending anything.'
       )
     }
-    const entries: unknown = Reflect.get(journal, field)
+    const entries: unknown = journal[field]
     if (
       !Array.isArray(entries) ||
       entries.some(
