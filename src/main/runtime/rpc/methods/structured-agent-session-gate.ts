@@ -174,7 +174,14 @@ export async function requireInstalledStructuredHost(
   sessionId?: string
 ): Promise<StructuredAgentSessionHost> {
   await ensureStructuredHostInstalled(ctx)
-  return sessionId ? requireStructuredSessionHost(ctx, sessionId) : requireStructuredHost(ctx)
+  if (!sessionId) {
+    return requireStructuredHost(ctx)
+  }
+  // An authoritative missing record answers as the host's own read would; unreadable or unknown stays refused.
+  if (structuredSessionProvablyAbsent(requireStructuredHost(ctx), sessionId)) {
+    throw agentSessionRefusalError('agent_session_identity_required', { reason: 'recordMissing' })
+  }
+  return requireStructuredSessionHost(ctx, sessionId)
 }
 
 /** Persist/share proven paired device id, never clientId bearer credentials (for example, who answered a prompt). */
