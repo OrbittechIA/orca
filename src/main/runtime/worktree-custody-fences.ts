@@ -45,8 +45,14 @@ export class WorktreeCustodyFences extends WorktreeCustodyAdmission {
       capturedAt: this.now(),
       expiresAt: this.now() + WORKTREE_CUSTODY_MAX_AGE_MS
     }
+    const owner = this.currentFenceOwner()
     this.commitEffects(() => {
       record.fence = fence
+      if (owner) {
+        record.fenceOwner = owner
+      } else {
+        delete record.fenceOwner
+      }
     })
     try {
       const grant = await coverage.acquire(resource)
@@ -112,7 +118,10 @@ export class WorktreeCustodyFences extends WorktreeCustodyAdmission {
       if (!coverage?.recoverFence) {
         throw new Error('custody_coverage_unsupported')
       }
-      const confirmation = await coverage.recoverFence(structuredClone(held))
+      const confirmation = await coverage.recoverFence(
+        structuredClone(held),
+        structuredClone(record.fenceOwner ?? null)
+      )
       if (
         confirmation.recovered !== true ||
         typeof confirmation.proof !== 'string' ||
@@ -128,6 +137,7 @@ export class WorktreeCustodyFences extends WorktreeCustodyAdmission {
     }
     this.commitEffects(() => {
       record.fence = null
+      delete record.fenceOwner
       record.recovery = {
         token: held.token,
         authorityId: held.authorityId,

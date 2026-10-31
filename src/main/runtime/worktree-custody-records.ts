@@ -8,6 +8,17 @@ import {
   type WorktreeCustodyResource
 } from '../../shared/worktree/custody'
 
+/** Exclusive profile-lock record held by the incarnation that captured a fence. */
+export type CustodyFenceOwner = {
+  pid: number
+  startedAtMs: number | null
+  linuxStartTicks?: string
+  bootId?: string
+  nonce: string
+  identity: string
+  machineIdentity?: string
+}
+
 export type CustodyRecord = {
   resource: WorktreeCustodyResource
   claim: string
@@ -16,6 +27,8 @@ export type CustodyRecord = {
   releaseRecoveryProof?: string
   revoked: boolean
   fence: WorktreeCustodyFence | null
+  /** Private witness; older readers ignore it. */
+  fenceOwner?: CustodyFenceOwner
   outcome: WorktreeCustodyOutcome | null
   recovery?: { token: string; authorityId: string; proof: string }
 }
@@ -61,7 +74,10 @@ export type CustodyCoverage = {
   }>
   retire: (resource: WorktreeCustodyResource, check: () => void) => Promise<void>
   reconcile: (outcome: WorktreeCustodyOutcome) => Promise<CustodyRetirementConfirmation>
-  recoverFence: (fence: WorktreeCustodyFence) => Promise<{
+  recoverFence: (
+    fence: WorktreeCustodyFence,
+    owner: CustodyFenceOwner | null
+  ) => Promise<{
     fence: WorktreeCustodyFence
     recovered: boolean
     proof: string | null

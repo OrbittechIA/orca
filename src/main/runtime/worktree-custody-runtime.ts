@@ -10,6 +10,8 @@ import {
   type CustodyCoverage
 } from './worktree-custody-authority'
 import { WorktreeCustodyFileJournal } from './worktree-custody-journal'
+import type { CustodyFenceOwner } from './worktree-custody-records'
+import { heldOrcadInstanceLock } from '../orcad/orcad-held-instance-lock'
 import { OrchestrationError } from './orchestration/orchestration-error'
 import type { OrchestrationDb } from './orchestration/db'
 import { WORKER_RELEASABLE_STATES } from './orchestration/worker-terminal-ownership'
@@ -19,6 +21,24 @@ export { WorktreeCustodyAdmissionError } from './worktree-custody-authority'
 
 const authorities = new Map<string, WorktreeCustodyAuthority>()
 const SETTLED_DISPATCH_STATUSES = ['completed', 'failed', 'circuit_broken']
+
+/** The exclusive desktop/orcad/serve profile lock this process holds now, if any. */
+export function custodyFenceOwnerWitness(): CustodyFenceOwner | null {
+  const record = heldOrcadInstanceLock()?.record
+  if (!record) {
+    return null
+  }
+  const { pid, startedAtMs, linuxStartTicks, bootId, nonce, identity, machineIdentity } = record
+  return {
+    pid,
+    startedAtMs,
+    nonce,
+    identity,
+    ...(linuxStartTicks ? { linuxStartTicks } : {}),
+    ...(bootId ? { bootId } : {}),
+    ...(machineIdentity ? { machineIdentity } : {})
+  }
+}
 
 export function nativeWorktreeCustody(_runtimeId?: string): WorktreeCustodyAuthority | null {
   if (!hasAppEnvironment() || process.platform === 'win32') {
@@ -35,7 +55,8 @@ export function nativeWorktreeCustody(_runtimeId?: string): WorktreeCustodyAutho
     ),
     randomUUID(),
     Date.now,
-    new WorktreeCustodyFileJournal(directory)
+    new WorktreeCustodyFileJournal(directory),
+    custodyFenceOwnerWitness
   )
   authorities.set(directory, custody)
   return custody

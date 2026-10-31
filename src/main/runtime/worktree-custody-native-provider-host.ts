@@ -5,7 +5,8 @@ import { watcherLifecycleState } from '../ipc/filesystem/watchers/filesystem-wat
 import { countRuntimeFileWatcherLeasesOverlapping } from './files/watch/file-watcher-leases'
 import { acquireWatcherRemovalGate } from '../ipc/watcher-removal-gate'
 import { proveWorktreePreservation } from './worktree-custody-preservation'
-import { nativeWorktreeCustody } from './worktree-custody-runtime'
+import { custodyFenceOwnerWitness, nativeWorktreeCustody } from './worktree-custody-runtime'
+import { orcadLockHolderHasExited } from '../orcad/orcad-held-instance-lock'
 import {
   installNativeWorktreeCustodyRetirement,
   observeWithNativeProducer
@@ -36,7 +37,8 @@ export function nativeCustodyProviderPorts(
     preservation: (path) => proveWorktreePreservation(path),
     // No native authority attests processes outside Orca's registries or paired-client selection.
     external: null,
-    pairedSelection: null
+    pairedSelection: null,
+    profileLock: { current: custodyFenceOwnerWitness, exited: orcadLockHolderHasExited }
   }
 }
 

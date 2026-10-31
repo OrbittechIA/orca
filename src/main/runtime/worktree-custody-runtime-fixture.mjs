@@ -22,6 +22,7 @@ writeFileSync(
   export const WorktreeCustodyRequestSchema = {};
   export let providerInstalls = 0;
   export function installNativeWorktreeCustodyProvider() { providerInstalls++; }
+  export function heldOrcadInstanceLock() { return null; }
 `
 )
 const runtimePorts = await import(pathToFileURL(join(fixtureRoot, 'runtime-ports.mjs')).href)
@@ -54,7 +55,8 @@ const runtimeCustody = await moduleFromSource('runtime.mjs', './worktree-custody
   '../../shared/worktree/custody': './custody.mjs',
   './worktree-custody-authority': './authority.mjs',
   './worktree-custody-journal': './journal.mjs',
-  './orchestration/orchestration-error': './orchestration-error.mjs'
+  './orchestration/orchestration-error': './orchestration-error.mjs',
+  '../orcad/orcad-held-instance-lock': './runtime-ports.mjs'
 })
 const { WORKTREE_CUSTODY_METHOD } = await moduleFromSource(
   'custody-rpc.mjs',

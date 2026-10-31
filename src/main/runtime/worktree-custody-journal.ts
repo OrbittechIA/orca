@@ -72,6 +72,25 @@ function outcome(value: unknown): value is WorktreeCustodyOutcome {
   )
 }
 
+function fenceOwner(value: unknown): boolean {
+  const text = (entry: unknown) =>
+    typeof entry === 'string' && entry.length > 0 && entry.length <= 1024
+  return (
+    object(value) &&
+    typeof value.pid === 'number' &&
+    Number.isSafeInteger(value.pid) &&
+    value.pid > 0 &&
+    (value.startedAtMs === null ||
+      (typeof value.startedAtMs === 'number' && Number.isFinite(value.startedAtMs))) &&
+    (value.linuxStartTicks === undefined ||
+      (typeof value.linuxStartTicks === 'string' && /^\d{1,32}$/.test(value.linuxStartTicks))) &&
+    (value.bootId === undefined || text(value.bootId)) &&
+    (value.machineIdentity === undefined || text(value.machineIdentity)) &&
+    text(value.nonce) &&
+    text(value.identity)
+  )
+}
+
 function record(value: unknown): value is CustodyRecord {
   if (
     !object(value) ||
@@ -90,6 +109,7 @@ function record(value: unknown): value is CustodyRecord {
         value.releaseRecoveryProof.length <= 8192)
     ) ||
     !(value.fence === null || fence(value.fence)) ||
+    !(value.fenceOwner === undefined || (value.fence !== null && fenceOwner(value.fenceOwner))) ||
     !(value.outcome === null || outcome(value.outcome)) ||
     !(
       value.recovery === undefined ||

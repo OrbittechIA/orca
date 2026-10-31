@@ -10,7 +10,8 @@ import {
   type CustodyRecord,
   type CustodyState,
   type CustodyJournal,
-  type CustodyCoverage
+  type CustodyCoverage,
+  type CustodyFenceOwner
 } from './worktree-custody-records'
 
 export class WorktreeCustodyState {
@@ -25,7 +26,8 @@ export class WorktreeCustodyState {
     private readonly journal: CustodyJournal,
     readonly authorityId: string,
     protected readonly now: () => number = Date.now,
-    private readonly claimsJournal?: CustodyJournal
+    private readonly claimsJournal?: CustodyJournal,
+    private readonly fenceWitness?: () => CustodyFenceOwner | null
   ) {
     try {
       this.effects = structuredClone(journal.read())
@@ -106,6 +108,15 @@ export class WorktreeCustodyState {
     return record
   }
 
+  /** The exclusive profile lock this incarnation holds, or null when unavailable. */
+  protected currentFenceOwner(): CustodyFenceOwner | null {
+    try {
+      return this.fenceWitness?.() ?? null
+    } catch {
+      return null
+    }
+  }
+
   protected persistClaims(): void {
     if (
       !this.claimsJournal ||
@@ -138,6 +149,7 @@ export class WorktreeCustodyState {
       record.outcome = state === 'retired' ? outcome : null
       if (state === 'refused') {
         record.fence = null
+        delete record.fenceOwner
         delete record.recovery
       }
       this.effects.receipts.push({

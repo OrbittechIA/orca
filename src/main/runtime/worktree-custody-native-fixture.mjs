@@ -140,6 +140,8 @@ writeFileSync(
   let authority = null;
   export function setAuthority(next) { authority = next; }
   export function nativeWorktreeCustody() { return authority; }
+  export function custodyFenceOwnerWitness() { return null; }
+  export function orcadLockHolderHasExited() { return false; }
 `
 )
 const providerPorts = await import(pathToFileURL(join(fixtureRoot, 'provider-ports.mjs')).href)
@@ -177,6 +179,7 @@ const providerHost = await moduleFromSource(
     '../ipc/watcher-removal-gate': './watcher-gate.mjs',
     './worktree-custody-preservation': './preservation.mjs',
     './worktree-custody-runtime': './provider-ports.mjs',
+    '../orcad/orcad-held-instance-lock': './provider-ports.mjs',
     './worktree-custody-retirement': './retirement.mjs',
     './worktree-custody-native-provider': './native-provider.mjs'
   }
@@ -231,16 +234,23 @@ async function providerFixture(checkout, options = {}) {
   nativePorts.setClean(() => {})
   let durable = { records: [], receipts: [] }
   const authority = new WorktreeCustodyAuthority(
-    { read: () => durable, write: (state) => (durable = structuredClone(state)) },
+    options.journal ?? {
+      read: () => durable,
+      write: (state) => (durable = structuredClone(state))
+    },
     options.authorityId ?? 'provider-fixture-authority',
     Date.now,
-    options.claims
+    options.claims,
+    options.witness
   )
   const worktreeId = `repo::${checkout}`
-  const resource = authority.claim(
-    { ...BASE, path: checkout, worktreeId, ...options.claim },
-    `dispatch:${checkout}`
-  )
+  // A restarted incarnation reads its fenced generation instead of enrolling again.
+  const resource =
+    options.resource ??
+    authority.claim(
+      { ...BASE, path: checkout, worktreeId, ...options.claim },
+      `dispatch:${checkout}`
+    )
   const session = {
     activeWorktreeId: null,
     sleepingAgentSessionsByPaneKey: {},
@@ -302,6 +312,7 @@ async function providerFixture(checkout, options = {}) {
     preservation: (path) => proveWorktreePreservation(path, cleanGit(path, options.git)),
     // Stand in for the paired-selection and external-consumer authorities this host does not have.
     pairedSelection: options.external === null ? null : { selects: () => false },
+    profileLock: options.profileLock ?? { current: () => null, exited: () => false },
     external:
       options.external === null
         ? null
