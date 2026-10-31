@@ -120,7 +120,8 @@ const mcpStatusPage = z.object({
   data: z.array(
     z.looseObject({
       name: z.string(),
-      runtimeStatus: z.unknown(),
+      // Absent status is unknown, not disabled; it must reach the refusal below, not fail parsing.
+      runtimeStatus: z.unknown().optional(),
       tools: z.record(z.string(), z.unknown()).optional(),
       resources: z.array(z.unknown()).optional(),
       resourceTemplates: z.array(z.unknown()).optional()

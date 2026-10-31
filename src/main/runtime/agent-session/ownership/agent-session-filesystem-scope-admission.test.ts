@@ -16,7 +16,12 @@ const scope: BoundOrchestrationFilesystemScope = {
   dispatchId: 'ctx_1',
   provider: 'codex'
 }
-const conflict = { code: 'agent_session_conflict' }
+const conflict = {
+  refusal: expect.objectContaining({
+    code: 'agent_session_conflict',
+    details: { reason: 'identityMismatch' }
+  })
+}
 
 describe('agent session filesystem scope admission', () => {
   it('admits a scope only for a fresh codex conversation', () => {
