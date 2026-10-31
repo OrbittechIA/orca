@@ -9,7 +9,8 @@ import {
 } from '../../../native-chat/agent-session-wire/structured-agent-session-rest-test-rig'
 import {
   HOST_TEST_SESSION as SESSION,
-  HOST_TEST_NOW as NOW
+  HOST_TEST_NOW as NOW,
+  hostTestAttachParams
 } from '../../../native-chat/agent-session-wire/structured-agent-session-host-test-data'
 import { setStructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-registry'
 import { call, runtimeCalls } from './structured-agent-session-rpc.test-fixture'
@@ -69,32 +70,46 @@ const close = () => call('agentSession.close', { sessionId: SESSION }, CLIENT)
 
 const owner = { ...CLIENT, caller: { kind: 'paired-device', deviceId: 'owner' } } as const
 const foreign = { ...CLIENT, caller: { kind: 'paired-device', deviceId: 'foreign' } } as const
+const scopedParams = () =>
+  structuredAgentSessionCreateParams({
+    sessionId: SESSION,
+    worktree: 'id:workspace-1',
+    agent: 'codex',
+    randomUuid: () => '00000000-0000-0000-0000-0000000000fb',
+    now: NOW,
+    launchOrigin: 'work-item-start'
+  })
+const ownerRuntime = {
+  retireStructuredAgentSessionTabFromSnapshot: retireTab,
+  resolveStructuredAgentSessionCreateWorktreeTarget: async () => ({
+    worktreeId: 'workspace-1',
+    workspacePath: '/workspace',
+    instanceId: null,
+    identityKey: null,
+    executionHostId: 'local',
+    creatorKind: 'paired-device',
+    creatorDeviceId: 'owner'
+  })
+}
 const scopedCreate = (overrides: Record<string, unknown> = {}) =>
-  call(
-    'agentSession.create',
-    structuredAgentSessionCreateParams({
-      sessionId: SESSION,
-      worktree: 'id:workspace-1',
-      agent: 'codex',
-      randomUuid: () => '00000000-0000-0000-0000-0000000000fb',
-      now: NOW,
-      launchOrigin: 'work-item-start'
-    }),
-    owner,
-    {
-      retireStructuredAgentSessionTabFromSnapshot: retireTab,
-      resolveStructuredAgentSessionCreateWorktreeTarget: async () => ({
-        worktreeId: 'workspace-1',
-        workspacePath: '/workspace',
-        instanceId: null,
-        identityKey: null,
+  call('agentSession.create', scopedParams(), owner, { ...ownerRuntime, ...overrides })
+const resolvingAfter = (step: () => Promise<unknown>) =>
+  vi.fn(async (params: { envelope: unknown }) => {
+    await step()
+    return {
+      envelope: params.envelope,
+      location: {
         executionHostId: 'local',
-        creatorKind: 'paired-device',
-        creatorDeviceId: 'owner'
-      }),
-      ...overrides
+        wslDistro: null,
+        workspaceId: 'workspace-1',
+        workspaceKind: 'git-worktree'
+      },
+      provider: 'codex',
+      agent: 'codex',
+      accountHome: { variable: 'CODEX_HOME', path: '/host/.codex' },
+      runtimeKind: 'native'
     }
-  )
+  })
 
 const refusedAsClosed = {
   ok: true,
@@ -205,29 +220,38 @@ describe('a close that reaches main before its create', () => {
       expect(await closeAs()).toMatchObject({ ok: true })
       let racing: Promise<unknown> | undefined
       const result = await scopedCreate({
-        resolveStructuredAgentSessionCreateIntent: vi.fn(async (params: { envelope: unknown }) => {
+        resolveStructuredAgentSessionCreateIntent: resolvingAfter(async () =>
           expect(await closeAs()).toMatchObject({ ok: true })
-          return {
-            envelope: params.envelope,
-            location: {
-              executionHostId: 'local',
-              wslDistro: null,
-              workspaceId: 'workspace-1',
-              workspaceKind: 'git-worktree'
-            },
-            provider: 'codex',
-            agent: 'codex',
-            accountHome: { variable: 'CODEX_HOME', path: '/host/.codex' },
-            runtimeKind: 'native'
-          }
-        }),
+        ),
         publishStructuredAgentSessionTab: vi.fn(async () => {
           racing = closeAs()
         })
       })
-
       expect(result).toMatchObject({ ok: true, result: { ok: true } })
       expect(await racing).toMatchObject({ ok: false })
+
+      // Its own fenced creates are refused and never clean up the owner's chat.
+      const visibility = vi.spyOn(rig.host, 'setSessionTabVisibility')
+      const stop = vi.spyOn(rig.host, 'close')
+      const ordinary = createParams()
+      for (const [params, code] of [
+        [ordinary, 'structured_agent_session_unsupported'],
+        [scopedParams(), 'structured_agent_session_unsupported'],
+        [
+          hostTestAttachParams(null, { envelope: ordinary.envelope }),
+          'structured_agent_session_unsupported'
+        ],
+        [
+          { ...ordinary, envelope: { ...ordinary.envelope, expectedRuntimeFence: 1 } },
+          'agent_session_operation_invalid'
+        ]
+      ] as const) {
+        const denied = await call('agentSession.create', params, closer, ownerRuntime)
+        expect(JSON.stringify(denied)).toContain(code)
+        expect(denied).not.toMatchObject(refusedAsClosed)
+      }
+      expect(visibility).not.toHaveBeenCalled()
+      expect(stop).not.toHaveBeenCalled()
       expect(retireTab).not.toHaveBeenCalled()
       expect(rig.store.getRecord(SESSION)).toMatchObject({
         launchOrigin: 'work-item-start',
@@ -236,13 +260,40 @@ describe('a close that reaches main before its create', () => {
     }
   )
 
-  it("the launch owner's close still refuses its Work Item Start create", async () => {
-    expect(await call('agentSession.close', { sessionId: SESSION }, owner)).toMatchObject({
-      ok: true
+  it.each([
+    'before the create',
+    'while it resolves',
+    'while it commits',
+    'before it fails past commit'
+  ])("the launch owner's close %s still ends its Work Item Start launch", async (phase) => {
+    const closeAsOwner = () => call('agentSession.close', { sessionId: SESSION }, owner)
+    let closing: Promise<unknown> | undefined
+    if (phase === 'before the create') {
+      expect(await closeAsOwner()).toMatchObject({ ok: true })
+    }
+    const result = await scopedCreate({
+      ...(phase === 'while it resolves'
+        ? { resolveStructuredAgentSessionCreateIntent: resolvingAfter(closeAsOwner) }
+        : {}),
+      publishStructuredAgentSessionTab: vi.fn(async () => {
+        if (phase === 'while it commits' || phase === 'before it fails past commit') {
+          closing = closeAsOwner()
+        }
+        if (phase === 'before it fails past commit') {
+          await vi.waitFor(() =>
+            expect(structuredAgentSessionClosedBeforeCreate(SESSION)).toBe(true)
+          )
+          throw new Error('tab write failed')
+        }
+      })
     })
+    await closing
 
-    expect(await scopedCreate()).toMatchObject(refusedAsClosed)
-    expect(rig.store.getRecord(SESSION)).toBeNull()
+    expect(result).toMatchObject(refusedAsClosed)
+    const committed = phase === 'while it commits' || phase === 'before it fails past commit'
+    expect(rig.store.getRecord(SESSION) !== null).toBe(committed)
+    expect(retireTab).toHaveBeenCalledTimes(committed ? 1 : 0)
+    expect(rig.host.hasSession(SESSION)).toBe(false)
   })
 
   it('switch off: a close before the create is not remembered', async () => {

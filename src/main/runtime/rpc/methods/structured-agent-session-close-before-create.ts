@@ -11,6 +11,8 @@ import type {
 import { structuredAgentSessionLaunchAuthoritiesEqual } from '../../../../shared/structured-agent-session-launch-authority'
 import type { RpcContext } from '../core'
 import {
+  canReadStructuredSessionRecord,
+  structuredSessionAdmissionRecord,
   structuredSessionLaunchScope,
   structuredWorkItemStartCallerAuthority
 } from './structured-agent-session-launch-authority'
@@ -106,16 +108,16 @@ export function refusingStructuredAgentSessionCreatesClosedFirst<
       ? { launchOrigin: params.launchOrigin, ...(authority ? { launchAuthority: authority } : {}) }
       : {}
     createsUnderWay.set(sessionId, (createsUnderWay.get(sessionId) ?? 0) + 1)
-    let closedFirst = false
+    let verdict: CloseBeforeCreateVerdict = 'none'
     try {
       const result = await create(params, ctx)
-      closedFirst = structuredAgentSessionCreateClosedFirst(sessionId, launch)
+      verdict = closeBeforeCreateVerdict(ctx, sessionId, launch)
       // The record stays on disk, as for any closed chat; the refusal only says the launch is off.
-      return closedFirst
-        ? { ok: false, refusal: structuredAgentSessionClosedBeforeCreateRefusal() }
-        : result
+      return verdict === 'none'
+        ? result
+        : { ok: false, refusal: structuredAgentSessionClosedBeforeCreateRefusal() }
     } catch (error) {
-      closedFirst = structuredAgentSessionCreateClosedFirst(sessionId, launch)
+      verdict = closeBeforeCreateVerdict(ctx, sessionId, launch)
       throw error
     } finally {
       const remaining = (createsUnderWay.get(sessionId) ?? 1) - 1
@@ -125,7 +127,7 @@ export function refusingStructuredAgentSessionCreatesClosedFirst<
         createsUnderWay.delete(sessionId)
       }
       // Any answer, a refusal or a throw past commit included, may have left the chat made.
-      if (closedFirst) {
+      if (verdict === 'close') {
         // Logged, not thrown: the client must still hear that the chat was closed first.
         await closeCreatedChat(ctx, sessionId).catch((error: unknown) =>
           console.warn(
@@ -136,6 +138,24 @@ export function refusingStructuredAgentSessionCreatesClosedFirst<
       }
     }
   }
+}
+
+type CloseBeforeCreateVerdict = 'none' | 'refuse' | 'close'
+
+/** Before a chat exists the fence matches the requested launch; once one exists, only its persisted owner's admission and launch decide. */
+function closeBeforeCreateVerdict(
+  ctx: RpcContext,
+  sessionId: string,
+  launch: StructuredAgentSessionCreateLaunch
+): CloseBeforeCreateVerdict {
+  const record = structuredSessionAdmissionRecord(getStructuredAgentSessionHost(), sessionId)
+  if (!record) {
+    return structuredAgentSessionCreateClosedFirst(sessionId, launch) ? 'refuse' : 'none'
+  }
+  return canReadStructuredSessionRecord(ctx, record) &&
+    structuredAgentSessionCreateClosedFirst(sessionId, record)
+    ? 'close'
+    : 'none'
 }
 
 /** The close the window asked for, run now that the chat exists: the tab first, then the agent. */
