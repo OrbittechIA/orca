@@ -7,6 +7,7 @@ import {
   HostStatusGatesContext,
   useOptionalHostProtocolGates
 } from '../components/host-protocol-gates-context'
+import { useMobileTranslation } from '../i18n/use-mobile-translation'
 import { PageRouteUnavailableScreen } from '../mobile-web-shell/PageRouteUnavailableScreen'
 import { useHostClient } from '../transport/host-client-hooks'
 import { WorkspaceServerContext } from '../transport/use-workspace-client'
@@ -21,6 +22,7 @@ const emptyRevision = () => 0
 
 // Route calls, pushes and feature gates through executionHost; absent means the paired desktop. Unreachable servers get an explicit refusal after desktop status settles.
 export function WorkspaceRoute({ children }: { children: ReactNode }) {
+  const t = useMobileTranslation()
   const params = useLocalSearchParams<{
     hostId?: string | string[]
     executionHost?: string | string[]
@@ -59,7 +61,12 @@ export function WorkspaceRoute({ children }: { children: ReactNode }) {
     return selection.mount(workspaceId) ?? undefined
   }, [selection, workspaceId, admitted])
   if (!admitted) {
-    return <PageRouteUnavailableScreen hostId={hostId} message="This workspace is being retired." />
+    return (
+      <PageRouteUnavailableScreen
+        hostId={hostId}
+        message={t('navigation.workspaceRoute.beingRetired', 'This workspace is being retired.')}
+      />
+    )
   }
   // Settled desktop status cannot become reachable by keeping this spinner open.
   if (state === 'connected' && desktopGates && !desktopGates.statusPending && routeHost === null) {

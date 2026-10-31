@@ -106,6 +106,13 @@ function ready(stream: Stream) {
     connectionId: 'native-connection'
   })
 }
+function latestStream(): Stream {
+  const stream = streams.at(-1)
+  if (!stream) {
+    throw new Error('expected a runtime custody stream')
+  }
+  return stream
+}
 function round(stream: Stream, worktreeId: string): SelectionFrame {
   return {
     type: 'fence',
@@ -174,53 +181,50 @@ it('uses a single real browser environment target, including local-owner aliases
   expect(api.canSelectWorkspace('target')).toBe(false)
 })
 
-it.each([
-  'custody_unsupported',
-  'custody_selection_native_inventory_unknown',
-  'method_not_found'
-])('latches watch refusal until the actual connection changes: %s', async (code) => {
-  const target = { kind: 'environment', environmentId: 'paired-host' } as const
-  mocks.owners.set('selected', target)
-  mocks.owners.set('target', target)
-  const api = await import('./workspace-selection-custody')
-  stop = api.startWorkspaceSelectionCustody()
-  const diagnostics = mocks.diagnostics.mock.calls[0][0]
-  const event = {
-    environmentId: 'paired-host',
-    transportGeneration: 1,
-    diagnostics: {
-      state: 'ready',
-      pendingRequestCount: 0,
-      subscriptionCount: 0,
-      reconnectAttempt: 0,
-      lastConnectedAt: 100,
-      lastClose: null,
-      lastError: null
-    }
-  } as const
-  diagnostics(event)
-  const current = streams[streams.length - 1]
-  ready(current)
-  current.handlers.onEvent(round(current, 'target'))
-  current.handlers.onError({ code, message: code })
-  const attempts = mocks.subscribe.mock.calls.length
-  for (let i = 0; i < 20; i++) {
-    mocks.stateSubscribe.mock.calls[0][0]()
-    api.ensureWorkspaceSelectionCustody(target)
+it.each(['custody_unsupported', 'custody_selection_native_inventory_unknown', 'method_not_found'])(
+  'latches watch refusal until the actual connection changes: %s',
+  async (code) => {
+    const target = { kind: 'environment', environmentId: 'paired-host' } as const
+    mocks.owners.set('selected', target)
+    mocks.owners.set('target', target)
+    const api = await import('./workspace-selection-custody')
+    stop = api.startWorkspaceSelectionCustody()
+    const diagnostics = mocks.diagnostics.mock.calls[0][0]
+    const event = {
+      environmentId: 'paired-host',
+      transportGeneration: 1,
+      diagnostics: {
+        state: 'ready',
+        pendingRequestCount: 0,
+        subscriptionCount: 0,
+        reconnectAttempt: 0,
+        lastConnectedAt: 100,
+        lastClose: null,
+        lastError: null
+      }
+    } as const
     diagnostics(event)
+    const current = latestStream()
+    ready(current)
+    current.handlers.onEvent(round(current, 'target'))
+    current.handlers.onError({ code, message: code })
+    const attempts = mocks.subscribe.mock.calls.length
+    for (let i = 0; i < 20; i++) {
+      mocks.stateSubscribe.mock.calls[0][0]()
+      api.ensureWorkspaceSelectionCustody(target)
+      diagnostics(event)
+    }
+    expect(mocks.subscribe).toHaveBeenCalledTimes(attempts)
+    expect(api.canSelectWorkspace('target')).toBe(false)
+    expect(api.canSelectWorkspace('other')).toBe(true)
+    diagnostics({ ...event, transportGeneration: 2 })
+    expect(mocks.subscribe).toHaveBeenCalledTimes(attempts + 1)
+    expect(latestStream().params).toEqual(expect.objectContaining({ pendingFences: [fence] }))
+    current.handlers.onError({ code })
+    ready(latestStream())
+    expect(api.canSelectWorkspace('target')).toBe(false)
   }
-  expect(mocks.subscribe).toHaveBeenCalledTimes(attempts)
-  expect(api.canSelectWorkspace('target')).toBe(false)
-  expect(api.canSelectWorkspace('other')).toBe(true)
-  diagnostics({ ...event, transportGeneration: 2 })
-  expect(mocks.subscribe).toHaveBeenCalledTimes(attempts + 1)
-  expect(streams[streams.length - 1].params).toEqual(
-    expect.objectContaining({ pendingFences: [fence] })
-  )
-  current.handlers.onError({ code })
-  ready(streams[streams.length - 1])
-  expect(api.canSelectWorkspace('target')).toBe(false)
-})
+)
 
 it('does not retry a rejected local watch promise on subsequent store updates', async () => {
   mocks.subscribe.mockRejectedValueOnce(new Error('custody_selection_native_inventory_unknown'))
@@ -270,7 +274,7 @@ it('retries browser custody after actual contact returns while duplicate ready s
     transport: 'ready'
   } as const
   status(event)
-  const current = streams[streams.length - 1]
+  const current = latestStream()
   ready(current)
   current.handlers.onEvent(round(current, 'target'))
   current.handlers.onError({ code: 'custody_unsupported' })
@@ -284,7 +288,5 @@ it('retries browser custody after actual contact returns while duplicate ready s
   status({ ...event, transport: 'disconnected' })
   status(event)
   expect(mocks.subscribe).toHaveBeenCalledTimes(attempts + 1)
-  expect(streams[streams.length - 1].params).toEqual(
-    expect.objectContaining({ pendingFences: [fence] })
-  )
+  expect(latestStream().params).toEqual(expect.objectContaining({ pendingFences: [fence] }))
 })

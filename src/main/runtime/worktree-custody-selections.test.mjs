@@ -2,8 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { test } from 'vitest'
-import { moduleFromSource } from './worktree-custody-fixture.mjs'
-import { KEY, nativePorts } from './worktree-custody-fixture.mjs'
+import { KEY, moduleFromSource, nativePorts } from './worktree-custody-fixture.mjs'
 import { providerCheckout, providerFixture } from './worktree-custody-native-fixture.mjs'
 import {
   runtimePorts,
@@ -240,7 +239,10 @@ test('SSH and runtime/WSL selections overlapping a local fence never enter local
   f.report([`remote::${f.resource.path}`, `wsl::${f.resource.path}`])
   assert.equal(f.selections.complete, true)
   assert.equal(f.selections.selects(f.resource.worktreeId, f.resource.path, 'local'), false)
-  assert.equal(f.selections.selects(f.resource.worktreeId, f.resource.path, 'ssh:ssh-fixture'), true)
+  assert.equal(
+    f.selections.selects(f.resource.worktreeId, f.resource.path, 'ssh:ssh-fixture'),
+    true
+  )
   assert.equal(f.admissions.length, 0)
   assert.equal(readFileSync(f.claimsPath, 'utf8'), before)
   assert.throws(() => runtimeCustody.admitWorktreeCustody(f.resource.worktreeId), /fenced/)

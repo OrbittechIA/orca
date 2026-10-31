@@ -687,6 +687,9 @@
       "changes": "Changes",
       "pullRequest": "Pull Request",
       "workspace": "Workspace"
+    },
+    "workspaceRoute": {
+      "beingRetired": "This workspace is being retired."
     }
   },
   "notifications": {

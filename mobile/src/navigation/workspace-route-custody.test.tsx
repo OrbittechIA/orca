@@ -40,11 +40,12 @@ const fence = {
   capturedAt: 1,
   expiresAt: 2
 }
-let tree: ReactTestRenderer | undefined
+const trees: ReactTestRenderer[] = []
 afterEach(async () => {
   await act(async () => {
-    tree?.unmount()
-    tree = undefined
+    for (const tree of trees.splice(0)) {
+      tree.unmount()
+    }
   })
 })
 function selection() {
@@ -77,34 +78,37 @@ function selection() {
   return { session, client, hold }
 }
 const screen = () => createElement(WorkspaceRoute, null, createElement('workspace-content'))
+async function mount(): Promise<ReactTestRenderer> {
+  await act(async () => {
+    trees.push(create(screen()))
+  })
+  const [tree] = trees
+  return tree
+}
 
 it('refuses a new fenced deep link before mounting its content and admits an unrelated route', async () => {
   const f = selection()
   expect(f.hold()?.disposition).toBe('absent')
-  await act(async () => {
-    tree = create(screen())
-  })
-  expect(tree?.root.findAllByType('workspace-content')).toHaveLength(0)
+  const tree = await mount()
+  expect(tree.root.findAllByType('workspace-content')).toHaveLength(0)
   expect(f.client.hasMounted('target')).toBe(false)
   fixture.params.worktreeId = 'other'
   await act(async () => {
-    tree?.update(screen())
+    tree.update(screen())
   })
-  expect(tree?.root.findAllByType('workspace-content')).toHaveLength(1)
+  expect(tree.root.findAllByType('workspace-content')).toHaveLength(1)
   expect(f.client.hasMounted('other')).toBe(true)
   expect(f.session.close).not.toHaveBeenCalled()
 })
 
 it('keeps an already mounted background consumer alive and reports HELD', async () => {
   const f = selection()
-  await act(async () => {
-    tree = create(screen())
-  })
+  const tree = await mount()
   expect(f.client.hasMounted('target')).toBe(true)
   await act(async () => {
     expect(f.hold()?.disposition).toBe('held')
   })
-  expect(tree?.root.findAllByType('workspace-content')).toHaveLength(1)
+  expect(tree.root.findAllByType('workspace-content')).toHaveLength(1)
   expect(f.client.canSelect('target')).toBe(false)
   expect(f.client.hasMounted('target')).toBe(true)
   expect(f.session.close).not.toHaveBeenCalled()

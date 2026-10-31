@@ -160,13 +160,15 @@ export function admitDispatchAuthorityWorktreeCustody(
     case 'wsl':
     case 'ssh':
       return admitOrchestrationWorktreeCustody(worktreeId, undefined, kind)
-    default:
-      throw new OrchestrationError(
-        'worktree_custody_refused',
-        'Workspace custody prevents this operation.',
-        { effectsApplied: false, worktreeId, reason: 'host_scope_unknown' }
-      )
+    case undefined:
+      break
   }
+  // Absent and malformed mixed-version kinds both fall through to refusal.
+  throw new OrchestrationError(
+    'worktree_custody_refused',
+    'Workspace custody prevents this operation.',
+    { effectsApplied: false, worktreeId, reason: 'host_scope_unknown' }
+  )
 }
 
 export function claimWorkerWorktreeCustody(
