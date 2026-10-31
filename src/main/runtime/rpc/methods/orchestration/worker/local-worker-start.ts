@@ -151,7 +151,12 @@ export async function startLocalWorker(args: {
         : 'orchestration_default'
       : 'existing_worktree'
   }
-  if (resolvedWorktree) assertWorktreeCustodyAdmission(resolvedWorktree.id, resolvedWorktree.path, resolvedWorktree.hostId)
+  if (resolvedWorktree)
+    assertWorktreeCustodyAdmission(
+      resolvedWorktree.id,
+      resolvedWorktree.path,
+      resolvedWorktree.hostId
+    )
   const started = db.createStartingWorkerDispatch({
     creator: resolveDispatchCreator(runtime, params.from, callerSession),
     maxDepth: runtime.getNestedWorkerMaxDepth(),

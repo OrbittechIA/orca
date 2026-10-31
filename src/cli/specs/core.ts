@@ -135,7 +135,8 @@ export const CORE_COMMAND_SPECS: CommandSpec[] = [
   {
     path: ['worktree', 'custody'],
     summary: 'Observe and fence exact native worktree custody; retire without stopping consumers',
-    usage: 'orca worktree custody --operation list|observe|capture|check|cancel|retire|reconcile [--resource <json>] [--fence <json>] [--key <key>] [--json]',
+    usage:
+      'orca worktree custody --operation list|observe|capture|check|cancel|retire|reconcile [--resource <json>] [--fence <json>] [--key <key>] [--json]',
     allowedFlags: [...GLOBAL_FLAGS, 'operation', 'resource', 'fence', 'key'],
     notes: [
       'Use native resource and fence objects verbatim; identities and release generations are immutable.',

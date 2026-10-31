@@ -32,33 +32,57 @@ function resource(value: unknown): value is WorktreeCustodyResource {
   return (
     object(value) &&
     ['worktreeId', 'path', 'instanceId', 'hostId', 'owner', 'product', 'task', 'generation'].every(
-      (key) => typeof value[key] === 'string' && value[key].length > 0 && value[key].length <= 8192 && !value[key].includes('\0')
+      (key) =>
+        typeof value[key] === 'string' &&
+        value[key].length > 0 &&
+        value[key].length <= 8192 &&
+        !value[key].includes('\0')
     )
   )
 }
 
 function fence(value: unknown): value is WorktreeCustodyFence {
-  return object(value) && resource(value.resource) &&
-    typeof value.token === 'string' && typeof value.authorityId === 'string' &&
-    typeof value.capturedAt === 'number' && Number.isFinite(value.capturedAt) &&
-    typeof value.expiresAt === 'number' && Number.isFinite(value.expiresAt)
+  return (
+    object(value) &&
+    resource(value.resource) &&
+    typeof value.token === 'string' &&
+    typeof value.authorityId === 'string' &&
+    typeof value.capturedAt === 'number' &&
+    Number.isFinite(value.capturedAt) &&
+    typeof value.expiresAt === 'number' &&
+    Number.isFinite(value.expiresAt)
+  )
 }
 
 function outcome(value: unknown): value is WorktreeCustodyOutcome {
-  return object(value) && resource(value.resource) && typeof value.key === 'string' &&
-    typeof value.state === 'string' && ['dispatched', 'retired', 'unknown', 'refused'].includes(value.state) &&
-    typeof value.recordedAt === 'number' && Number.isFinite(value.recordedAt) &&
+  return (
+    object(value) &&
+    resource(value.resource) &&
+    typeof value.key === 'string' &&
+    typeof value.state === 'string' &&
+    ['dispatched', 'retired', 'unknown', 'refused'].includes(value.state) &&
+    typeof value.recordedAt === 'number' &&
+    Number.isFinite(value.recordedAt) &&
     (value.reason === null || typeof value.reason === 'string')
+  )
 }
 
 function record(value: unknown): value is CustodyRecord {
-  if (!object(value) || !resource(value.resource) || typeof value.claim !== 'string' ||
+  if (
+    !object(value) ||
+    !resource(value.resource) ||
+    typeof value.claim !== 'string' ||
     !(value.releaseProof === null || typeof value.releaseProof === 'string') ||
-    typeof value.revoked !== 'boolean' || !(value.fence === null || fence(value.fence)) ||
-    !(value.outcome === null || outcome(value.outcome))) return false
+    typeof value.revoked !== 'boolean' ||
+    !(value.fence === null || fence(value.fence)) ||
+    !(value.outcome === null || outcome(value.outcome))
+  )
+    return false
   const key = custodyResourceKey(value.resource)
-  return (value.fence === null || custodyResourceKey(value.fence.resource) === key) &&
+  return (
+    (value.fence === null || custodyResourceKey(value.fence.resource) === key) &&
     (value.outcome === null || custodyResourceKey(value.outcome.resource) === key)
+  )
 }
 
 function noSymlinkAncestors(path: string): void {
@@ -96,18 +120,34 @@ export class WorktreeCustodyFileJournal implements CustodyJournal {
     const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW)
     try {
       const info = fstatSync(fd)
-      if (!info.isFile() || info.nlink !== 1 || info.size > MAX_JOURNAL_BYTES || (info.mode & 0o077) !== 0 ||
-        (process.getuid && info.uid !== process.getuid())) throw new Error('custody_journal_unsafe')
+      if (
+        !info.isFile() ||
+        info.nlink !== 1 ||
+        info.size > MAX_JOURNAL_BYTES ||
+        (info.mode & 0o077) !== 0 ||
+        (process.getuid && info.uid !== process.getuid())
+      )
+        throw new Error('custody_journal_unsafe')
       const parsed: unknown = JSON.parse(readFileSync(fd, 'utf8'))
-      if (!object(parsed) || parsed.version !== 1 || typeof parsed.revision !== 'string' ||
-        !Array.isArray(parsed.records) || parsed.records.length > 2048 || !parsed.records.every(record)) {
+      if (
+        !object(parsed) ||
+        parsed.version !== 1 ||
+        typeof parsed.revision !== 'string' ||
+        !Array.isArray(parsed.records) ||
+        parsed.records.length > 2048 ||
+        !parsed.records.every(record)
+      ) {
         throw new Error('custody_journal_invalid')
       }
       const claims = new Set(parsed.records.map((entry) => entry.claim))
       const keys = new Set(parsed.records.map((entry) => custodyResourceKey(entry.resource)))
-      const outcomes = parsed.records.flatMap((entry) => entry.outcome ? [entry.outcome.key] : [])
-      if (claims.size !== parsed.records.length || keys.size !== parsed.records.length ||
-        new Set(outcomes).size !== outcomes.length) throw new Error('custody_journal_duplicate')
+      const outcomes = parsed.records.flatMap((entry) => (entry.outcome ? [entry.outcome.key] : []))
+      if (
+        claims.size !== parsed.records.length ||
+        keys.size !== parsed.records.length ||
+        new Set(outcomes).size !== outcomes.length
+      )
+        throw new Error('custody_journal_duplicate')
       this.revision = parsed.revision
       return parsed.records
     } finally {
@@ -124,7 +164,11 @@ export class WorktreeCustodyFileJournal implements CustodyJournal {
     }
     this.checkDirectory()
     const lockPath = join(this.directory, 'writer.lock')
-    const lock = openSync(lockPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600)
+    const lock = openSync(
+      lockPath,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL,
+      0o600
+    )
     const expectedRevision = this.revision
     let temporary: string | null = null
     try {
@@ -134,7 +178,11 @@ export class WorktreeCustodyFileJournal implements CustodyJournal {
       const body = JSON.stringify({ version: 1, revision, records })
       if (Buffer.byteLength(body) > MAX_JOURNAL_BYTES) throw new Error('custody_journal_full')
       temporary = join(this.directory, `${revision}.tmp`)
-      const fd = openSync(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600)
+      const fd = openSync(
+        temporary,
+        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL,
+        0o600
+      )
       try {
         writeFileSync(fd, body, 'utf8')
         fsyncSync(fd)
@@ -156,7 +204,11 @@ export class WorktreeCustodyFileJournal implements CustodyJournal {
   private checkDirectory(): void {
     noSymlinkAncestors(this.directory)
     const info = lstatSync(this.directory)
-    if (!info.isDirectory() || (info.mode & 0o077) !== 0 ||
-      (process.getuid && info.uid !== process.getuid())) throw new Error('custody_journal_unsafe')
+    if (
+      !info.isDirectory() ||
+      (info.mode & 0o077) !== 0 ||
+      (process.getuid && info.uid !== process.getuid())
+    )
+      throw new Error('custody_journal_unsafe')
   }
 }

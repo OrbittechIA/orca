@@ -111,7 +111,11 @@ export function settleWorkerTerminalRelease(
     .run(resourceId)
   const resource = this.getWorkerTerminalResource(resourceId)
   if (!resource) throw new Error('worker_terminal_resource_missing_after_release')
-  if (!this.db.inTransaction && resource.release_state === 'released' && resource.ownership_state === 'released') {
+  if (
+    !this.db.inTransaction &&
+    resource.release_state === 'released' &&
+    resource.ownership_state === 'released'
+  ) {
     releaseWorkerWorktreeCustody(resource.owner_dispatch_id, resource.id)
   }
   return resource

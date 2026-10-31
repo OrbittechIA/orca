@@ -119,7 +119,12 @@ export abstract class OrcaRuntimeWithResolveKnownWorkspaceFileTarget extends Orc
       return null
     }
     const target = targets.get(`${owner.executionHostId}\0${owner.workspaceId}`)
-    if (target) assertWorktreeCustodyAdmission(target.worktree.id, target.worktree.path, target.executionHostId)
+    if (target)
+      assertWorktreeCustodyAdmission(
+        target.worktree.id,
+        target.worktree.path,
+        target.executionHostId
+      )
     return target ? { ...target, relativePath: owner.relativePath } : null
   }
 

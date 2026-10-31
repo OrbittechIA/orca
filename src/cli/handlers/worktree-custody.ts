@@ -9,11 +9,15 @@ export const worktreeCustody: CommandHandler = async ({ flags, client, json }) =
   const parse = (flag: string): unknown => {
     const value = getOptionalStringFlag(flags, flag)
     if (value === undefined) return undefined
-    if (value.length > 65536) throw new RuntimeClientError('invalid_argument', `--${flag} is too large`)
+    if (value.length > 65536)
+      throw new RuntimeClientError('invalid_argument', `--${flag} is too large`)
     try {
       return JSON.parse(value)
     } catch {
-      throw new RuntimeClientError('invalid_argument', `--${flag} requires JSON from the native custody response`)
+      throw new RuntimeClientError(
+        'invalid_argument',
+        `--${flag} requires JSON from the native custody response`
+      )
     }
   }
   const operation = getRequiredStringFlag(flags, 'operation')
@@ -28,7 +32,10 @@ export const worktreeCustody: CommandHandler = async ({ flags, client, json }) =
   if (operation === 'capture' || operation === 'retire') {
     const status = await client.call<{ capabilities?: string[] }>('status.get')
     if (!status.result.capabilities?.includes(WORKTREE_CUSTODY_CAPABILITY)) {
-      throw new RuntimeClientError('custody_coverage_unsupported', 'This host has no verified no-stop custody provider. Preserve this resource.')
+      throw new RuntimeClientError(
+        'custody_coverage_unsupported',
+        'This host has no verified no-stop custody provider. Preserve this resource.'
+      )
     }
   }
   const result = await client.call('worktree.custody.v1', request.data)

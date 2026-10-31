@@ -76,7 +76,10 @@ export function custodyObservationRefusals(
 ): string[] {
   const reasons: string[] = []
   const fresh = (at: number) =>
-    Number.isFinite(now) && Number.isFinite(at) && now >= at && now - at <= WORKTREE_CUSTODY_MAX_AGE_MS
+    Number.isFinite(now) &&
+    Number.isFinite(at) &&
+    now >= at &&
+    now - at <= WORKTREE_CUSTODY_MAX_AGE_MS
   if (custodyResourceKey(resource) !== custodyResourceKey(observation.resource)) {
     reasons.push('resource_changed')
   }

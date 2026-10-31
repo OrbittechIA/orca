@@ -101,8 +101,12 @@ export const ORCHESTRATION_DISPATCH_METHODS = [
       }
 
       const dispatchAuthority = chatAssignee ? null : runtime.getOrchestrationDispatchAuthority(to)
-      if (dispatchAuthority?.worktreeId) assertWorktreeCustodyAdmission(
-        dispatchAuthority.worktreeId, undefined, dispatchAuthority.hostScope.kind)
+      if (dispatchAuthority?.worktreeId)
+        assertWorktreeCustodyAdmission(
+          dispatchAuthority.worktreeId,
+          undefined,
+          dispatchAuthority.hostScope.kind
+        )
       const assigneePaneKey = chatAssignee
         ? undefined
         : (dispatchAuthority?.paneKey ?? runtime.getTerminalPaneKey(to) ?? undefined)
@@ -154,9 +158,12 @@ export const ORCHESTRATION_DISPATCH_METHODS = [
       revalidateLegacyCoordinator?.()
       const admittedWorktreeId = chatLocation?.workspaceId ?? dispatchAuthority?.worktreeId
       const admittedHostId = chatLocation
-        ? chatLocation.wslDistro ? 'wsl' : chatLocation.executionHostId
+        ? chatLocation.wslDistro
+          ? 'wsl'
+          : chatLocation.executionHostId
         : dispatchAuthority?.hostScope.kind
-      if (admittedWorktreeId) assertWorktreeCustodyAdmission(admittedWorktreeId, undefined, admittedHostId)
+      if (admittedWorktreeId)
+        assertWorktreeCustodyAdmission(admittedWorktreeId, undefined, admittedHostId)
       const ctx = db.createDispatchContext({
         taskId: params.task,
         assigneeHandle: to,

@@ -100,8 +100,12 @@ export async function dispatchTaskToWorker(params: {
   }
 
   const dispatchAuthority = runtime.getOrchestrationDispatchAuthority?.(targetHandle)
-  if (dispatchAuthority?.worktreeId) assertWorktreeCustodyAdmission(
-    dispatchAuthority.worktreeId, undefined, dispatchAuthority.hostScope?.kind)
+  if (dispatchAuthority?.worktreeId)
+    assertWorktreeCustodyAdmission(
+      dispatchAuthority.worktreeId,
+      undefined,
+      dispatchAuthority.hostScope?.kind
+    )
   const assigneePaneKey =
     dispatchAuthority?.paneKey ?? runtime.getTerminalPaneKey?.(targetHandle) ?? undefined
   const processIncarnation =

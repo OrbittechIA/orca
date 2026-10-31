@@ -112,8 +112,11 @@ export async function performAttach(
   input: AttachFlowInput
 ): Promise<AgentSessionMutationResult<AgentSessionAttachResult>> {
   const location = input.params.location
-  const release = admitWorktreeCustody(location.workspaceId, undefined,
-    location.wslDistro ? 'wsl' : location.executionHostId)
+  const release = admitWorktreeCustody(
+    location.workspaceId,
+    undefined,
+    location.wslDistro ? 'wsl' : location.executionHostId
+  )
   try {
     return await performCustodyAdmittedAttach(input)
   } finally {

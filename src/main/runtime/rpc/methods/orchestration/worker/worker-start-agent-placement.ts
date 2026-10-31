@@ -22,7 +22,10 @@ import {
   type WorkerSetupReceipt
 } from './worker-topology'
 import { createWorkerWorktree, type WorkerWorktreeCreationTarget } from './worker-worktree-creation'
-import { assertWorktreeCustodyAdmission, claimWorkerWorktreeCustody } from '../../../../worktree-custody-runtime'
+import {
+  assertWorktreeCustodyAdmission,
+  claimWorkerWorktreeCustody
+} from '../../../../worktree-custody-runtime'
 
 /** Name only the two required fields so untyped worktree accessors cannot introduce any into unions. */
 type PlacedWorktree = Pick<Worktree, 'id' | 'repoId'> &

@@ -118,7 +118,11 @@ export abstract class OrcaRuntimeWithCreateAgentSession extends OrcaRuntimeWithG
           wslUserAct: true
         }
       )
-      assertWorktreeCustodyAdmission(workspace.id, workspace.path, workspace.connectionId ? 'ssh' : 'local')
+      assertWorktreeCustodyAdmission(
+        workspace.id,
+        workspace.path,
+        workspace.connectionId ? 'ssh' : 'local'
+      )
       if (
         !(await this.executionOwnerSupportsAgentSessionOperation(
           workspace,

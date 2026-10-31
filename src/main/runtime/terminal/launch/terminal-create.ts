@@ -42,7 +42,11 @@ export abstract class OrcaRuntimeWithCreateTerminal extends OrcaRuntimeWithTermi
         throw new Error('runtime_unavailable')
       }
       const workspace = await this.resolveTerminalCreateLaunchScope(worktreeSelector, created, opts)
-      assertWorktreeCustodyAdmission(workspace.id, workspace.path, workspace.connectionId ? 'ssh' : 'local')
+      assertWorktreeCustodyAdmission(
+        workspace.id,
+        workspace.path,
+        workspace.connectionId ? 'ssh' : 'local'
+      )
       const launchOpts = await this.resolveAgentTerminalCreateOptions(workspace, opts)
       const launchTitleAt = { sequence: this.nextTitleObservationSequence(), epochMs: Date.now() }
       let cwd = this.resolveWorkspaceTerminalStartupCwd(workspace, launchOpts.cwd) ?? workspace.path

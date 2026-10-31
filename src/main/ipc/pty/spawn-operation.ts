@@ -76,8 +76,9 @@ export async function runPtySpawn<State extends PtySpawnOperationState>(
   adapter: SpawnAdapter<State>
 ): Promise<PtySpawnOutcome> {
   const worktreeId = adapter.state.args.worktreeId
-  const release = worktreeId ? admitWorktreeCustody(worktreeId, undefined,
-    adapter.state.args.connectionId ? 'ssh' : 'local') : () => {}
+  const release = worktreeId
+    ? admitWorktreeCustody(worktreeId, undefined, adapter.state.args.connectionId ? 'ssh' : 'local')
+    : () => {}
   try {
     return await runCustodyAdmittedPtySpawn(adapter)
   } finally {

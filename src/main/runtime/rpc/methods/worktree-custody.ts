@@ -9,7 +9,9 @@ export const WORKTREE_CUSTODY_METHOD = defineMethod({
   params: WorktreeCustodyRequestSchema,
   handler: async (params, { runtime }) => {
     const custody = nativeWorktreeCustody(runtime.getRuntimeId())
-    custody?.installObserver('orchestration', (resource) => observeNativeWorktreeCustody(runtime, resource))
+    custody?.installObserver('orchestration', (resource) =>
+      observeNativeWorktreeCustody(runtime, resource)
+    )
     if (params.operation === 'list') {
       return {
         schemaVersion: 1,

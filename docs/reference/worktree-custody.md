@@ -31,15 +31,15 @@ missing bindings and alternate operation shapes are rejected. There is no RPC
 that installs providers, registers a released disposition or accepts a caller's
 free-form observation as proof.
 
-| operation | Required fields beyond schemaVersion/operation | Response fields beyond schemaVersion |
-| --- | --- | --- |
-| list | none | supported, authorityId, resources, complete, scope |
-| observe | resource | observation |
-| capture | resource | fence |
-| check | fence | valid=true, or refusal |
-| cancel | fence | cancelled=true, or refusal |
-| retire | fence, key | outcome |
-| reconcile | resource, key | outcome, or null when never dispatched |
+| operation | Required fields beyond schemaVersion/operation | Response fields beyond schemaVersion               |
+| --------- | ---------------------------------------------- | -------------------------------------------------- |
+| list      | none                                           | supported, authorityId, resources, complete, scope |
+| observe   | resource                                       | observation                                        |
+| capture   | resource                                       | fence                                              |
+| check     | fence                                          | valid=true, or refusal                             |
+| cancel    | fence                                          | cancelled=true, or refusal                         |
+| retire    | fence, key                                     | outcome                                            |
+| reconcile | resource, key                                  | outcome, or null when never dispatched             |
 
 `resource` is exactly `{worktreeId,path,instanceId,hostId,owner,product,task,generation}`.
 Every field is a nonempty bounded string. Equality includes all eight fields;

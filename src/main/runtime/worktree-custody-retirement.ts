@@ -1,6 +1,10 @@
 import { lstat, opendir } from 'node:fs/promises'
 import { dirname, join, parse } from 'node:path'
-import { custodyResourceKey, type WorktreeCustodyObservation, type WorktreeCustodyResource } from '../../shared/worktree/custody'
+import {
+  custodyResourceKey,
+  type WorktreeCustodyObservation,
+  type WorktreeCustodyResource
+} from '../../shared/worktree/custody'
 import { removeWorktree, assertWorktreeCleanForRemoval } from '../git/worktree'
 import type { OrcaRuntimeService } from './orca-runtime'
 import { observeNativeWorktreeCustody } from './worktree-custody-observation'
@@ -15,7 +19,10 @@ export type NativeWorktreeCustodyProvider = {
   reconcile: CustodyCoverage['reconcile']
 }
 
-async function boundedCheckout(resource: WorktreeCustodyResource, check: () => void): Promise<string> {
+async function boundedCheckout(
+  resource: WorktreeCustodyResource,
+  check: () => void
+): Promise<string> {
   const startedAt = Date.now()
   let ancestor = resource.path
   const root = parse(ancestor).root
@@ -35,8 +42,12 @@ async function boundedCheckout(resource: WorktreeCustodyResource, check: () => v
       throw new Error('custody_effect_budget')
     }
     const info = await lstat(next.path)
-    if (info.dev !== identity.dev || info.isSymbolicLink() ||
-      (process.getuid && info.uid !== process.getuid())) throw new Error('custody_checkout_identity_unsafe')
+    if (
+      info.dev !== identity.dev ||
+      info.isSymbolicLink() ||
+      (process.getuid && info.uid !== process.getuid())
+    )
+      throw new Error('custody_checkout_identity_unsafe')
     if (info.isDirectory()) {
       // Bound enumeration before retaining an arbitrary directory listing.
       const directory = await opendir(next.path)
@@ -75,48 +86,61 @@ export function installNativeWorktreeCustodyRetirement(
   runtime: OrcaRuntimeService,
   producer: NativeWorktreeCustodyProvider
 ): () => void {
-  return installNativeWorktreeCustodyCoverage(producer.owner, {
-    acquire: producer.acquire,
-    reconcile: producer.reconcile,
-    observe: async (resource) => {
-      const native = await observeNativeWorktreeCustody(runtime, resource)
-      const supplied = await producer.observe(resource)
-      if (custodyResourceKey(supplied.resource) !== custodyResourceKey(resource)) return { ...native, domains: [] }
-      return mergeNativeObservation(native, supplied)
+  return installNativeWorktreeCustodyCoverage(
+    producer.owner,
+    {
+      acquire: producer.acquire,
+      reconcile: producer.reconcile,
+      observe: async (resource) => {
+        const native = await observeNativeWorktreeCustody(runtime, resource)
+        const supplied = await producer.observe(resource)
+        if (custodyResourceKey(supplied.resource) !== custodyResourceKey(resource))
+          return { ...native, domains: [] }
+        return mergeNativeObservation(native, supplied)
+      },
+      retire: async (resource, check) => {
+        const deadline = Date.now() + 10_000
+        check()
+        const worktree = await runtime.showManagedWorktree(`id:${resource.worktreeId}`)
+        if (
+          resource.hostId !== 'local' ||
+          worktree.hostId !== 'local' ||
+          worktree.id !== resource.worktreeId ||
+          worktree.projectId !== resource.product ||
+          worktree.path !== resource.path ||
+          worktree.instanceId !== resource.instanceId ||
+          worktree.isMainWorktree ||
+          worktree.isBare ||
+          worktree.childWorktreeIds.length > 0
+        ) {
+          throw new Error('custody_checkout_replaced_or_unsupported')
+        }
+        const repo = await runtime.showRepo(`id:${worktree.repoId}`)
+        if (repo.kind === 'folder' || repo.path === resource.path)
+          throw new Error('custody_folder_unsupported')
+        const identity = await boundedCheckout(resource, check)
+        await assertWorktreeCleanForRemoval(resource.path, false)
+        const current = await lstat(resource.path)
+        if (`${current.dev}:${current.ino}:${current.ctimeMs}` !== identity) {
+          throw new Error('custody_checkout_changed')
+        }
+        check()
+        const remaining = deadline - Date.now()
+        if (remaining <= 0) throw new Error('custody_effect_budget')
+        const stop = new AbortController()
+        const timer = setTimeout(() => stop.abort(), remaining)
+        try {
+          await removeWorktree(repo.path, resource.path, false, {
+            deleteBranch: false,
+            knownRemovedWorktree: worktree.git,
+            checkoutDeleteSignal: stop.signal
+          })
+        } finally {
+          clearTimeout(timer)
+        }
+        // Completion is the native Git result; a missing path alone never reconciles an unknown effect.
+      }
     },
-    retire: async (resource, check) => {
-      const deadline = Date.now() + 10_000
-      check()
-      const worktree = await runtime.showManagedWorktree(`id:${resource.worktreeId}`)
-      if (resource.hostId !== 'local' || worktree.hostId !== 'local' ||
-        worktree.id !== resource.worktreeId || worktree.projectId !== resource.product ||
-        worktree.path !== resource.path || worktree.instanceId !== resource.instanceId ||
-        worktree.isMainWorktree || worktree.isBare || worktree.childWorktreeIds.length > 0) {
-        throw new Error('custody_checkout_replaced_or_unsupported')
-      }
-      const repo = await runtime.showRepo(`id:${worktree.repoId}`)
-      if (repo.kind === 'folder' || repo.path === resource.path) throw new Error('custody_folder_unsupported')
-      const identity = await boundedCheckout(resource, check)
-      await assertWorktreeCleanForRemoval(resource.path, false)
-      const current = await lstat(resource.path)
-      if (`${current.dev}:${current.ino}:${current.ctimeMs}` !== identity) {
-        throw new Error('custody_checkout_changed')
-      }
-      check()
-      const remaining = deadline - Date.now()
-      if (remaining <= 0) throw new Error('custody_effect_budget')
-      const stop = new AbortController()
-      const timer = setTimeout(() => stop.abort(), remaining)
-      try {
-        await removeWorktree(repo.path, resource.path, false, {
-          deleteBranch: false,
-          knownRemovedWorktree: worktree.git,
-          checkoutDeleteSignal: stop.signal
-        })
-      } finally {
-        clearTimeout(timer)
-      }
-      // Completion is the native Git result; a missing path alone never reconciles an unknown effect.
-    }
-  }, runtime.getRuntimeId())
+    runtime.getRuntimeId()
+  )
 }

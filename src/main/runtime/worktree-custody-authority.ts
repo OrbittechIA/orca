@@ -89,14 +89,20 @@ export class WorktreeCustodyAuthority {
     const matching = this.records.filter(
       (record) => record.resource.worktreeId === worktreeId || overlaps(record.resource.path, path)
     )
-    if (this.poisoned && matching.some((record) => record.outcome?.state !== 'retired' &&
-      !this.reconciled.has(record.claim))) throw new Error('custody_journal_unknown')
+    if (
+      this.poisoned &&
+      matching.some(
+        (record) => record.outcome?.state !== 'retired' && !this.reconciled.has(record.claim)
+      )
+    )
+      throw new Error('custody_journal_unknown')
     for (const record of matching) {
       if (record.outcome?.state === 'retired' || this.reconciled.has(record.claim)) continue
       if (record.outcome || record.fence) throw new Error('worktree_custody_fenced')
     }
-    const releasable = matching.filter((record) => record.outcome?.state !== 'retired' &&
-      !this.reconciled.has(record.claim))
+    const releasable = matching.filter(
+      (record) => record.outcome?.state !== 'retired' && !this.reconciled.has(record.claim)
+    )
     if (releasable.some((record) => record.releaseProof && !record.revoked)) {
       this.commit(() => {
         for (const record of releasable) {
@@ -115,7 +121,10 @@ export class WorktreeCustodyAuthority {
     }
   }
 
-  claim(resource: Omit<WorktreeCustodyResource, 'generation'>, claim: string): WorktreeCustodyResource {
+  claim(
+    resource: Omit<WorktreeCustodyResource, 'generation'>,
+    claim: string
+  ): WorktreeCustodyResource {
     const existing = this.records.find((record) => record.claim === claim)
     if (existing) {
       const requested = { ...resource, generation: existing.resource.generation }
@@ -161,8 +170,9 @@ export class WorktreeCustodyAuthority {
     for (const record of this.records) {
       current.set(JSON.stringify([record.resource.hostId, record.resource.path]), record)
     }
-    return [...current.values()].filter((record) => record.outcome?.state !== 'retired' &&
-      !this.reconciled.has(record.claim)).map((record) => structuredClone(record.resource))
+    return [...current.values()]
+      .filter((record) => record.outcome?.state !== 'retired' && !this.reconciled.has(record.claim))
+      .map((record) => structuredClone(record.resource))
   }
 
   async observe(resource: WorktreeCustodyResource): Promise<WorktreeCustodyObservation> {
@@ -191,7 +201,8 @@ export class WorktreeCustodyAuthority {
     if (record.fence || record.outcome || this.busy.has(record.claim)) {
       throw new Error('worktree_custody_fenced')
     }
-    if (record.revoked || !record.releaseProof) throw new Error('custody_refused:producer_release_unproven')
+    if (record.revoked || !record.releaseProof)
+      throw new Error('custody_refused:producer_release_unproven')
     const coverage = this.requireCoverage(resource)
     this.assertNoAdmissions(resource)
     const fence = {
@@ -243,8 +254,12 @@ export class WorktreeCustodyAuthority {
 
   cancel(fence: WorktreeCustodyFence): void {
     const record = this.record(fence.resource)
-    if (record.fence?.token !== fence.token || fence.authorityId !== this.authorityId ||
-      record.outcome || this.busy.has(record.claim)) {
+    if (
+      record.fence?.token !== fence.token ||
+      fence.authorityId !== this.authorityId ||
+      record.outcome ||
+      this.busy.has(record.claim)
+    ) {
       throw new Error('custody_fence_not_cancellable')
     }
     // Persist before lifting admission; a failed journal write keeps the fence in place.
@@ -303,7 +318,10 @@ export class WorktreeCustodyAuthority {
     }
   }
 
-  async reconcile(resource: WorktreeCustodyResource, key: string): Promise<WorktreeCustodyOutcome | null> {
+  async reconcile(
+    resource: WorktreeCustodyResource,
+    key: string
+  ): Promise<WorktreeCustodyOutcome | null> {
     const record = this.record(resource)
     const outcome = record.outcome
     if (!outcome) return null
@@ -316,8 +334,13 @@ export class WorktreeCustodyAuthority {
     } catch {
       return { ...outcome, state: 'unknown', reason: 'native_outcome_unavailable' }
     }
-    if (!confirmation || confirmation.confirmed !== true || !confirmation.proof ||
-      confirmation.key !== key || custodyResourceKey(confirmation.resource) !== custodyResourceKey(resource)) {
+    if (
+      !confirmation ||
+      confirmation.confirmed !== true ||
+      !confirmation.proof ||
+      confirmation.key !== key ||
+      custodyResourceKey(confirmation.resource) !== custodyResourceKey(resource)
+    ) {
       return { ...outcome, state: 'unknown', reason: 'native_outcome_unproven' }
     }
     this.reconciled.add(record.claim)

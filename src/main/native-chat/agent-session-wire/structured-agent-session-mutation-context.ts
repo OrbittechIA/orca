@@ -85,8 +85,11 @@ export async function runStructuredAgentSessionMutation<TValue>(
 ): Promise<AgentSessionMutationResult<TValue>> {
   const location = context.deps.store.getRecord(envelope.sessionId)?.location
   const release = location
-    ? admitWorktreeCustody(location.workspaceId, undefined,
-        location.wslDistro ? 'wsl' : location.executionHostId)
+    ? admitWorktreeCustody(
+        location.workspaceId,
+        undefined,
+        location.wslDistro ? 'wsl' : location.executionHostId
+      )
     : () => {}
   try {
     return await admitAndRunAgentSessionMutation({
