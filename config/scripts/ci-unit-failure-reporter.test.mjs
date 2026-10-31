@@ -194,14 +194,16 @@ describe('unit failure evidence', () => {
     expect(reports(directory)[0].report.executionComplete).toBe(false)
   })
 
-  it('persists failures and the active hook without waiting for a run-end callback', () => {
+  it('coalesces failure bursts, retains case and hook observations, and retires the final timer', () => {
     const directory = reportDirectory()
     const reporter = new UnitFailureReporter({ directory })
     const unhandled = []
     reporter.onInit({ config: { root: ROOT }, state: { getUnhandledErrors: () => unhandled } })
     reporter.onTestRunStart([{}, {}, {}, {}])
+    const publications = vi.spyOn(reporter, 'write')
     const failed = failingModule('cases.test.ts')
-    const [test] = failed.children.allTests()
+    const tests = failed.children.allTests()
+    const [test] = tests
     Object.assign(test, { id: 'case-1', type: 'test', module: failed })
     reporter.onTestModuleQueued(failed)
     reporter.onTestCaseReady(test)
@@ -209,6 +211,14 @@ describe('unit failure evidence', () => {
     expect(progressReport(directory, reporter).failures).toMatchObject([
       { file: 'cases.test.ts', test: 'fails' }
     ])
+    const firstObservation = progressReport(directory, reporter).observedAt
+    for (let index = 1; index < 200; index += 1) {
+      const next = testCase(`failure ${index}`, 'failed', [{ message: `assertion ${index}` }])
+      Object.assign(next, { id: `case-${index + 1}`, type: 'test', module: failed })
+      tests.push(next)
+      reporter.onTestCaseReady(next)
+      reporter.onTestCaseResult(next)
+    }
     reporter.onTestModuleEnd(failed)
     const broken = testModule('import.test.ts', {
       state: 'failed',
@@ -225,7 +235,13 @@ describe('unit failure evidence', () => {
     reporter.onTestSuiteReady(suite)
     reporter.onHookStart({ entity: suite, name: 'beforeAll' })
     unhandled.push({ message: 'worker exited unexpectedly' })
-    vi.advanceTimersByTime(5_000)
+    expect(publications).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(2)
+    vi.advanceTimersByTime(249)
+    expect(publications).toHaveBeenCalledTimes(1)
+    expect(progressReport(directory, reporter).observedAt).toBe(firstObservation)
+    vi.advanceTimersByTime(1)
+    expect(publications).toHaveBeenCalledTimes(2)
 
     const progress = progressReport(directory, reporter)
     expect(progress).toMatchObject({
@@ -234,7 +250,8 @@ describe('unit failure evidence', () => {
       inventoryComplete: false,
       snapshotOnly: true,
       plannedModules: 4,
-      failures: [{ file: 'cases.test.ts', test: 'fails' }],
+      failures: tests.map((entry) => ({ file: 'cases.test.ts', test: entry.fullName })),
+      counts: { tests: { failed: 200 } },
       moduleErrors: [{ file: 'import.test.ts', error: { message: 'import failed' } }],
       unhandledErrors: [{ message: 'worker exited unexpectedly' }],
       activeModules: [{ file: 'stuck.test.ts', phase: 'running' }],
@@ -243,20 +260,47 @@ describe('unit failure evidence', () => {
         { file: 'stuck.test.ts', type: 'hook', name: 'outer', hook: 'beforeAll' }
       ]
     })
+    expect(progress.observedAt).not.toBe(firstObservation)
     expect(readdirSync(directory)).toHaveLength(2)
     reporter.onHookEnd({ entity: suite })
     suite.errors = () => [{ message: 'beforeAll failed' }]
     reporter.onTestSuiteResult(suite)
+    expect(publications).toHaveBeenCalledTimes(2)
+    vi.advanceTimersByTime(250)
+    expect(publications).toHaveBeenCalledTimes(3)
     const afterHook = progressReport(directory, reporter)
     expect(afterHook.suiteErrors).toMatchObject([{ file: 'stuck.test.ts', suite: 'outer' }])
     expect(afterHook.activeTasks).toEqual([])
+    const last = testCase('last failure', 'failed', [{ message: 'last assertion' }])
+    Object.assign(last, { id: 'last-case', type: 'test', module: failed })
+    tests.push(last)
+    reporter.onTestCaseResult(last)
+    expect(vi.getTimerCount()).toBe(2)
+    reporter.onTestRunEnd([failed, broken, stuck], unhandled, 'failed')
+    expect(publications).toHaveBeenCalledTimes(4)
+    expect(publications.mock.results.every(({ value }) => value === true)).toBe(true)
+    const [{ name, report }] = reports(directory)
+    expect(name).toBe(`${reporter.id}.json`)
+    expect(report).toMatchObject({
+      status: 'failed',
+      executionComplete: false,
+      inventoryComplete: true,
+      counts: { tests: { failed: 201 } },
+      suiteErrors: [{ suite: 'outer', error: { message: 'beforeAll failed' } }]
+    })
+    expect(report.failures.at(-1)).toMatchObject({ test: 'last failure' })
+    expect(vi.getTimerCount()).toBe(0)
+    vi.advanceTimersByTime(5_000)
+    expect(publications).toHaveBeenCalledTimes(4)
+    expect(reports(directory)).toHaveLength(1)
   })
 
   it('replaces bounded progress snapshots and supersedes them only after publishing the final report', () => {
     const directory = reportDirectory()
     const budgetBytes = 256 * 1024
     const reporter = new UnitFailureReporter({ directory, budgetBytes })
-    reporter.onInit({ config: { root: ROOT } })
+    const unhandledErrors = [{ message: 'worker exited unexpectedly' }]
+    reporter.onInit({ config: { root: ROOT }, state: { getUnhandledErrors: () => unhandledErrors } })
     reporter.onTestRunStart([{}])
     const module = testModule('large.test.ts', {
       state: 'failed',
@@ -271,7 +315,8 @@ describe('unit failure evidence', () => {
     expect(progress).toMatchObject({
       executionComplete: false,
       truncated: true,
-      counts: { tests: { failed: 200 } }
+      counts: { tests: { failed: 200 }, unhandledErrors: 1 },
+      unhandledErrors: [{ message: 'worker exited unexpectedly' }]
     })
     expect(progress.failures.length + progress.omitted.failures).toBe(200)
     expect(progress.omitted.moduleInventory).toBe(1)
@@ -281,7 +326,7 @@ describe('unit failure evidence', () => {
     )
     expect(directoryBytes(directory)).toBeLessThanOrEqual(budgetBytes)
     reporter.onTestModuleEnd(module)
-    reporter.onTestRunEnd([module], [], 'failed')
+    reporter.onTestRunEnd([module], unhandledErrors, 'failed')
     expect(reports(directory)).toHaveLength(1)
     expect(reports(directory)[0]).toMatchObject({
       name: `${reporter.id}.json`,

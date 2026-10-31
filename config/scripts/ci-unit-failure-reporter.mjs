@@ -12,6 +12,7 @@ const TEXT_LIMIT_BYTES = 16 * 1024
 // Room kept for the small records that must always be writable: a run's start and an over-budget marker.
 const MARKER_RESERVE_BYTES = 64 * 1024
 const PROGRESS_INTERVAL_MS = 5_000
+const FAILURE_CHECKPOINT_INTERVAL_MS = 250
 
 /** Cut at a code point boundary so a byte limit never splits a character. */
 export function clipText(value, limitBytes = TEXT_LIMIT_BYTES) {
@@ -136,6 +137,9 @@ export function buildUnitFailureReport({
       lists[field].push(entry)
     }
   }
+  for (const error of unhandledErrors) {
+    append('unhandledErrors', () => describeError(error))
+  }
   for (const module of modules) {
     const state = module.state()
     counts.modules[state] = (counts.modules[state] ?? 0) + 1
@@ -197,9 +201,6 @@ export function buildUnitFailureReport({
     } else {
       moduleInventory.push({ file: file(module), project, state, tests: moduleTests })
     }
-  }
-  for (const error of unhandledErrors) {
-    append('unhandledErrors', () => describeError(error))
   }
   const clipped = (error) => error.truncated || (error.cause !== undefined && clipped(error.cause))
   return {
@@ -351,6 +352,7 @@ export default class UnitFailureReporter {
     this.activeTasks = new Map()
     this.plannedModules = specifications.length
     this.unhandledCount = 0
+    this.lastCheckpointAt = undefined
     this.dirty = true
     this.progressTimer = setInterval(() => this.checkpoint(), PROGRESS_INTERVAL_MS)
     this.progressTimer.unref()
@@ -412,7 +414,7 @@ export default class UnitFailureReporter {
     this.activeTasks?.delete(`task:${test.id}`)
     this.dirty = true
     if (test.result().state === 'failed') {
-      this.checkpoint()
+      this.failureCheckpoint()
     }
   }
 
@@ -424,7 +426,7 @@ export default class UnitFailureReporter {
     this.activeTasks?.delete(`task:${suite.id}`)
     this.dirty = true
     if (suite.errors().length > 0) {
-      this.checkpoint()
+      this.failureCheckpoint()
     }
   }
 
@@ -450,8 +452,28 @@ export default class UnitFailureReporter {
     }
     this.dirty = true
     if (module.state() === 'failed' || module.errors().length > 0) {
-      this.checkpoint()
+      this.failureCheckpoint()
     }
+  }
+
+  failureCheckpoint() {
+    if (!this.modules || this.failureTimer) {
+      return
+    }
+    const delay = Math.min(
+      FAILURE_CHECKPOINT_INTERVAL_MS,
+      Math.max(0, FAILURE_CHECKPOINT_INTERVAL_MS - (Date.now() - (this.lastCheckpointAt ?? -Infinity)))
+    )
+    if (delay === 0) {
+      this.checkpoint()
+      return
+    }
+    // One trailing timer coalesces bursts; a forced stop can lose the last interval's observations.
+    this.failureTimer = setTimeout(() => {
+      this.failureTimer = undefined
+      this.checkpoint()
+    }, delay)
+    this.failureTimer.unref()
   }
 
   checkpoint() {
@@ -463,6 +485,9 @@ export default class UnitFailureReporter {
       if (!this.dirty && unhandledErrors.length === this.unhandledCount) {
         return
       }
+      clearTimeout(this.failureTimer)
+      this.failureTimer = undefined
+      this.lastCheckpointAt = Date.now()
       this.dirty = false
       this.unhandledCount = unhandledErrors.length
       const diagnosticBudgetBytes = Math.floor(this.budgetBytes / 3)
@@ -497,6 +522,8 @@ export default class UnitFailureReporter {
 
   onTestRunEnd(modules, unhandledErrors = [], reason) {
     clearInterval(this.progressTimer)
+    clearTimeout(this.failureTimer)
+    this.failureTimer = undefined
     if (!this.directory || !this.id) {
       return
     }

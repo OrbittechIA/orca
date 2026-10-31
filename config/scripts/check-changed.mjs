@@ -239,7 +239,7 @@ async function runTask(task, { root, env, runProcess, stepTimeoutMs }) {
       }
       if (result.code !== 0 || result.timedOut) {
         if (task.name === 'unit tests' && env.ORCA_UNIT_FAILURE_REPORT_DIR) {
-          output += `\nUnit evidence: ${env.ORCA_UNIT_FAILURE_REPORT_DIR} (a progress snapshot is incomplete).`
+          output += `\nUnit evidence: ${env.ORCA_UNIT_FAILURE_REPORT_DIR} (progress snapshots are incomplete and may lag observations; inspect final report status).`
         }
         return { task, ok: false, output, elapsed: seconds(startedAt) }
       }
