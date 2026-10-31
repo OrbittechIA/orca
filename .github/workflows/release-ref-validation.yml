@@ -1,39 +1,141 @@
-name: Release ref validation
-
+name: Audit166 pinned Orca qualification
+run-name: Audit166 b5308d9 source qualification
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
-    paths:
-      - '.github/workflows/adhoc-mac-build.yml'
-      - '.github/workflows/dev-channel-win-build.yml'
-      - '.github/workflows/release-ref-validation.yml'
-      - 'config/scripts/workflow-ref-reachability.test.mjs'
-      - 'config/scripts/workflow-ref-mirror-case-safety.test.mjs'
   workflow_dispatch:
-
 permissions:
   contents: read
-
 concurrency:
-  group: release-ref-validation-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
+  group: audit166-pinned-b5308d9-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
-  validate:
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft != true
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-15, windows-2022]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+  qualify:
+    if: >-
+      github.repository == 'OrbittechIA/orca' &&
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/audit166/v245-checks-20261031'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      ORCA_BACKGROUND_LAUNCH: '1'
+      ORCA_CHECK_CONCURRENCY: '1'
+      NODE_OPTIONS: --max-old-space-size=6144
+      GOMEMLIMIT: 10GiB
+      GOMAXPROCS: '4'
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout the exact reviewed product source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
+          ref: b5308d9281325140057c8a24fc95ec5732beef10
+          fetch-depth: 128
           persist-credentials: false
-      - uses: ./.github/actions/install-node-dependencies
-      - name: Verify case-twin refs and release trust boundary
-        run: >-
-          pnpm exec vitest run --config config/vitest.config.ts
-          config/scripts/workflow-ref-reachability.test.mjs
-          config/scripts/workflow-ref-mirror-case-safety.test.mjs
+      - name: Verify immutable source and base
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = b5308d9281325140057c8a24fc95ec5732beef10
+          test "$(git merge-base 1c6ac8c3c4d2c3dec2cb5966d225ca2a0e0471d3 HEAD)" = 1c6ac8c3c4d2c3dec2cb5966d225ca2a0e0471d3
+          test -z "$(git status --porcelain)"
+          test ! -e .cache/check-changed.json
+          mkdir -p "$RUNNER_TEMP/audit166-evidence"
+          node --input-type=module <<'NODE'
+          import {writeFileSync, readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          import {execFileSync} from 'node:child_process';
+          import os from 'node:os';
+          const git=(...args)=>execFileSync('git',args,{encoding:'utf8'}).trim();
+          const hashes=Object.fromEntries(['package.json','pnpm-lock.yaml','config/vitest.config.ts','config/scripts/check-changed.mjs','config/scripts/check-changed-selection.mjs','config/scripts/check-changed-code-quality.mjs'].map(f=>[f,createHash('sha256').update(readFileSync(f)).digest('hex')]));
+          const value={schema:'audit166-hosted-source-provenance-v1',source:git('rev-parse','HEAD'),tree:git('rev-parse','HEAD^{tree}'),base:'1c6ac8c3c4d2c3dec2cb5966d225ca2a0e0471d3',workflowSha:process.env.GITHUB_WORKFLOW_SHA,workflowRef:process.env.GITHUB_WORKFLOW_REF,dispatchSha:process.env.GITHUB_SHA,event:process.env.GITHUB_EVENT_NAME,ref:process.env.GITHUB_REF,repository:process.env.GITHUB_REPOSITORY,runId:process.env.GITHUB_RUN_ID,attempt:process.env.GITHUB_RUN_ATTEMPT,image:process.env.ImageVersion,os:os.release(),arch:os.arch(),cpu:os.availableParallelism(),memoryBytes:os.totalmem(),hashes};
+          writeFileSync(`${process.env.RUNNER_TEMP}/audit166-evidence/source.json`,JSON.stringify(value,null,2)+'\n');
+          NODE
+      - name: Install the source-declared toolchain without saving caches
+        uses: ./.github/actions/install-node-dependencies
+        with:
+          node-version: '24.18.1'
+          native-runtime: node
+          cache-pnpm-store: 'false'
+          cache-pnpm-verification: 'false'
+          persist-native-cache: 'false'
+          cache-electron-package: 'false'
+      - name: Install the exact source-pinned Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version-file: config/.bun-version
+          no-cache: true
+      - name: Prepare isolated display and Electron test runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v xvfb-run >/dev/null || { sudo apt-get update; sudo apt-get install -y xvfb; }
+          node config/scripts/install-electron-package-binary.mjs
+          node --version > "$RUNNER_TEMP/audit166-evidence/toolchain.txt"
+          pnpm --version >> "$RUNNER_TEMP/audit166-evidence/toolchain.txt"
+          bun --version >> "$RUNNER_TEMP/audit166-evidence/toolchain.txt"
+          df -B1 . >> "$RUNNER_TEMP/audit166-evidence/toolchain.txt"
+      - name: Record the unchanged check selection
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import {writeFileSync} from 'node:fs';
+          import {readdirSync} from 'node:fs';
+          import {collectChangedFiles,computePassHash} from './config/scripts/check-changed-pass-cache.mjs';
+          import {planChangedChecks} from './config/scripts/check-changed-selection.mjs';
+          import path from 'node:path';
+          const root=process.cwd(),base='1c6ac8c3c4d2c3dec2cb5966d225ca2a0e0471d3';
+          const files=collectChangedFiles(root,base);
+          const plan=planChangedChecks(files,{scriptsDir:path.join(root,'config/scripts'),listDirectory:d=>{try{return readdirSync(path.join(root,d))}catch{return []}}});
+          if(files.length!==182 || plan.typecheckProjects.length!==3 || !plan.staticAnalysis || plan.checks.length!==36 || plan.unitTests.related.length!==177 || plan.unitTests.colocated.length!==2) throw Error('Unexpected qualification scope; refuse silent drift');
+          writeFileSync(`${process.env.RUNNER_TEMP}/audit166-evidence/selection.json`,JSON.stringify({base,files,plan,sourceInputHash:computePassHash(root,base)},null,2)+'\n');
+          NODE
+      - name: Run all 41 source-defined changed checks
+        shell: bash
+        run: |
+          set -uo pipefail
+          evidence="$RUNNER_TEMP/audit166-evidence"
+          started_at="$(date -u +%FT%TZ)"
+          set +e
+          xvfb-run -a pnpm check:changed --force --base=1c6ac8c3c4d2c3dec2cb5966d225ca2a0e0471d3 --maxWorkers=4 --timeout=90 2>&1 | tee "$evidence/check-changed.log"
+          gate_exit=${PIPESTATUS[0]}
+          GATE_EXIT="$gate_exit" GATE_STARTED="$started_at" node --input-type=module <<'NODE'
+          import {writeFileSync,readFileSync} from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          const source=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+          const dirty=execFileSync('git',['status','--porcelain'],{encoding:'utf8'}).trim();
+          const log=readFileSync(`${process.env.RUNNER_TEMP}/audit166-evidence/check-changed.log`,'utf8');
+          const code=Number(process.env.GATE_EXIT);
+          const passed=code===0 && source==='b5308d9281325140057c8a24fc95ec5732beef10' && dirty==='' && /✓ 41 check\(s\) passed/.test(log);
+          writeFileSync(`${process.env.RUNNER_TEMP}/audit166-evidence/result.json`,JSON.stringify({schema:'audit166-hosted-gate-result-v1',source,dirty,startedAt:process.env.GATE_STARTED,finishedAt:new Date().toISOString(),gateExit:code,passed,command:'xvfb-run -a pnpm check:changed --force --base=1c6ac8c3c4d2c3dec2cb5966d225ca2a0e0471d3 --maxWorkers=4 --timeout=90',nativeLifecycleQualification:false},null,2)+'\n');
+          if(!passed) process.exitCode=1;
+          NODE
+          evidence_exit=$?
+          test "$gate_exit" -eq 0 && test "$evidence_exit" -eq 0
+      - name: Enforce the evidence storage limit
+        id: evidence_budget
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          import os
+          root = Path(os.environ['RUNNER_TEMP']) / 'audit166-evidence'
+          allowed = {'source.json', 'toolchain.txt', 'selection.json', 'result.json', 'check-changed.log'}
+          files = list(root.iterdir())
+          assert files and all(f.name in allowed and f.is_file() and not f.is_symlink() for f in files)
+          total = sum(f.stat().st_size for f in files)
+          assert total <= 16 * 1024 * 1024, 'Evidence exceeds reserved storage limit'
+          print(f'Bounded evidence: {len(files)} files, {total} bytes')
+          PYTHON
+      - name: Retain bounded qualification evidence for one day
+        if: ${{ always() && steps.evidence_budget.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: audit166-b5308d9-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/audit166-evidence/source.json
+            ${{ runner.temp }}/audit166-evidence/toolchain.txt
+            ${{ runner.temp }}/audit166-evidence/selection.json
+            ${{ runner.temp }}/audit166-evidence/result.json
+            ${{ runner.temp }}/audit166-evidence/check-changed.log
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 9
