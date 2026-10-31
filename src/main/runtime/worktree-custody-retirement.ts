@@ -9,7 +9,11 @@ import {
 import { removeWorktree, assertWorktreeCleanForRemoval } from '../git/worktree'
 import type { OrcaRuntimeService } from './orca-runtime'
 import { observeNativeWorktreeCustody } from './worktree-custody-observation'
-import { installNativeWorktreeCustodyCoverage } from './worktree-custody-runtime'
+import {
+  installNativeWorktreeCustodyCoverage,
+  nativeWorktreeCustodyResultJournal
+} from './worktree-custody-runtime'
+import { NativeRetirementResults } from './worktree-custody-native-results'
 import type { CustodyCoverage } from './worktree-custody-authority'
 
 const preEffectRefusals = new WeakMap<
@@ -133,9 +137,10 @@ export function observeWithNativeProducer(
 /** Fixed native effect: no teardown, hooks, branch deletion, metadata purge, or history deletion. */
 export function installNativeWorktreeCustodyRetirement(
   runtime: OrcaRuntimeService,
-  producer: NativeWorktreeCustodyProvider
+  producer: NativeWorktreeCustodyProvider,
+  results = new NativeRetirementResults(nativeWorktreeCustodyResultJournal(), producer.owner)
 ): () => void {
-  const retire: CustodyCoverage['retire'] = async (resource, check) => {
+  const retire: CustodyCoverage['retire'] = async (resource, check, key) => {
     const prepared = await (async () => {
       try {
         const deadline = Date.now() + 10_000
@@ -165,11 +170,16 @@ export function installNativeWorktreeCustodyRetirement(
           throw new Error('custody_checkout_changed')
         }
         check()
+        if (typeof key !== 'string') {
+          throw new Error('custody_native_key_missing')
+        }
+        // Durable intent precedes Git; failing to record it is still a pre-effect refusal.
+        results.recordIntent(resource, key)
         const remaining = deadline - Date.now()
         if (remaining <= 0) {
           throw new Error('custody_effect_budget')
         }
-        return { repo, worktree, remaining }
+        return { repo, worktree, remaining, key }
       } catch (cause) {
         const error = new Error('custody_pre_effect_refused', { cause })
         preEffectRefusals.set(error, {
@@ -194,12 +204,18 @@ export function installNativeWorktreeCustodyRetirement(
       clearTimeout(timer)
     }
     // Completion is the native Git result; a missing path alone never reconciles an unknown effect.
+    try {
+      results.recordRemoved(resource, prepared.key)
+    } catch {
+      console.warn('[worktree-custody] native removal result not recorded')
+    }
   }
   return installNativeWorktreeCustodyCoverage(
     producer.owner,
     {
       acquire: producer.acquire,
-      reconcile: producer.reconcile,
+      // Only this fixed effect's committed removal confirms; otherwise the producer decides.
+      reconcile: async (outcome) => results.confirmed(outcome) ?? producer.reconcile(outcome),
       recoverFence: producer.recoverFence,
       recoverRelease: producer.recoverRelease,
       observe: observeWithNativeProducer(runtime, producer),

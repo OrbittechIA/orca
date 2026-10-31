@@ -8,8 +8,12 @@ import {
   WorktreeCustodyFileJournal,
   BASE,
   setup,
-  completeObservation
+  completeObservation,
+  nativePorts,
+  KEY,
+  NativeRetirementResults
 } from './worktree-custody-fixture.mjs'
+import { providerFixture, providerCheckout } from './worktree-custody-native-fixture.mjs'
 
 test('optional claims read/write failures do not create effect state or block default admissions', () => {
   for (const reason of ['corrupt', 'EROFS', 'ENOSPC', 'EEXIST', 'custody_journal_full']) {
@@ -264,4 +268,154 @@ test('capacity never evicts a revoked generation or its unknown path aggregate',
   assert.notEqual(f.authority.claimedResource('sibling'), null)
   assert.equal((await f.authority.observe(sibling)).disposition, 'unknown')
   await assert.rejects(f.authority.capture(sibling), /producer_release_unproven/)
+})
+
+/** A custody effects journal whose writes fail while `failing` returns true for the state. */
+function flakyJournal() {
+  let state = { records: [], receipts: [] }
+  const control = { failing: () => false }
+  return {
+    control,
+    journal: {
+      read: () => structuredClone(state),
+      write: (next) => {
+        if (control.failing(next)) {
+          throw new Error('custody receipt write failed')
+        }
+        state = structuredClone(next)
+      }
+    }
+  }
+}
+
+async function retiredButReceiptLost(name, options = {}) {
+  const checkout = providerCheckout(name)
+  const { journal, control } = flakyJournal()
+  const claims = { read: () => ({ records: [], receipts: [] }), write: () => {} }
+  const f = await providerFixture(checkout, { journal, claims, authorityId: `${name}-first` })
+  f.authority.release(`dispatch:${checkout}`, `native-worker-release:${checkout}`)
+  const fence = await f.authority.capture(f.resource)
+  let removals = 0
+  nativePorts.setRemove(async () => {
+    removals++
+    if (options.gitThrows) {
+      throw new Error('git outcome lost')
+    }
+    return {}
+  })
+  const receipts = nativePorts.nativeResults().receipts.length
+  nativePorts.setResultFailure((state) => options.resultFails && state.receipts.length > receipts)
+  // The custody terminal receipt is lost after the native effect returns.
+  control.failing = (state) => state.receipts.length > 0
+  const first = await f.authority.retire(fence, KEY)
+  nativePorts.setResultFailure(() => false)
+  control.failing = () => false
+  f.sqlite.close()
+  const restarted = await providerFixture(checkout, {
+    journal,
+    claims,
+    authorityId: `${name}-restarted`,
+    resource: f.resource
+  })
+  return { first, restarted, removals: () => removals, checkout, resource: f.resource }
+}
+
+test('a committed native removal result reconciles a lost custody receipt without resending', async () => {
+  const lost = await retiredButReceiptLost('result-reconcile')
+  assert.equal(lost.first.state, 'unknown')
+  assert.equal(lost.first.reason, 'native_outcome_commit_pending')
+  const native = nativePorts.nativeResults()
+  assert.equal(native.records.length, 0, 'the receipt replaced its intent')
+  assert.equal(native.receipts.filter((receipt) => receipt.state === 'retired').length, 1)
+  const reconciled = await lost.restarted.authority.reconcile(lost.resource, KEY)
+  assert.equal(reconciled.state, 'retired')
+  assert.equal(reconciled.reason, 'native_outcome_confirmed')
+  assert.equal(lost.removals(), 1)
+  // The custody receipt is now durable: replay needs no native result and never resends.
+  assert.equal(
+    (await lost.restarted.authority.retire({ resource: lost.resource }, KEY)).state,
+    'retired'
+  )
+  assert.equal(lost.removals(), 1)
+  lost.restarted.sqlite.close()
+})
+
+test('intent without a committed removal result stays unknown and never resends', async () => {
+  for (const [name, options] of [
+    ['git-outcome-lost', { gitThrows: true }],
+    ['result-write-lost', { resultFails: true }]
+  ]) {
+    const lost = await retiredButReceiptLost(name, options)
+    assert.equal(lost.first.state, 'unknown', name)
+    const reconciled = await lost.restarted.authority.reconcile(lost.resource, KEY)
+    assert.equal(reconciled.state, 'unknown', name)
+    assert.equal(reconciled.reason, 'native_outcome_unproven', name)
+    assert.equal(lost.removals(), 1, name)
+    // Another key cannot borrow this generation's dispatched outcome.
+    await assert.rejects(
+      lost.restarted.authority.reconcile(lost.resource, 'another_key_000001'),
+      /custody_key_binding_changed/
+    )
+    lost.restarted.sqlite.close()
+  }
+})
+
+test('an intent that cannot be made durable refuses before Git', async () => {
+  const checkout = providerCheckout('intent-unwritable')
+  const f = await providerFixture(checkout)
+  f.authority.release(`dispatch:${checkout}`, `native-worker-release:${checkout}`)
+  const fence = await f.authority.capture(f.resource)
+  nativePorts.setRemove(() => assert.fail('Git must not run without a durable intent'))
+  nativePorts.setResultFailure((state) => state.records.length > 0)
+  try {
+    const outcome = await f.authority.retire(fence, KEY)
+    assert.equal(outcome.state, 'refused')
+    assert.equal(outcome.reason, 'custody_pre_effect_refused')
+  } finally {
+    nativePorts.setResultFailure(() => false)
+  }
+  assert.equal(existsSync(checkout), true)
+  f.sqlite.close()
+})
+
+test('same-key results for two resources stay independent in the real result journal', () => {
+  const directory = join(mkdtempSync(join(fixtureRoot, 'native-results-')), 'results')
+  const a = { ...BASE, path: '/fixture/a', worktreeId: 'repo::/fixture/a', generation: 'gen-a' }
+  const b = { ...BASE, path: '/fixture/b', worktreeId: 'repo::/fixture/b', generation: 'gen-b' }
+  const outcome = (resource) => ({
+    resource,
+    key: KEY,
+    state: 'unknown',
+    recordedAt: 1,
+    reason: null
+  })
+  const results = new NativeRetirementResults(new WorktreeCustodyFileJournal(directory), BASE.owner)
+  results.recordIntent(a, KEY)
+  results.recordIntent(b, KEY)
+  results.recordRemoved(a, KEY)
+  // Completing A leaves B's pending intent, and B has no removal evidence yet.
+  const reread = new WorktreeCustodyFileJournal(directory).read()
+  assert.equal(reread.records.length, 1)
+  assert.equal(reread.records[0].resource.generation, 'gen-b')
+  const restarted = new NativeRetirementResults(
+    new WorktreeCustodyFileJournal(directory),
+    BASE.owner
+  )
+  assert.equal(restarted.confirmed(outcome(a)).confirmed, true)
+  assert.equal(restarted.confirmed(outcome(b)), null)
+  restarted.recordRemoved(b, KEY)
+  const final = new NativeRetirementResults(new WorktreeCustodyFileJournal(directory), BASE.owner)
+  assert.equal(final.confirmed(outcome(a)).confirmed, true)
+  assert.equal(final.confirmed(outcome(b)).confirmed, true)
+  assert.notEqual(final.confirmed(outcome(a)).proof, final.confirmed(outcome(b)).proof)
+  // Another owner, generation or key never reads these removals.
+  assert.equal(
+    new NativeRetirementResults(new WorktreeCustodyFileJournal(directory), 'other').confirmed(
+      outcome(a)
+    ),
+    null
+  )
+  assert.equal(final.confirmed(outcome({ ...a, generation: 'gen-c' })), null)
+  assert.equal(final.confirmed({ ...outcome(a), key: 'another_key_000001' }), null)
+  assert.equal(new WorktreeCustodyFileJournal(directory).read().records.length, 0)
 })
