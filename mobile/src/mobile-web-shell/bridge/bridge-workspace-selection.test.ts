@@ -9,6 +9,14 @@ import {
 import { mobileWorkspaceSelection } from '../../transport/workspace-selection-custody'
 import { scopeRpcClientToExecutionHost } from '../../transport/execution-host-scoped-rpc-client'
 import type { RpcClient } from '../../transport/rpc-client'
+import {
+  observeMobileSelectionHosts,
+  type MobileSelectionHost
+} from '../../transport/workspace-selection-hosts'
+import {
+  isRpcDeliveryUnknown,
+  markRpcDeliveryUnknown
+} from '../../transport/rpc-delivery-ambiguity'
 import { clientFrame, createFakeRpcClient, rpcSuccess } from '../bridge-host-test-fakes'
 import { createBridgePortPair, type BridgePortPair } from './bridge-port-pair-test-harness'
 
@@ -167,9 +175,65 @@ it('refuses a stale page ACK locally without opening another native request or w
   const acknowledgement = SelectionAckSchema.parse(message.params)
   const answer = pair.client.sendRequest('workspace.selection.ack.v1', acknowledgement)
   await pair.flush()
-  await expect(answer).resolves.toMatchObject({ ok: false })
+  await expect(answer).resolves.toEqual({
+    id: 'bridge-selection',
+    ok: false,
+    error: {
+      code: 'custody_selection_view_ack_changed',
+      message: 'custody_selection_view_ack_changed'
+    }
+  })
   expect(acknowledgements(fixture)).toHaveLength(1)
   expect(fixture.transport.streams).toHaveLength(1)
+  expect(mobileWorkspaceSelection(pair.client).canSelect(fence.resource.worktreeId)).toBe(false)
+  expect(fixture.selection.canSelect(fence.resource.worktreeId)).toBe(false)
+
+  const hosts: MobileSelectionHost[] = []
+  const stopObserving = observeMobileSelectionHosts(fixture.client, (host) => hosts.push(host))
+  stopObserving()
+  const host = hosts.find((value) => !value.executionHost)
+  if (!host) {
+    throw new Error('the real native selection host was not represented')
+  }
+  class UnexpectedSelectionError extends Error {
+    code = 'unexpected_selection_fixture'
+  }
+  const acknowledge = vi.spyOn(host.views, 'acknowledge')
+  try {
+    for (const failure of [
+      new Error('unexpected_selection_fixture'),
+      new UnexpectedSelectionError('custody_selection_view_ack_changed'),
+      markRpcDeliveryUnknown(new Error('custody_selection_view_ack_changed')),
+      Object.assign(new Error('custody_selection_view_ack_changed'), {
+        code: 'unexpected_delegate_code',
+        cause: new Error('unexpected_delegate_cause')
+      })
+    ]) {
+      acknowledge.mockImplementationOnce(() => {
+        throw failure
+      })
+      const rejected = pair.client
+        .sendRequest('workspace.selection.ack.v1', acknowledgement)
+        .catch((error: unknown) => error)
+      await pair.flush()
+      const error = await rejected
+      expect(error).toBeInstanceOf(Error)
+      expect(error).toMatchObject({ name: failure.constructor.name, message: failure.message })
+      expect(isRpcDeliveryUnknown(error)).toBe(isRpcDeliveryUnknown(failure))
+      if ('code' in failure) {
+        expect(error).toMatchObject({ code: failure.code })
+      }
+      if ('cause' in failure) {
+        expect(error).toMatchObject({ cause: { message: 'unexpected_delegate_cause' } })
+      }
+      expect(acknowledgements(fixture)).toHaveLength(1)
+      expect(fixture.transport.streams).toHaveLength(1)
+      expect(mobileWorkspaceSelection(pair.client).canSelect(fence.resource.worktreeId)).toBe(false)
+      expect(fixture.selection.canSelect(fence.resource.worktreeId)).toBe(false)
+    }
+  } finally {
+    acknowledge.mockRestore()
+  }
 })
 
 it('keeps a legacy or self-closed page unknown without stopping existing page streams', async () => {

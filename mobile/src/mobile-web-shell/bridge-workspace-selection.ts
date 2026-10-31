@@ -19,6 +19,19 @@ import { scopeRpcClientToExecutionHost } from '../transport/execution-host-scope
 import type { RpcClient } from '../transport/rpc-client'
 import type { RpcEnvelopeFields } from '../transport/rpc-envelope-fields'
 import type { RpcResponse } from '../transport/types'
+import { isRpcDeliveryUnknown } from '../transport/rpc-delivery-ambiguity'
+
+const LOCAL_SELECTION_REFUSALS = new Set([
+  'custody_selection_document_changed',
+  'custody_selection_view_role_changed',
+  'custody_selection_view_ack_changed',
+  'custody_selection_view_channel_changed',
+  'custody_selection_view_closed',
+  'custody_selection_view_overflow',
+  'custody_selection_page_unqualified',
+  'custody_selection_page_host_invalid',
+  'custody_selection_page_host_unknown'
+])
 
 export type BridgeSelectionPort = {
   request(
@@ -166,45 +179,64 @@ export class BridgeWorkspaceSelection implements BridgeSelectionPort {
       return null
     }
     const documentId = this.documentId
-    return Promise.resolve().then(() => {
-      if (this.documentId !== documentId) {
-        throw new Error('custody_selection_document_changed')
-      }
-      const host = this.host(envelope)
-      let result: unknown
-      switch (method) {
-        case 'workspace.selection.report.v1': {
-          const report = WorktreeSelectionReportSchema.parse(params)
-          if (report.kind !== 'view') {
-            throw new Error('custody_selection_view_role_changed')
+    return Promise.resolve()
+      .then<RpcResponse>(() => {
+        if (this.documentId !== documentId) {
+          throw new Error('custody_selection_document_changed')
+        }
+        const host = this.host(envelope)
+        let result: unknown
+        switch (method) {
+          case 'workspace.selection.report.v1': {
+            const report = WorktreeSelectionReportSchema.parse(params)
+            if (report.kind !== 'view') {
+              throw new Error('custody_selection_view_role_changed')
+            }
+            host.views.report(this.id, report.workspaceIds, report.complete)
+            result = { reported: true }
+            break
           }
-          host.views.report(this.id, report.workspaceIds, report.complete)
-          result = { reported: true }
-          break
-        }
-        case 'workspace.selection.ack.v1':
-          host.views.acknowledge(this.id, SelectionAckSchema.parse(params))
-          result = { acknowledged: true }
-          break
-        case 'workspace.selection.reconcile.v1': {
-          const reconcile = SelectionReconcileSchema.parse(params)
-          host.views.reconcile(this.id, reconcile.channelNonce, reconcile.fences)
-          result = { reconciled: true }
-          break
-        }
-        default: {
-          const { subscriptionId } = SelectionUnsubscribeSchema.parse(params)
-          const key = host.executionHost ?? 'local'
-          const watch = this.watches.get(key)
-          if (watch?.id === subscriptionId) {
-            watch.close()
-            this.watches.delete(key)
+          case 'workspace.selection.ack.v1':
+            host.views.acknowledge(this.id, SelectionAckSchema.parse(params))
+            result = { acknowledged: true }
+            break
+          case 'workspace.selection.reconcile.v1': {
+            const reconcile = SelectionReconcileSchema.parse(params)
+            host.views.reconcile(this.id, reconcile.channelNonce, reconcile.fences)
+            result = { reconciled: true }
+            break
           }
-          result = { unsubscribed: watch?.id === subscriptionId }
+          default: {
+            const { subscriptionId } = SelectionUnsubscribeSchema.parse(params)
+            const key = host.executionHost ?? 'local'
+            const watch = this.watches.get(key)
+            if (watch?.id === subscriptionId) {
+              watch.close()
+              this.watches.delete(key)
+            }
+            result = { unsubscribed: watch?.id === subscriptionId }
+          }
         }
-      }
-      return { id: 'bridge-selection', ok: true, result }
-    })
+        return { id: 'bridge-selection', ok: true, result }
+      })
+      .catch<RpcResponse>((error: unknown) => {
+        if (
+          error instanceof Error &&
+          error.constructor === Error &&
+          error.name === 'Error' &&
+          !('code' in error) &&
+          !('cause' in error) &&
+          !isRpcDeliveryUnknown(error) &&
+          LOCAL_SELECTION_REFUSALS.has(error.message)
+        ) {
+          return {
+            id: 'bridge-selection',
+            ok: false,
+            error: { code: error.message, message: error.message }
+          }
+        }
+        throw error
+      })
   }
 
   subscribe(
