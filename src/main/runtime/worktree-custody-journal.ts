@@ -79,6 +79,16 @@ function record(value: unknown): value is CustodyRecord {
     typeof value.claim !== 'string' ||
     !(value.releaseProof === null || typeof value.releaseProof === 'string') ||
     typeof value.revoked !== 'boolean' ||
+    !(
+      value.releaseEpoch === undefined ||
+      (typeof value.releaseEpoch === 'string' && value.releaseEpoch.length > 0)
+    ) ||
+    !(
+      value.releaseRecoveryProof === undefined ||
+      (typeof value.releaseRecoveryProof === 'string' &&
+        value.releaseRecoveryProof.length > 0 &&
+        value.releaseRecoveryProof.length <= 8192)
+    ) ||
     !(value.fence === null || fence(value.fence)) ||
     !(value.outcome === null || outcome(value.outcome)) ||
     !(
@@ -89,8 +99,9 @@ function record(value: unknown): value is CustodyRecord {
         typeof value.recovery.proof === 'string' &&
         value.recovery.proof.length > 0)
     )
-  )
+  ) {
     return false
+  }
   const key = custodyResourceKey(value.resource)
   return (
     (value.fence === null || custodyResourceKey(value.fence.resource) === key) &&
@@ -101,6 +112,7 @@ function record(value: unknown): value is CustodyRecord {
 function receipt(value: unknown): value is CustodyReceipt {
   return (
     object(value) &&
+    (value.state === undefined || value.state === 'retired' || value.state === 'refused') &&
     ['resourceHash', 'materialHash', 'claimHash', 'keyHash'].every(
       (key) => typeof value[key] === 'string' && /^[a-f0-9]{64}$/.test(value[key])
     ) &&
@@ -115,15 +127,21 @@ function noSymlinkAncestors(path: string): void {
   let current = resolve(path)
   const root = parse(current).root
   for (;;) {
-    if (lstatSync(current).isSymbolicLink()) throw new Error('custody_journal_symlink')
-    if (current === root) return
+    if (lstatSync(current).isSymbolicLink()) {
+      throw new Error('custody_journal_symlink')
+    }
+    if (current === root) {
+      return
+    }
     current = dirname(current)
   }
 }
 
 function syncDirectory(path: string): void {
   // Windows does not expose directory fsync; durable retirement stays unsupported there.
-  if (process.platform === 'win32') throw new Error('custody_durability_unsupported')
+  if (process.platform === 'win32') {
+    throw new Error('custody_durability_unsupported')
+  }
   const fd = openSync(path, constants.O_RDONLY)
   try {
     fsyncSync(fd)
@@ -140,10 +158,14 @@ export class WorktreeCustodyFileJournal implements CustodyJournal {
 
   read(): CustodyState {
     const empty = { records: [], receipts: [] }
-    if (!lstatSync(this.directory, { throwIfNoEntry: false })) return empty
+    if (!lstatSync(this.directory, { throwIfNoEntry: false })) {
+      return empty
+    }
     this.checkDirectory()
     const path = join(this.directory, 'custody.json')
-    if (!lstatSync(path, { throwIfNoEntry: false })) return empty
+    if (!lstatSync(path, { throwIfNoEntry: false })) {
+      return empty
+    }
     const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW)
     try {
       const info = fstatSync(fd)
@@ -153,12 +175,13 @@ export class WorktreeCustodyFileJournal implements CustodyJournal {
         info.size > MAX_JOURNAL_BYTES ||
         (info.mode & 0o077) !== 0 ||
         (process.getuid && info.uid !== process.getuid())
-      )
+      ) {
         throw new Error('custody_journal_unsafe')
+      }
       const parsed: unknown = JSON.parse(readFileSync(fd, 'utf8'))
       if (
         !object(parsed) ||
-        (parsed.version !== 1 && parsed.version !== 2) ||
+        (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3) ||
         typeof parsed.revision !== 'string' ||
         !Array.isArray(parsed.records) ||
         parsed.records.length > 2048 ||
@@ -167,8 +190,9 @@ export class WorktreeCustodyFileJournal implements CustodyJournal {
         throw new Error('custody_journal_invalid')
       }
       const receipts = parsed.version === 1 ? [] : parsed.receipts
-      if (!Array.isArray(receipts) || receipts.length > 16384 || !receipts.every(receipt))
+      if (!Array.isArray(receipts) || receipts.length > 16384 || !receipts.every(receipt)) {
         throw new Error('custody_journal_invalid')
+      }
       const claims = new Set(parsed.records.map((entry) => entry.claim))
       const keys = new Set(parsed.records.map((entry) => custodyResourceKey(entry.resource)))
       const outcomes = parsed.records.flatMap((entry) => (entry.outcome ? [entry.outcome.key] : []))
@@ -176,11 +200,13 @@ export class WorktreeCustodyFileJournal implements CustodyJournal {
         claims.size !== parsed.records.length ||
         keys.size !== parsed.records.length ||
         new Set(outcomes).size !== outcomes.length ||
-        new Set(receipts.map((entry) => entry.resourceHash)).size !== receipts.length ||
-        new Set(receipts.map((entry) => entry.claimHash)).size !== receipts.length ||
+        new Set(
+          receipts.filter((entry) => entry.state !== 'refused').map((entry) => entry.resourceHash)
+        ).size !== receipts.filter((entry) => entry.state !== 'refused').length ||
         new Set(receipts.map((entry) => entry.keyHash)).size !== receipts.length
-      )
+      ) {
         throw new Error('custody_journal_duplicate')
+      }
       this.revision = parsed.revision
       return { records: parsed.records, receipts }
     } finally {
@@ -189,15 +215,18 @@ export class WorktreeCustodyFileJournal implements CustodyJournal {
   }
 
   write(state: CustodyState): void {
-    if (process.platform === 'win32') throw new Error('custody_durability_unsupported')
+    if (process.platform === 'win32') {
+      throw new Error('custody_durability_unsupported')
+    }
     const revision = randomUUID()
-    const body = JSON.stringify({ version: 2, revision, ...state })
+    const body = JSON.stringify({ version: 3, revision, ...state })
     if (
       state.records.length > 2048 ||
       state.receipts.length > 16384 ||
       Buffer.byteLength(body) > MAX_JOURNAL_BYTES
-    )
+    ) {
       throw new Error('custody_journal_full')
+    }
     if (!existsSync(this.directory)) {
       noSymlinkAncestors(dirname(this.directory))
       mkdirSync(this.directory, { mode: 0o700 })
@@ -214,7 +243,9 @@ export class WorktreeCustodyFileJournal implements CustodyJournal {
     let temporary: string | null = null
     try {
       this.read()
-      if (this.revision !== expectedRevision) throw new Error('custody_journal_writer_changed')
+      if (this.revision !== expectedRevision) {
+        throw new Error('custody_journal_writer_changed')
+      }
       temporary = join(this.directory, `${revision}.tmp`)
       const fd = openSync(
         temporary,
@@ -233,7 +264,9 @@ export class WorktreeCustodyFileJournal implements CustodyJournal {
       this.revision = revision
     } finally {
       closeSync(lock)
-      if (temporary) unlinkSync(temporary)
+      if (temporary) {
+        unlinkSync(temporary)
+      }
       unlinkSync(lockPath)
       syncDirectory(this.directory)
     }
@@ -246,7 +279,8 @@ export class WorktreeCustodyFileJournal implements CustodyJournal {
       !info.isDirectory() ||
       (info.mode & 0o077) !== 0 ||
       (process.getuid && info.uid !== process.getuid())
-    )
+    ) {
       throw new Error('custody_journal_unsafe')
+    }
   }
 }

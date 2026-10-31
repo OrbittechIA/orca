@@ -1,4 +1,4 @@
-import { assertWorktreeCustodyAdmission } from '../worktree-custody-runtime'
+import { runtimeWorktreeFileTarget } from './runtime-worktree-file-target'
 import type { OrcaRuntimeWithStoredMobileSnapshotHasStalePreservedTab as BrowserOwnership } from '../session-tabs/mobile-session-publication-preservation'
 import type { OrcaRuntimeWithScheduleMobileSessionTabsChanged } from '../session-tabs/session-tabs-change-publication'
 import type { OrcaRuntimeWithResolveBrowserNetworkExecutionHostForWorktree } from '../terminal/launch/terminal-workspace-scope'
@@ -311,15 +311,6 @@ export abstract class OrcaRuntimeWithPersistHeadlessTerminalTitle extends Runtim
     worktree: ResolvedWorktree
     executionHostId: ExecutionHostId
   } {
-    assertWorktreeCustodyAdmission(worktree.id, worktree.path, worktree.hostId)
-    const store = this.requireStore()
-    const routing = resolveWorktreeHostRouting(store.getRepos(), worktree)
-    if (routing.kind === 'ambiguous') {
-      throw new Error('worktree_execution_host_unresolved')
-    }
-    return {
-      worktree,
-      executionHostId: routing.kind === 'resolved' ? routing.hostId : LOCAL_EXECUTION_HOST_ID
-    }
+    return runtimeWorktreeFileTarget(worktree, () => this.requireStore())
   }
 }

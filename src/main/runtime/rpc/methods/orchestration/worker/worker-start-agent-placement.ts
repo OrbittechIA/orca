@@ -156,7 +156,7 @@ async function launchWorkerAgent(
             ...(args.launchPreferences ? { launchPreferences: args.launchPreferences } : {}),
             effects: args.effects
           })
-          claimWorkerWorktreeCustody(created.worktree, args.dispatchId, args.taskId)
+          claimWorkerWorktreeCustody(created.worktree, args.dispatchId, args.taskId, true)
           return {
             worktreeId: created.worktree.id,
             startupTerminalHandle: created.terminalHandle

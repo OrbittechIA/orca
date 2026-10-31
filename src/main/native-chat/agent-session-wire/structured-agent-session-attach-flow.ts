@@ -1,8 +1,5 @@
-import { refuse, refuseUnclassified } from '../../../shared/agent-session-wire-refusals'
-import {
-  admitWorktreeCustody,
-  WorktreeCustodyAdmissionError
-} from '../../runtime/worktree-custody-runtime'
+import { refuse } from '../../../shared/agent-session-wire-refusals'
+import { withStructuredAgentSessionCustody } from './structured-agent-session-custody'
 import {
   settlePostAcquisitionAttachFailure,
   settleUnsupportedReservation
@@ -114,32 +111,9 @@ export type AttachFlowInput = {
 export async function performAttach(
   input: AttachFlowInput
 ): Promise<AgentSessionMutationResult<AgentSessionAttachResult>> {
-  const location = input.params.location
-  let release: () => void
-  try {
-    release = admitWorktreeCustody(
-      location.workspaceId,
-      undefined,
-      location.wslDistro ? 'wsl' : location.executionHostId
-    )
-  } catch (error) {
-    if (!(error instanceof WorktreeCustodyAdmissionError)) throw error
-    return {
-      ok: false,
-      refusal: {
-        ...refuseUnclassified(
-          'agent_session_ownership_unknown',
-          'Workspace custody prevents this attach before any session mutation.'
-        ),
-        createAttemptRefusedBeforeCommit: true
-      }
-    }
-  }
-  try {
-    return await performCustodyAdmittedAttach(input)
-  } finally {
-    release()
-  }
+  return withStructuredAgentSessionCustody(input.params.location, 'attach', () =>
+    performCustodyAdmittedAttach(input)
+  )
 }
 
 async function performCustodyAdmittedAttach(

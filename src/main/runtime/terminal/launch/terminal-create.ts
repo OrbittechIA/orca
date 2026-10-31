@@ -1,10 +1,6 @@
-import {
-  recordTerminalLaunchMetadata,
-  resolveTerminalLaunchResult,
-  terminalLaunchPublicFacts
-} from './terminal-launch-result'
+import { recordTerminalLaunchMetadata, resolveTerminalLaunchResult } from './terminal-launch-result'
 import { admitWorktreeCustody } from '../../worktree-custody-runtime'
-import { revealCreatedTerminal } from './terminal-create-reveal'
+import { finishCreatedTerminal } from './terminal-create-reveal'
 import type { PaneSpawnOperation } from '../../../ipc/pty/pane/pane-spawn-operation'
 import { OrcaRuntimeWithTerminalCreateDeduplication } from './terminal-create-deduplication'
 import * as dependencies from '../../orca-runtime-create-terminal-dependencies'
@@ -279,41 +275,25 @@ export abstract class OrcaRuntimeWithCreateTerminal extends OrcaRuntimeWithTermi
               ...(savedStartupCwd !== workspace.path ? { startupCwd: savedStartupCwd } : {})
             })
           }
-          const reveal = revealCreatedTerminal({
+          return await finishCreatedTerminal({
+            result,
+            pty,
+            paneKey,
+            effectiveTitle: launch.effectiveTitle,
+            effectiveViewMode: launch.effectiveViewMode,
+            executionMetadata: () => this.getPtyExecutionHostMetadata(result.id),
             notifier: this.notifier,
             workspace,
             ptyId: result.id,
             handle,
             cwd: savedStartupCwd,
-            launchOpts: {
-              ...launchOpts,
-              title: pty?.title ?? launch.effectiveTitle ?? undefined,
-              launchAgent: pty?.launchAgent ?? undefined,
-              viewMode: launch.effectiveViewMode
-            },
-            effectiveLaunchConfig: pty?.launchConfig ?? undefined,
-            launchToken: pty?.launchToken ?? undefined,
+            launchOpts,
             adoptedStablePane: launch.adoptedStablePane,
             presentation,
             opts,
             tabId,
             leafId
           })
-          const { surface, warning } = reveal instanceof Promise ? await reveal : reveal
-          return {
-            ...terminalLaunchPublicFacts(result, launch.adoptedStablePane, pty),
-            handle,
-            savedStartupCwd,
-            tabId,
-            paneKey,
-            ptyId: result.id,
-            worktreeId: workspace.id,
-            title: pty?.title ?? launch.effectiveTitle ?? null,
-            ...this.getPtyExecutionHostMetadata(result.id),
-            surface,
-            ...(result.startupCwdFallback ? { startupCwdFallback: result.startupCwdFallback } : {}),
-            ...(warning ? { warning } : {})
-          }
         } finally {
           teamAllocation.release()
           releaseStablePaneCreate()

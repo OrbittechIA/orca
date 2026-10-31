@@ -85,7 +85,9 @@ export function custodyObservationRefusals(
   if (custodyResourceKey(resource) !== custodyResourceKey(observation.resource)) {
     reasons.push('resource_changed')
   }
-  if (!fresh(observation.observedAt)) reasons.push('observation_stale')
+  if (!fresh(observation.observedAt)) {
+    reasons.push('observation_stale')
+  }
   if (observation.disposition !== 'released' || !observation.releaseProof) {
     reasons.push('producer_release_unproven')
   }

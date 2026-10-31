@@ -1,5 +1,5 @@
 import type { LocalProjectWorktreeGitOptions } from '../../project-runtime-git-options'
-import { admitWorktreeCustody } from '../worktree-custody-runtime'
+import { withManagedWorktreeRemovalCustody } from '../worktree-custody-removal'
 import { isStaleLocalWorktreeRegistration } from './stale-worktree-registration-preflight'
 import type { RuntimeStore } from '../runtime-store-contract'
 import type { GitWorktreeInfo } from '../../../shared/worktree/types'
@@ -14,10 +14,7 @@ import {
   parseExecutionHostId,
   type ExecutionHostId
 } from '../../../shared/execution-host'
-import {
-  finishAcceptedWorktreeRemoval,
-  waitForPendingWorktreeRemoval
-} from '../../worktree-background-removal'
+import { finishAcceptedWorktreeRemoval } from '../../worktree-background-removal'
 import { preservedBranchCleanupScopeKey } from '../../../shared/preserved-branch-cleanup'
 import {
   getRuntimeWorktreeRemovalOptionsKey,
@@ -37,10 +34,6 @@ import { removeStaleLocalWorktreeRegistration } from '../../local-worktree-remov
 import { cleanupUnusedWorktreePushTargetRemote } from '../../ipc/worktree-remote'
 import { removeRuntimeRegisteredLocalWorktree } from '../runtime-registered-local-worktree-removal'
 import { removeOrphanOrFolderWorktree } from './workspace-registration-removal'
-import {
-  assertWslMoveWorkspaceWritable,
-  isWslMoveSourceHost
-} from '../../persistence/moving-wsl-projects/wsl-move-scope-guard'
 
 export abstract class OrcaRuntimeWithRemoveManagedWorktree extends OrcaRuntimeWithCreateManagedRemoteWorktree {
   abstract removeWorktreeMetadataAndHistory(
@@ -87,20 +80,7 @@ export abstract class OrcaRuntimeWithRemoveManagedWorktree extends OrcaRuntimeWi
     const store = this.store
     const cleanupHostId = parseExecutionHostId(hostId)?.id
     const removalTarget = await this.resolveWorktreeRemovalTarget(worktreeSelector, cleanupHostId)
-    // The repo row names the host; a caller may omit hostId for a worktree on another host.
-    const fenceOwner = resolveWorktreeRemovalRepoOwner(store, removalTarget.repoId, cleanupHostId)
-    const fenceHostId =
-      fenceOwner.kind === 'resolved' ? getRepoExecutionHostId(fenceOwner.repo) : cleanupHostId
-    const releaseCustody = admitWorktreeCustody(
-      removalTarget.id,
-      removalTarget.path,
-      fenceHostId,
-      false
-    )
-    try {
-      if (isWslMoveSourceHost(fenceHostId)) {
-        assertWslMoveWorkspaceWritable(store, removalTarget.id)
-      }
+    return withManagedWorktreeRemovalCustody(store, removalTarget, cleanupHostId, async () => {
       // Why: a retry or a second client asking while Git still deletes joins that removal.
       const pending = this.joinPendingWorktreeRemoval(removalTarget.id, options)
       if (pending) {
@@ -309,10 +289,6 @@ export abstract class OrcaRuntimeWithRemoveManagedWorktree extends OrcaRuntimeWi
       } finally {
         this.removeManagedWorktreeInFlight.release(cleanupScopeKey, removal)
       }
-    } finally {
-      const pending = waitForPendingWorktreeRemoval(removalTarget.id, fenceHostId)
-      if (pending) void pending.then(releaseCustody, releaseCustody)
-      else releaseCustody()
-    }
+    })
   }
 }

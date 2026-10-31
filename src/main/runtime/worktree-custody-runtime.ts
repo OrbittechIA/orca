@@ -19,10 +19,14 @@ export { WorktreeCustodyAdmissionError } from './worktree-custody-authority'
 const authorities = new Map<string, WorktreeCustodyAuthority>()
 
 export function nativeWorktreeCustody(_runtimeId?: string): WorktreeCustodyAuthority | null {
-  if (!hasAppEnvironment() || process.platform === 'win32') return null
+  if (!hasAppEnvironment() || process.platform === 'win32') {
+    return null
+  }
   const directory = join(getAppEnvironment().getPath('userData'), 'worktree-custody-v1')
   const existing = authorities.get(directory)
-  if (existing) return existing
+  if (existing) {
+    return existing
+  }
   const custody = new WorktreeCustodyAuthority(
     new WorktreeCustodyFileJournal(
       join(getAppEnvironment().getPath('userData'), 'worktree-custody-effects-v1')
@@ -50,7 +54,9 @@ export function installNativeWorktreeCustodyCoverage(
   runtimeId?: string
 ): () => void {
   const custody = nativeWorktreeCustody(runtimeId)
-  if (!custody) throw new Error('custody_host_unsupported')
+  if (!custody) {
+    throw new Error('custody_host_unsupported')
+  }
   return custody.installCoverage(owner, coverage)
 }
 
@@ -60,9 +66,13 @@ export function admitWorktreeCustody(
   hostId?: string | null,
   reopen = true
 ): () => void {
-  if (hostId && hostId !== 'local') return () => {}
+  if (hostId && hostId !== 'local') {
+    return () => {}
+  }
   const exactPath = path ?? splitWorktreeId(worktreeId)?.worktreePath
-  if (!exactPath) return () => {}
+  if (!exactPath) {
+    return () => {}
+  }
   return nativeWorktreeCustody()?.admit(worktreeId, exactPath, reopen) ?? (() => {})
 }
 
@@ -71,9 +81,13 @@ export function assertWorktreeCustodyAdmission(
   path?: string,
   hostId?: string | null
 ): void {
-  if (hostId && hostId !== 'local') return
+  if (hostId && hostId !== 'local') {
+    return
+  }
   const exactPath = path ?? splitWorktreeId(worktreeId)?.worktreePath
-  if (exactPath) nativeWorktreeCustody()?.checkAdmission(worktreeId, exactPath)
+  if (exactPath) {
+    nativeWorktreeCustody()?.checkAdmission(worktreeId, exactPath)
+  }
 }
 
 export function admitOrchestrationWorktreeCustody(
@@ -84,7 +98,9 @@ export function admitOrchestrationWorktreeCustody(
   try {
     return admitWorktreeCustody(worktreeId, path, hostId)
   } catch (error) {
-    if (!(error instanceof WorktreeCustodyAdmissionError)) throw error
+    if (!(error instanceof WorktreeCustodyAdmissionError)) {
+      throw error
+    }
     throw new OrchestrationError(
       'worktree_custody_refused',
       'Workspace custody prevents this operation.',
@@ -101,19 +117,23 @@ export function claimWorkerWorktreeCustody(
   worktree: Pick<Worktree, 'id'> &
     Partial<Pick<Worktree, 'path' | 'instanceId' | 'hostId' | 'projectId' | 'isMainWorktree'>>,
   dispatchId: string,
-  taskId: string
+  taskId: string,
+  effectsApplied = false
 ): void {
   // Legacy, folder and remote copies need their own host authority, never this host's fallback.
   const parsed = splitWorktreeId(worktree.id)
-  if (!parsed || parsed.worktreePath !== worktree.path) return
+  if (!parsed || parsed.worktreePath !== worktree.path) {
+    return
+  }
   if (
     !worktree.path ||
     !worktree.instanceId ||
     !worktree.projectId ||
     worktree.hostId !== 'local' ||
     worktree.isMainWorktree !== false
-  )
+  ) {
     return
+  }
   try {
     nativeWorktreeCustody()?.claim(
       {
@@ -128,7 +148,17 @@ export function claimWorkerWorktreeCustody(
       `dispatch:${dispatchId}`
     )
   } catch (error) {
-    if (error instanceof Error && error.message === 'worktree_custody_fenced') throw error
+    if (error instanceof WorktreeCustodyAdmissionError) {
+      throw new OrchestrationError(
+        'worktree_custody_refused',
+        'Workspace custody prevents this worker claim.',
+        {
+          effectsApplied,
+          worktreeId: worktree.id,
+          reason: error.message
+        }
+      )
+    }
     console.warn('[worktree-custody] producer claim pending', { dispatchId })
   }
 }
@@ -140,8 +170,9 @@ export function releaseWorkerWorktreeCustody(
   try {
     const custody = nativeWorktreeCustody()
     const resource = custody?.claimedResource(`dispatch:${dispatchId}`)
-    if (!custody || !resource || resource.owner !== 'orchestration' || database.db.isTransaction)
+    if (!custody || !resource || resource.owner !== 'orchestration' || database.db.isTransaction) {
       return
+    }
     const worker = database.db
       .prepare('SELECT state, worktree_id FROM worker_dispatches WHERE dispatch_id = ?')
       .get(dispatchId)
@@ -149,8 +180,9 @@ export function releaseWorkerWorktreeCustody(
       !worker ||
       !['completed', 'failed', 'circuit_broken'].includes(String(worker.state)) ||
       worker.worktree_id !== resource.worktreeId
-    )
+    ) {
       return
+    }
     const resources = database.db
       .prepare(`SELECT worktree_id, ownership_state, release_state
       FROM worker_terminal_resources WHERE owner_dispatch_id = ? OR origin_dispatch_id = ?
@@ -165,8 +197,9 @@ export function releaseWorkerWorktreeCustody(
           entry.ownership_state !== 'released' ||
           entry.release_state !== 'released'
       )
-    )
+    ) {
       return
+    }
     custody.release(`dispatch:${dispatchId}`, `native-worker-release:${dispatchId}`)
   } catch (error) {
     // A legacy or reopened claim remains unknown; worker settlement must stay committed.
@@ -190,6 +223,7 @@ export function reconcileWorkerWorktreeCustodyRelease(
   resource: WorktreeCustodyResource
 ): void {
   const claim = nativeWorktreeCustody()?.producerClaim(resource)
-  if (claim?.startsWith('dispatch:'))
+  if (claim?.startsWith('dispatch:')) {
     releaseWorkerWorktreeCustody(database, claim.slice('dispatch:'.length))
+  }
 }

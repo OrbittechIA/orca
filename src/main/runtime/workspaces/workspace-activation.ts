@@ -1,3 +1,4 @@
+import { activateMobileWorkspace } from './workspace-mobile-activation'
 import { OrcaRuntimeWithListManagedWorktrees } from './managed-workspace-operations'
 import type { RuntimeNavigationTarget } from '../../../shared/runtime-navigation'
 import {
@@ -6,7 +7,6 @@ import {
   resolveRuntimeNavigationTarget
 } from '../../../shared/runtime-navigation'
 import { getRepoExecutionHostId } from '../../../shared/execution-host'
-import { phoneWakeReport } from '../../../shared/workspace-sleep'
 import type { Repo } from '../../../shared/repo-types'
 import type { TerminalWorkspaceLaunchScope } from '../runtime-legacy-worker-terminal-recovery-types'
 import type { TuiAgent } from '../../../shared/tui-agent'
@@ -97,8 +97,7 @@ export abstract class OrcaRuntimeWithActivateManagedWorktree extends OrcaRuntime
         this.notifyWorktreesChanged(repo.id)
       }
 
-      let sleepingAgentWake: 'requested' | 'unsupported-headless' | 'not-applicable' =
-        'not-applicable'
+      let sleepingAgentWake: Awaited<ReturnType<typeof activateMobileWorkspace>> = 'not-applicable'
       if (targetsHost || targetsClients) {
         // Inactive renderer-owned panes may need desktop activation to gain PTYs.
         if (targetsHost) {
@@ -109,25 +108,17 @@ export abstract class OrcaRuntimeWithActivateManagedWorktree extends OrcaRuntime
         }
       }
       if (!targetsHost) {
-        // Refresh phone surfaces without navigating attached desktops.
-        this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(worktree.id, {
-          allowAttachedWindow: true
+        sleepingAgentWake = await activateMobileWorkspace({
+          worktreeId: worktree.id,
+          mobile: opts.clientKind === 'mobile',
+          hydrate: (id, options) =>
+            this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(id, options),
+          refresh: () => this.refreshMobileSessionPtyRecords(),
+          notify: () => this.notifyMobileSessionTabsChanged(worktree.id),
+          wake: () => this.queueSleepingAgentWake(worktree.id),
+          readSession: () => this.store?.getWorkspaceSession?.(getRepoExecutionHostId(repo)),
+          hasWindow: () => Boolean(this.getAvailableAuthoritativeWindow())
         })
-        await this.refreshMobileSessionPtyRecords()
-        this.notifyMobileSessionTabsChanged(worktree.id)
-        // Why: main resumes a workspace sleep's agents; only a window wakes its own hibernation.
-        if (opts.clientKind === 'mobile') {
-          // Not awaited: behind a running sleep it would outlast the phone's request timeout.
-          const worktreeId = worktree.id
-          void this.queueSleepingAgentWake(worktreeId)
-          // Wake records live in the repo host's partition, including SSH.
-          const records = this.store?.getWorkspaceSession?.(getRepoExecutionHostId(repo))
-          sleepingAgentWake = phoneWakeReport(
-            records?.sleepingAgentSessionsByPaneKey,
-            worktreeId,
-            Boolean(this.getAvailableAuthoritativeWindow())
-          )
-        }
       }
       return { repoId: repo.id, worktreeId: worktree.id, activated: true, sleepingAgentWake }
     } finally {

@@ -150,7 +150,9 @@ export async function updateRuntimeManagedWorktreeMetadata(args: {
     }
     return await args.ports.showWorktree(`id:${worktree.id}`)
   } finally {
-    for (const release of releases.reverse()) release()
+    for (const release of releases.toReversed()) {
+      release()
+    }
   }
 }
 

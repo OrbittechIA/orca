@@ -8,9 +8,12 @@ import { RuntimeClientError } from '../runtime-client'
 export const worktreeCustody: CommandHandler = async ({ flags, client, json }) => {
   const parse = (flag: string): unknown => {
     const value = getOptionalStringFlag(flags, flag)
-    if (value === undefined) return undefined
-    if (value.length > 65536)
+    if (value === undefined) {
+      return undefined
+    }
+    if (value.length > 65536) {
       throw new RuntimeClientError('invalid_argument', `--${flag} is too large`)
+    }
     try {
       return JSON.parse(value)
     } catch {
@@ -28,7 +31,9 @@ export const worktreeCustody: CommandHandler = async ({ flags, client, json }) =
     ...(flags.has('fence') ? { fence: parse('fence') } : {}),
     ...(flags.has('key') ? { key: getRequiredStringFlag(flags, 'key') } : {})
   })
-  if (!request.success) throw new RuntimeClientError('invalid_argument', request.error.message)
+  if (!request.success) {
+    throw new RuntimeClientError('invalid_argument', request.error.message)
+  }
   if (operation === 'capture' || operation === 'retire') {
     const status = await client.call<{ capabilities?: string[] }>('status.get')
     if (!status.result.capabilities?.includes(WORKTREE_CUSTODY_CAPABILITY)) {

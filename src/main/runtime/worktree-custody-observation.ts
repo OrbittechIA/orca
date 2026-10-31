@@ -37,7 +37,9 @@ export async function observeNativeWorktreeCustody(
     proof: string
   ) => {
     const entry = domains.find((item) => item.domain === domain)
-    if (entry) Object.assign(entry, { observedAt: Date.now(), complete, active, held, proof })
+    if (entry) {
+      Object.assign(entry, { observedAt: Date.now(), complete, active, held, proof })
+    }
   }
   const worktree = await runtime.showManagedWorktree(`id:${resource.worktreeId}`)
   const exact =

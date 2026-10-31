@@ -22,7 +22,9 @@ export const WORKTREE_CUSTODY_METHOD = defineMethod({
         scope: 'native-enrolled-only'
       }
     }
-    if (!custody) throw new Error('custody_host_unsupported')
+    if (!custody) {
+      throw new Error('custody_host_unsupported')
+    }
     switch (params.operation) {
       case 'observe':
         return { schemaVersion: 1, observation: await custody.observe(params.resource) }

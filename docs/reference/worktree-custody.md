@@ -144,7 +144,7 @@ external clients have stopped using a checkout.
 
 Trusted native host code may install an owning producer with
 `installNativeWorktreeCustodyRetirement(runtime, provider)`. Its observe/acquire/
-check/release/reconcile/recoverFence ports must cover **all** remaining producer and consumer
+check/release/reconcile/recoverFence/recoverRelease ports must cover **all** remaining producer and consumer
 claims, including future ingress, and positively attest preservation. A process
 scan alone cannot do so. Provider proof cannot erase a native positive hold.
 The fixed native retirement effect is supplied by Orca, not by RPC data. Merely
@@ -165,20 +165,31 @@ changes, including live admissions, grants and coverage.
 The separate `worktree-custody-effects-v1/custody.json` is first created by capture.
 It records exact-resource fences and dispatched outcomes with exclusive writer
 admission, revision checks, atomic replacement, file fsync and directory fsync.
-Unknown effect inventory refuses admission because an effect may exist. An effect
+Unreadable effect inventory refuses **every local path**, including unrelated
+Starts, because its affected paths cannot be safely enumerated. This global
+`custody_effects_unknown` state differs from an exact known pending fence and is
+not an optional-claims failure. No effects inventory is created in the default
+no-provider build. An effect
 write failure retains the affected pending paths in memory and refuses further
 custody mutation; unrelated known paths remain available. Restart reads the durable
 fence/outcome. A stale writer lock is never stolen using age, PID absence or missing
 consumers. Capture is durable before acquiring grants; dispatch is durable before
 any effect. No absent path, consumer, process or result is recovery proof.
 
-The private v2 storage reads v1 record envelopes and retains terminal operations as
+The private v3 storage reads v1/v2 record envelopes and retains terminal operations as
 compact tombstones bound by SHA-256 to the full resource, material instance, claim
 and key. Exact caller-supplied identity/key can reconstruct a retired receipt; a
 changed key or binding cannot dispatch. Claims without effects may be evicted only
-when released, at the 2,048-entry enrollment bound; held generations are retained.
-Effect tombstones are never evicted or expired. The effects file retains at most
-2,048 live records / 16,384 tombstones within 4 MiB. Capacity refuses before any
+when unrevoked and confirmed released in this custody incarnation, with every
+overlapping generation also confirmed released. At the 2,048-entry enrollment
+bound, revoked, held and prior-incarnation unknown generations remain retained;
+if no fully released path is disposable, new enrollment refuses without blocking
+ordinary Starts.
+Effect and refusal tombstones are never evicted or expired. The effects file retains at most
+2,048 live records and a 16,384-receipt count ceiling, with an independent
+4 MiB serialized-byte cap that usually wins first. A minimal receipt is roughly
+350 bytes; about 12k or fewer can fit before accounting for live records, reasons
+and bounded proof strings. This is a ceiling, not promised usable capacity. Capacity refuses before any
 write, does not poison admissions, and preserves all earlier idempotency. Reaching
 the terminal receipt budget requires a separately reviewed archival authority;
 restarting or deleting the journal is never compaction.
@@ -194,11 +205,68 @@ Reconcile dispatches no effect. A trusted owning result query must bind the same
 resource/key and a nonempty proof identifier. Confirmed settlement is durably
 recorded as a compact receipt before returning retired or admitting path reuse,
 so restart does not require an in-memory confirmation again. Failure to persist
-confirmation retains the original pending outcome. Stored retired receipts replay
-without provider access. The fixed native provider cannot manufacture confirmation
+confirmation retains the original pending outcome. Stored retired/refused receipts replay
+without provider access. If a terminal receipt cannot be committed after an actual
+effect, retire/reconcile returns structured `unknown` with
+`native_outcome_commit_pending`; the durable dispatched/pending record stays
+fenced and the effect is never retried. Reconciliation proofs exceeding 8 KiB
+remain unknown instead of filling the journal. The fixed native provider cannot manufacture confirmation
 from an absent directory.
 
-Rollback before activation is to revert the source commit. After activation,
+Only the fixed native retirement port can issue `CustodyPreEffectRefusal`: its
+preflight catch surrounds identity, material budget, symlink, cleanliness and
+fence checks **before entering removeWorktree**. The runtime exception carries the
+exact resource and an owning native proof; JSON cannot manufacture that type.
+Its durable `refused` receipt spends that key, clears the fence and releases the
+grant, so ordinary Start works across restart. A different key requires a fresh
+capture. A grant-release acknowledgement failure leaves that authority-owned
+resource/key grant pending for automatic same-key retire/reconcile retry; it
+cannot change the canonical refused outcome or release a newer grant. Replay
+never re-enters removal. Generic/provider errors, error text and every exception after removal
+entry remain `unknown`; they cannot authorize a no-effect clear. A failed refusal
+receipt write also retains the original pending protection and returns unknown.
+
+Release eligibility carries `releaseEpoch`, the stable custody authority UUID,
+which survives runtime-ID changes but changes across process restarts. Historical
+release metadata is `unknown` in a new incarnation even if its old file looks
+healthy and a failed write removed its lock. Replaying the same native DB release
+proof never renews its epoch. This covers failed revocation writes from stale
+locks, ENOSPC and EROFS without making ordinary Start depend on those writes.
+
+Host-only `recoverRelease` may renew an old release only with a positive owning
+**durable producer and consumer history** proof covering intervening admission and
+reopen, bound to all eight resource fields, the claim, original release proof,
+previous epoch and current authority. An old released worker row, no live process,
+no lock, fresh idle scan or caller assertion is insufficient. Missing, false,
+substituted, oversized or unavailable proof stays unknown. Confirmation and its
+proof are persisted with the new epoch before capture becomes eligible; a failed
+write disables capture. The next incarnation requires owning revalidation again.
+Owning recovery is invoked automatically during observation/capture; it adds no
+routine owner-approval step. Fresh current-incarnation native releases remain
+eligible, so unavailable recovery does not disable all future automation. There is no public recover/install/release
+assertion RPC and no complete recovery provider is installed here.
+
+For a global effects-unknown diagnosis, preserve every journal, lock and temporary
+file. Use the exact host error and read-only inspection of ownership, mode,
+symlink ancestry, bounded file length and envelope/revision to distinguish access
+failure from corrupt contents. An owning host operator may repair verified access
+metadata while retaining the exact bytes; corrupt or uncertain contents need an
+authenticated revision and owning recovery/result authority for every pending
+resource. Never delete/truncate the journal, steal a lock, restore an older
+snapshot blindly or infer no effect from PID/path absence. Withhold activation
+until that diagnosis and recovery are complete.
+
+Symlinked userData ancestry (including a symlinked ~/.config layout) is unsupported
+by the no-follow durable journal policy. It is a fail-closed storage limitation,
+not proof of an unused checkout. Do not change path policy, follow the link or
+remove custody state to enable the capability; use an explicitly supported host
+storage layout and qualified owning recovery instead.
+
+Rollback before activation is to revert the source commit. After v3 custody
+state exists, a v2-only reader must reject the unknown envelope rather than treat
+a refused receipt as retired. The public wire remains v1; private v3 writes gate
+these new terminal semantics, while forward readers preserve existing v1/v2
+retired receipts. Do not rewrite the version field to downgrade storage. After activation,
 remove the producer's coverage registration to withhold capability and preserve
 the journal and unresolved fences. Do not delete journal state to clear an
 unknown operation. Reverting code does not restore a removed checkout; retained

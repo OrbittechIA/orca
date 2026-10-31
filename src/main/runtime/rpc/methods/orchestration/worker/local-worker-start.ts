@@ -1,3 +1,4 @@
+import { localWorkerStartOptions, initialLocalWorkerEffects } from './local-worker-start-options'
 import { probeWorkerOpenCodeModelLaunchSupport } from './worker-opencode-model-preflight'
 import { admitOrchestrationWorktreeCustody } from '../../../../worktree-custody-runtime'
 import { resolveWorkerConfiguredAgentParams } from './worker-configured-agent-preflight'
@@ -33,7 +34,7 @@ import { resolveDispatchAssigneeParty } from '../../../../orchestration/orchestr
 import { CHAT_WORKER_AUTHORITY, chatAssigneeOf, chatWorkerMode } from '../chat-assignee-admission'
 import { recordCreatedWorkerTerminalCustody } from './created-worker-terminal-custody'
 import { releaseRetriedWorkerTerminal } from './retried-worker-terminal-release'
-import { requireWorkerAuthority, type WorkerEffect } from './worker-topology'
+import { requireWorkerAuthority } from './worker-topology'
 import { prepareLocalWorkerStart } from './worker-start-validation'
 import { deliverAndSettleWorkerStartReadiness } from './worker-start-readiness-settlement'
 import type { WorkerStartMutation } from './worker-start-mutation'
@@ -133,24 +134,14 @@ export async function startLocalWorker(args: {
   const hostMode = resolveWorkerStartModeOnHost(runtime, args.mode, resolvedWorktree?.id, agent)
   let mode = chatWorkerMode(await hostMode, chat)
 
-  const startOptions = {
-    worktree: requestedWorktree,
+  const startOptions = localWorkerStartOptions({
+    params,
     mode,
-    resolvedWorktreeId: resolvedWorktree?.id ?? null,
-    name: params.name ?? null,
-    repo: creationTarget?.repoSelector ?? params.repo ?? null,
-    baseBranch: params.baseBranch ?? null,
-    terminal: params.terminal ?? null,
-    agent: agent ?? null,
-    launch: launch.receipt,
-    timeoutMs: params.timeoutMs ?? 60_000,
-    setup: createsWorktree ? (params.setup ?? 'run') : 'not_applicable',
-    setupSource: createsWorktree
-      ? params.setup
-        ? 'explicit_request'
-        : 'orchestration_default'
-      : 'existing_worktree'
-  }
+    resolvedWorktreeId: resolvedWorktree?.id,
+    creationTarget,
+    agent,
+    launch
+  })
   const releaseCustody = resolvedWorktree
     ? admitOrchestrationWorktreeCustody(
         resolvedWorktree.id,
@@ -183,14 +174,8 @@ export async function startLocalWorker(args: {
       mutationReceipt: orchestrationMutation
     })
     releaseRetriedWorkerTerminal(runtime, db, params)
-    const effects: WorkerEffect[] = []
+    const effects = initialLocalWorkerEffects(resolvedWorktree)
     const task = started.task
-    if (resolvedWorktree) {
-      effects.push(
-        { kind: 'worktree', action: 'reused', id: resolvedWorktree.id },
-        { kind: 'setup', action: 'not_applicable', state: 'not_applicable' }
-      )
-    }
     let terminalHandle = params.terminal
     let placed: Awaited<ReturnType<typeof placeWorkerAgent>> | undefined
     let failedStage = 'terminal_create'
