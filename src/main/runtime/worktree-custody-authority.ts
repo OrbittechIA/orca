@@ -79,16 +79,17 @@ export class WorktreeCustodyAuthority extends WorktreeCustodyFences {
         throw new Error(`custody_refused:${refusals.join(',')}`)
       }
       this.check(fence)
+      const retire = coverage.retire
       this.commitEffects(() => {
         record.outcome = this.outcome(fence.resource, key, 'dispatched', null)
       })
       let result: WorktreeCustodyOutcome
       let proof: string | null = null
       try {
-        await coverage.retire(fence.resource, () => this.check(fence))
+        await Reflect.apply(retire, coverage, [fence.resource, () => this.check(fence)])
         result = this.outcome(fence.resource, key, 'retired', null)
       } catch (error) {
-        proof = nativeWorktreePreEffectRefusal(coverage.retire, error, fence.resource)
+        proof = nativeWorktreePreEffectRefusal(retire, error, fence.resource)
         if (proof) {
           result = this.outcome(fence.resource, key, 'refused', 'custody_pre_effect_refused')
         } else {

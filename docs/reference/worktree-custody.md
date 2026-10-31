@@ -218,9 +218,17 @@ preflight catch surrounds identity, material budget, symlink, cleanliness and
 fence checks **before entering removeWorktree**. The exception and proof are
 private to that module and bound to its exact registered retirement callback,
 resource and error object. There is no exported refusal constructor or issuer.
+The authority captures the callback once before durable dispatch, invokes that exact reference with its receiver and validates against the same reference; replacing a coverage property during the call cannot change the proof authority.
 Generic coverage cannot manufacture the proof or reuse another fixed port's
 error after an effect; JSON, error names, messages and matching resource fields
 are not authority. Every exception after removal entry remains unknown.
+
+Provider grant `check()` must be a synchronous, side-effect-free validity probe:
+it must not mutate checkout material, start/stop consumers or dispatch work.
+It runs inside fixed preflight and its failure may produce a refusal. The
+no-effect proof certifies that Orca's fixed removal was never entered; it does
+not certify arbitrary provider effects or make a side-effecting check valid.
+Complete trusted provider qualification must verify this contract.
 
 A durable `refused` receipt spends that key and clears the fence, so ordinary
 Start works across restart. A different key requires a fresh capture. If the
@@ -237,7 +245,14 @@ Startup interrupted-removal jobs also take a `reopen=false` custody admission
 before metadata, teardown or Git entry and retain it through the resumed job's
 actual background settlement, including asynchronous failure cleanup. Native pending-removal observation is an
 additional positive hold, not the only exclusion protecting startup resumption.
-A typed custody refusal is retained as a failed removal without entering branch, remote or filesystem failure cleanup. This guard does not certify or activate any complete provider.
+A typed custody refusal is retained as a failed removal without entering branch, remote or filesystem failure cleanup. When startup admission refuses, the custody fence and failed-removal record
+remain. The job does not reach the watcher-gate handoff; the background executor
+owns release of its startup loading fence in its `finally`. That loading fence
+is distinct from custody's durable exclusion. Preserve both removal/custody
+records and obtain the owning outcome/recovery proof; then retry the retained
+failed removal through the normal admitted removal request. Do not erase state,
+force-release custody or treat restart/absence as permission to resume deletion.
+This guard does not certify or activate any complete provider.
 
 Release eligibility carries `releaseEpoch`, the stable custody authority UUID,
 which survives runtime-ID changes but changes across process restarts. Historical

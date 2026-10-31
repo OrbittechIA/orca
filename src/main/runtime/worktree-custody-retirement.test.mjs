@@ -275,20 +275,22 @@ test('any exception after fixed removal entry stays unknown, including a typed-l
   )
 })
 
-test('generic coverage cannot reuse a real fixed-port refusal after performing an effect', async () => {
+test('generic coverage cannot reuse a real fixed-port refusal by replacing its callback after an effect', async () => {
   const checkout = mkdtempSync(join(fixtureRoot, 'foreign-proof-'))
   let fixed, captured
   let effects = 0
   const f = nativeFixture(checkout, false, {
     coverage: (coverage) => {
       fixed = coverage
-      return {
+      const wrapped = {
         ...coverage,
         retire: async () => {
           effects++
+          wrapped.retire = coverage.retire
           throw captured
         }
       }
+      return wrapped
     }
   })
   nativePorts.setClean(() => {
