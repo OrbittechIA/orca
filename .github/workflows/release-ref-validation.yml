@@ -1,39 +1,251 @@
-name: Release ref validation
-
+name: Audit166 pinned AppImageebe
+run-name: Audit166 AppImageebe only
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
-    paths:
-      - '.github/workflows/adhoc-mac-build.yml'
-      - '.github/workflows/dev-channel-win-build.yml'
-      - '.github/workflows/release-ref-validation.yml'
-      - 'config/scripts/workflow-ref-reachability.test.mjs'
-      - 'config/scripts/workflow-ref-mirror-case-safety.test.mjs'
   workflow_dispatch:
-
+    inputs:
+      qualification_acceptance_sha256:
+        description: Exact Root receipt digest for the fully accepted bound source qualification
+        required: true
+        type: string
 permissions:
   contents: read
-
+  actions: read
+cache-mode: read
 concurrency:
-  group: release-ref-validation-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
+  group: audit166-appimage53-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
-  validate:
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft != true
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-15, windows-2022]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+  appimage53:
+    if: github.repository == 'OrbittechIA/orca' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/audit166/appimageebe-20261101-r6' && github.run_attempt == '1'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      ORCA_BACKGROUND_LAUNCH: '1'
+      CI: 'true'
+      ORCA_PNPM_GLOBAL_VIRTUAL_STORE: '0'
+      ORCA_CI_MAIN_SOURCEMAPS: '0'
+      ORCA_BUILD_COMMIT: 'ebe645eb6e49bf7979d25114c738c9d174ad5726'
+      NODE_OPTIONS: --max-old-space-size=4096
+      AUDIT166_LANE: appimage53
     steps:
-      - uses: actions/checkout@v6
+      - name: Prepare private job paths
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PATHS'
+          import os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])
+          assert root.is_absolute() and '\n' not in str(root) and '\r' not in str(root)
+          paths={'AUDIT166_TOOLS':root/'appimage53-control','AUDIT166_EVIDENCE':root/'orca245-evidence'}
+          for path in paths.values():path.mkdir(exist_ok=False)
+          with open(os.environ['GITHUB_ENV'],'a') as f:
+              for name,path in paths.items():f.write(f'{name}={path}\n')
+          PATHS
+      - name: Prepare pinned clock.py
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PAYLOAD'
+          import os,base64,zlib,hashlib
+          from pathlib import Path
+          data=zlib.decompress(base64.b64decode('eNqdVltv2zYUftevOG0fKCOW7PSSrSpUIBd3dZs6QequwDxDoMVji4lMCiTlxAvy3wdSsi05TXfRg0Dy3G8f+eJZr9SqN+Oih2IFxdpkUrzynj9//oErbQJtsIBzLso7SHOZ3kRARZpJBUaCybiGazkjGq5KIVCF36W6QWVZUBupYMaVyULPG4o0LxlqoKnhUgRM3opcUtbTaMoCDF8izHAuFYLJEObWNJQaFVj7IYwkLHI5o7lXKJmi1oGgSwSNVKXZO1BIGUiRr510WiqFwkDNSjSsUPE5R7ZzLM0oF6EN0+PLQioD11qKzVpqb67kEgpqspzPoD6+pCbbsFiXPU+WBmJ37ksdolhxJcWEXH0bjQZXyXjw5ZJMO9ADIlVKX75+E+CKMxQpEnvoEhpaw8RTmErFIIZ7otMMl5REQGjJuDk8Ogqu5Sxw3MHqkHSBVDUgEYykwC4QVGq39WD7kWs5O+dLbr5iKgXTJIKXv/T7XSAZVewLVQsudqSjfkt2zgXN+V/UVuwKNaoV7nhf9fsPnlHryEkU3LoudbhAU3Dmd9wp3hWYGmSJawOInXuO4tIPMUymbjuXChLgAhQVC/Rf/9qJto4YvNvmeE56tqi9+4Kzh5421JBOaIufWK7aqrMsrD/2MFRcMLzzSYfsyKlcLmv6xDHVPD7pwAEcRijYdMs855gzvWG3mg/gZTQNdZHzpk0XZBcK6povBi6MX8lODt9OO93WwXQnR7VGZfaTxbXLFmyGCOJ4j2UXjetlWhQomH9PCs5IZCvSBeIYSbTxjVTOXVYcbt0FYrNBIpeUh51bfF6nKQbSmm4SNZoEAHNaaHTp5ksMXZcmCzR257uj0/OL08/JycXFeDz8MuhAUEfUsw2j1zqVYu6Tr6fJ6fnnZHz6uVGoZn5qO+9j6Lfo2lBldg44u9ZILdDitV0P8VbkwE0DBHDUVtnsfIgrqcC2/I8cazG/bzlxAG/f2KwrLKiqGChbcq3dKredu7ZV5QoZaemu4CAsC0YN+ve7gScbLAs2WBa0qhNUJa8wwtHttLoW6bYs7H3k1omfWOnvNM93k14nq8aMT3J2hpTlXCCJXGZ+rraZna9WU0O6SXtoF/2Wm+wxrv42HH/8dpIMRr+TaSeUBQqfUNIBqgHFKnrkCIpVeKu4QX9Ojr+dDceHR0fJx+Ors+TTxUlyNjg+Ox+OBvG9DePhT7HXeE9q+DAcHZ8P/zgeDy9GDS2tcB5pmymkN/tDX4PFe+gDFWyzfRbb8d3yVqfJj4HQ0X6KhbX4FsYa6iaNdRMon0C4mnuD5hbPWsodzm25X8AVrmjObQdX93LGc0b0Jkpki+2lP5d5Lm+5WACFQmrNZ/naNl6OcDk8CxtQh+nNf74N6KK6bZz0xP3/RbR1iWyUToGLzsJhFb+tV4NWkarQ9hP2hNf/XLqGC01Vk+bm6Ui2DjfrtvPNXdl7Dj+6sR+JYq5xN2iKco328WcBb2AfIT554ikopIG5LAV7B0ICq1EAuFihMMhIx8O7FAsDJ1TjwC0dSmpwj5vKZgWLk/q9M7WYvy7Qd9tOmCT2VZgkcAAWKeEAtFE10YnL0lTTXCXavrxCVi4L7VeK7R3NUJj40KaSbGfYhen9H+m/Actpg3s=',validate=True))
+          assert hashlib.sha256(data).hexdigest()=='99b5996eff7ec088d9eb4050b9a46bc98f6f36ceb975b3288308b817c89b8cd6'
+          with (Path(os.environ['AUDIT166_TOOLS'])/'clock.py').open('xb') as f:f.write(data)
+          PAYLOAD
+      - name: Prepare pinned supervisor.py
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PAYLOAD'
+          import os,base64,zlib,hashlib
+          from pathlib import Path
+          data=zlib.decompress(base64.b64decode('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',validate=True))
+          assert hashlib.sha256(data).hexdigest()=='770f9d6ff19795ea8278a7713af2d73ac2d68195073ad8d107bb0e0d6afa80eb'
+          with (Path(os.environ['AUDIT166_TOOLS'])/'supervisor.py').open('xb') as f:f.write(data)
+          PAYLOAD
+      - name: Prepare pinned capture.py
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PAYLOAD'
+          import os,base64,zlib,hashlib
+          from pathlib import Path
+          data=zlib.decompress(base64.b64decode('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',validate=True))
+          assert hashlib.sha256(data).hexdigest()=='7795e35295d36dcf27896110698ac0c63065b80a1c5d095af38effcc1225ef4a'
+          with (Path(os.environ['AUDIT166_TOOLS'])/'capture.py').open('xb') as f:f.write(data)
+          PAYLOAD
+      - name: Prepare pinned suppress-own-post-cache.py
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PAYLOAD'
+          import os,base64,zlib,hashlib
+          from pathlib import Path
+          data=zlib.decompress(base64.b64decode('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',validate=True))
+          assert hashlib.sha256(data).hexdigest()=='c034230a41ded19df5426da69245102730adecc4d1f1d2ba04a324628c7756b6'
+          with (Path(os.environ['AUDIT166_TOOLS'])/'suppress-own-post-cache.py').open('xb') as f:f.write(data)
+          PAYLOAD
+      - name: Prepare pinned appimage-control.py
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PAYLOAD'
+          import os,base64,zlib,hashlib
+          from pathlib import Path
+          data=zlib.decompress(base64.b64decode('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',validate=True))
+          assert hashlib.sha256(data).hexdigest()=='51a49ff88fa64d2748666c6392f9459056851eab5b80e14fa7b8e25b31ffcdb5'
+          with (Path(os.environ['AUDIT166_TOOLS'])/'appimage-control.py').open('xb') as f:f.write(data)
+          PAYLOAD
+      - name: Prepare pinned SOURCE-PINS.json
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PAYLOAD'
+          import os,base64,zlib,hashlib
+          from pathlib import Path
+          data=zlib.decompress(base64.b64decode('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',validate=True))
+          assert hashlib.sha256(data).hexdigest()=='65552db6e2933e5406429210bc1d2b3a5d39e537e02c865da17180f0af494815'
+          with (Path(os.environ['AUDIT166_TOOLS'])/'SOURCE-PINS.json').open('xb') as f:f.write(data)
+          PAYLOAD
+      - name: Prepare pinned CONTRACT.json
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PAYLOAD'
+          import os,base64,zlib,hashlib
+          from pathlib import Path
+          data=zlib.decompress(base64.b64decode('eJydVU1v3DYQvftXEHuOvPz+cFEgTpq2AZIisNNT28OQHHqZaClVojbeBvnvhaRdx0kKFMiN5HDevOGb4Xy8IGQzdtMQcHNFNuhRS4Veo3Q+GWdc5IoxGYywwUVmJERluN48mf3qgIsXS57ObpBYMJr7AFRI0JraxJjjNCYaRdC4en3ohvep7T68gbqbvS/vct1Nfns+H7cDtggjNgOm5gBtjlBzVy6P+/ZLhJdxc0WEptZoZd1i8gOUsMDCFHNlWm+h7/Me7hA9NpxyzRhlzXBKod/BiOPminy8IISQDYwj1nn/x7InhHFKn5zWm9JFJKErKd9txzDkvo7bXMYKbdtgi6EOXWl6CO/hDhufCwzHy/278c/Sl35PhqkQP+U2XhWo+YDfHEcc39euvzqRWKL+tQbfnFAfMdP/QwzLOA3YrLGaYSo173GmQ5rz7scz6RMVvMdAHhJZSOFAmmZFPgf4+sLlen4ZFug2l+meXPf9y/nRSdPca0mapp98m8cdKXjA4ZTaBSGfFhXGqcfhkMduuP31mis962cMTS7qlJgzTiFYbiwYwwQkHo2AwKO2zClqBEQbGTXeU6RRQwJL0a/6BujrNOBjWKdQKO5UFDqGxI11c0loZyHQoAXVylsKLKhInYIkLKYUAuNcYZKwwuLeY4wYf+viI2wUHHlkmloWkpYyWSscd0Jya6nVaLTmirtIoxTcmCBkMgCRc2pCgnSijPc9horxOsxVf4Nj107z6nGVLqZxG3YY3ndTnYNHLqRkIC0qpr0OQgKCTCCZUgwERUEhWSo2p4LqDliacbcdsU5946cyg9CgqDGomGTOaquZBQRQCS1lLmguObPKRH0GOROZ+raD2MBQc4Kw8AlJCopU0Bi9V56CT05Ezp3mSRrFk9BSh+i+hlr5zAX99LC8KpfOGWq4C55iEso6LSVy6/T856gYlAcXhP0aKEDY4dODWsgAcKcZ19aKkJJyOloTrRPKSp5c9NZSTFydMeZuWJk8PfClbKgIimtOObPCMSUoSusdWmtoVIFSy5F55zcPNb2Ef93F5YccEOKq7rvOv8r7XG8xdCXOmnKzNvIm5QJt/mf57D6bxcl6ftvXcP86P9tcEcX4YogZ7ko31hweTEwvlrX1r0+Ob7sK7WdvscIOWLHMEX+C4xyOLad/T9DmlMPK5TvHwxcgb79rVnwBcbPUqGTcOEu1sObbK8+7UoeuXST3lHqbnKaS6bDUX1TaMa6d9N76OYMAZu2HzdB19ToE7CvGGwyY+/qor1VMigYL1qRkXbCUmUQxShScBUnRJOEdoJJBp8hVClZYD8gEFVQz+h+5PMsl5nL3pmtzOM4xbrquEp9LHMn1q1ck5QMSvIdQyQHaCUfyrsultkfSlfZIIFUcCIQ6QUsqDvu5dMiq9+3vz5+/uL3dQq247ysjfTuNZMQ9lJoDgSVLKAFJl8g6+s+6bueJflbokrw44HAkZWpbMmCaRhyJx9QNSH558fbh87kkP0NuMZIbRgmUSNK6HaYya2UZpUZRAgOSXR5rN+QA7ZLGD6TH5RnmyTLrNi63lhFBYKq7bsj1eLm5+HTxL2X2m0g=',validate=True))
+          assert hashlib.sha256(data).hexdigest()=='a11a219c27de4ae6f938790bf73fe884bedb420a474ed4fa39b35eba44746c95'
+          with (Path(os.environ['AUDIT166_TOOLS'])/'CONTRACT.json').open('xb') as f:f.write(data)
+          PAYLOAD
+      - name: Anchor45minute native worker clock
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$AUDIT166_TOOLS/clock.py"
+      - name: Require entire Root bound successful source qualification
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ROOT_QUALIFICATION_ACCEPTANCE_SHA256: ${{ inputs.qualification_acceptance_sha256 }}
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$AUDIT166_TOOLS/appimage-control.py" qualification
+      - name: Checkout exactebe product
+        timeout-minutes: 2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          persist-credentials: false
-      - uses: ./.github/actions/install-node-dependencies
-      - name: Verify case-twin refs and release trust boundary
-        run: >-
-          pnpm exec vitest run --config config/vitest.config.ts
-          config/scripts/workflow-ref-reachability.test.mjs
-          config/scripts/workflow-ref-mirror-case-safety.test.mjs
+          ref: "ebe645eb6e49bf7979d25114c738c9d174ad5726"
+          persist-credentials: "false"
+          fetch-depth: "1"
+      - name: Verify source and empty dedicated Docker baseline
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$AUDIT166_TOOLS/appimage-control.py" preflight
+      - name: Admit dependency phase
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          python3 "$AUDIT166_TOOLS/appimage-control.py" admit 600
+      - name: Install source dependencies with enforced cache read
+        timeout-minutes: 8
+        uses: ./.github/actions/install-node-dependencies
+        with:
+          node-version: "24.18.1"
+          native-runtime: "node"
+          cache-pnpm-store: "false"
+          cache-pnpm-verification: "false"
+          persist-native-cache: "false"
+          cache-electron-package: "false"
+      - name: Setup pinned Bun144
+        timeout-minutes: 1
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version-file: "config/.bun-version"
+          no-cache: "true"
+      - name: Admit mobile dependency phase
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          python3 "$AUDIT166_TOOLS/appimage-control.py" admit 180
+      - name: Install frozen mobile dependencies
+        timeout-minutes: 3
+        uses: ./.github/actions/install-mobile-dependencies
+      - name: Verify exact toolchain
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          python3 "$AUDIT166_TOOLS/appimage-control.py" toolchain
+      - name: Build native and desktop assets with reviewed ownership supervisor
+        timeout-minutes: 22
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$AUDIT166_TOOLS/appimage-control.py" phase assets
+      - name: Build AppImage only with all upstream package hooks
+        timeout-minutes: 12
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$AUDIT166_TOOLS/appimage-control.py" phase package
+      - name: Always observe final disk and containers without cleanup
+        if: ${{ always() }}
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          python3 "$AUDIT166_TOOLS/appimage-control.py" observe-final
+      - name: Require complete build settlement and bounded AppImage
+        id: appimage_gate
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$AUDIT166_TOOLS/appimage-control.py" artifact
+      - name: Upload positively qualified bounded AppImage
+        if: ${{ success() && steps.appimage_gate.outcome == 'success' }}
+        timeout-minutes: 2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: "appimageebe-${{ github.run_id }}-a1"
+          path: "dist/orca-linux.AppImage"
+          retention-days: "1"
+          compression-level: "0"
+          if-no-files-found: "error"
+      - name: Always gate diagnostic size separately
+        id: diagnostic_gate
+        if: ${{ always() }}
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$AUDIT166_TOOLS/appimage-control.py" metadata-budget
+      - name: Retain only bounded diagnostics
+        if: ${{ always() && steps.diagnostic_gate.outcome == 'success' }}
+        timeout-minutes: 1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: "appimageebe-diagnostics-${{ github.run_id }}-a1"
+          path: "${{ runner.temp }}/orca245-evidence/"
+          retention-days: "1"
+          compression-level: "6"
+          if-no-files-found: "error"
+      - name: Finally suppress only own pnpm post memo
+        if: ${{ always() }}
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$AUDIT166_TOOLS/suppress-own-post-cache.py"
