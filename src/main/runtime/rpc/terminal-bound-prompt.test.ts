@@ -1,4 +1,5 @@
 import './unused-default-rpc-methods.test-fixture'
+import { randomUUID } from 'node:crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createAgentPromptSubmissionRuntime } from '../agent-prompt-submission-runtime-test-fixture'
 import { OrchestrationDb } from '../orchestration/db'
@@ -6,7 +7,8 @@ import { RpcDispatcher } from './dispatcher'
 import { TERMINAL_METHODS } from './methods/terminal'
 import { OrcaRuntimeService } from '../orca-runtime'
 import { makeStore } from '../runtime-rpc-worktree-store-fixtures'
-import { partialRuntimeStore } from '../runtime-store-partial-fixture'
+import { partialRuntimeStore, storeWorktreeMeta } from '../runtime-store-partial-fixture'
+import type { WorktreeMeta } from '../../../shared/worktree/meta-types'
 import type {
   AgentPromptActivity,
   AgentPromptWaitTextCache
@@ -200,13 +202,28 @@ describe('terminal.sendBoundPrompt', () => {
   it('writes no retry Enter to a process replaced during the final settled-check await', async () => {
     vi.useFakeTimers()
     const store = makeStore()
+    const worktreeMeta = new Map<string, WorktreeMeta>(Object.entries(store.getAllWorktreeMeta()))
     const runtime = new RetryBoundaryRuntime(
       partialRuntimeStore({
         getRepos: store.getRepos,
         getRepo: store.getRepo,
-        getAllWorktreeMeta: store.getAllWorktreeMeta,
-        getWorktreeMeta: store.getWorktreeMeta,
-        getSettings: store.getSettings
+        getAllWorktreeMeta: () => Object.fromEntries(worktreeMeta),
+        getWorktreeMeta: (id) => worktreeMeta.get(id),
+        getSettings: store.getSettings,
+        setWorktreeMeta: ({ id, hostId }, updates) => {
+          if (hostId !== 'local') {
+            throw new Error('unexpected fixture host')
+          }
+          const current = worktreeMeta.get(id)
+          const next = storeWorktreeMeta({
+            ...current,
+            ...updates,
+            hostId,
+            instanceId: current?.instanceId ?? randomUUID()
+          })
+          worktreeMeta.set(id, next)
+          return next
+        }
       })
     )
     const writes: string[] = []
