@@ -1,5 +1,6 @@
 import type { RuntimeTerminalSend } from '../../shared/runtime-types'
 import { TERMINAL_PROMPT_DELIVERY_RUNTIME_CAPABILITY } from '../../shared/protocol-version'
+import { TERMINAL_BOUND_PROMPT_RUNTIME_CAPABILITY } from '../../shared/terminal-runtime-capabilities'
 import type { CommandHandler } from '../dispatch'
 import { formatTerminalSend, printResult, terminalSendWarnings } from '../format'
 import { getOptionalPositiveIntegerFlag, getOptionalStringFlag } from '../flags'
@@ -15,6 +16,15 @@ export const terminalSendHandler: CommandHandler = async ({ flags, client, cwd, 
   const enter = flags.get('enter') === true
   const interrupt = flags.get('interrupt') === true
   const promptCandidate = !!text && enter && !interrupt
+  const expectedIncarnationId = getOptionalStringFlag(flags, 'expected-incarnation')
+  const expectedRuntimeId = getOptionalStringFlag(flags, 'expected-runtime')
+  const boundPrompt = expectedIncarnationId !== undefined || expectedRuntimeId !== undefined
+  if (boundPrompt && (!promptCandidate || !expectedIncarnationId || !expectedRuntimeId)) {
+    throw new RuntimeClientError(
+      'invalid_argument',
+      '--expected-incarnation and --expected-runtime require each other and --text with --enter, without --interrupt.'
+    )
+  }
   const retryRequest = readRetryRequestFlag(flags)
   const waitSubmitSeconds = getOptionalPositiveIntegerFlag(flags, 'wait-submit')
   if ((retryRequest || waitSubmitSeconds) && !promptCandidate) {
@@ -41,6 +51,17 @@ export const terminalSendHandler: CommandHandler = async ({ flags, client, cwd, 
       status.result.runtime.capabilities?.includes(TERMINAL_PROMPT_DELIVERY_RUNTIME_CAPABILITY) ===
       true
     promptDeliveryRuntimeId = status.result.runtime.runtimeId
+    if (
+      boundPrompt &&
+      (!promptDeliverySupported ||
+        status.result.runtime.runtimeId !== expectedRuntimeId ||
+        !status.result.runtime.capabilities?.includes(TERMINAL_BOUND_PROMPT_RUNTIME_CAPABILITY))
+    ) {
+      throw new RuntimeClientError(
+        'incompatible_runtime',
+        'This Orca host cannot honor the expected runtime and terminal incarnation. No input was sent.'
+      )
+    }
   }
   if (retryRequest && !promptDeliverySupported) {
     throw new RuntimeClientError(
@@ -59,6 +80,7 @@ export const terminalSendHandler: CommandHandler = async ({ flags, client, cwd, 
     text,
     enter,
     interrupt,
+    ...(boundPrompt ? { expectedIncarnationId, expectedRuntimeId } : {}),
     ...(promptCandidate
       ? {
           agentPrompt: true as const,
@@ -76,9 +98,10 @@ export const terminalSendHandler: CommandHandler = async ({ flags, client, cwd, 
     : promptCandidate
       ? { legacyTerminalPrompt: true as const }
       : undefined
+  const method = boundPrompt ? 'terminal.sendBoundPrompt' : 'terminal.send'
   const result = options
-    ? await client.call<TerminalSendResult>('terminal.send', params, options)
-    : await client.call<TerminalSendResult>('terminal.send', params)
+    ? await client.call<TerminalSendResult>(method, params, options)
+    : await client.call<TerminalSendResult>(method, params)
   const missingPromptReceipt =
     promptCandidate && result.result.send.accepted && !result.result.send.prompt
   if (missingPromptReceipt && promptDeliverySupported) {

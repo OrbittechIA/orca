@@ -196,6 +196,7 @@ export const EXECUTION_HOST_METHODS = [
   'terminal.read',
   'terminal.rename',
   'terminal.send',
+  'terminal.sendBoundPrompt',
   'terminal.setDisplayMode',
   'terminal.subscribe',
   'terminal.unsubscribe',

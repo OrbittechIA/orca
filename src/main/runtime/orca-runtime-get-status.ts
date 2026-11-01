@@ -55,6 +55,7 @@ import { isDesktopBrowserBridgeHostEnabled } from './desktop-browser-bridge/desk
 import { DESKTOP_BROWSER_BRIDGE_RUNTIME_CAPABILITY } from '../../shared/desktop-browser-bridge-protocol'
 import { darkSwitchRuntimeCapabilities } from './dark-switch-runtime-capabilities'
 import { supportsDurableTerminalPromptDelivery } from './durable-terminal-prompt-delivery-support'
+import { TERMINAL_BOUND_PROMPT_RUNTIME_CAPABILITY } from '../../shared/terminal-runtime-capabilities'
 
 type RuntimeStatusHost = {
   getAvailableAuthoritativeWindow(): unknown
@@ -101,6 +102,8 @@ export abstract class OrcaRuntimeWithGetStatus extends OrcaRuntimeWithPtyControl
         (process.env.ORCA_E2E_DISABLE_AUTHORITATIVE_SESSION_TABS_INVENTORY !== '1' ||
           capability !== SESSION_TABS_AUTHORITATIVE_INVENTORY_RUNTIME_CAPABILITY) &&
         (capability !== TERMINAL_PROMPT_DELIVERY_RUNTIME_CAPABILITY ||
+          supportsDurableTerminalPromptDelivery()) &&
+        (capability !== TERMINAL_BOUND_PROMPT_RUNTIME_CAPABILITY ||
           supportsDurableTerminalPromptDelivery()) &&
         // Only hosts running their own usage poller can consume saved keys.
         (capability !== USAGE_CREDENTIALS_RUNTIME_CAPABILITY ||

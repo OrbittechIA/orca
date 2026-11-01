@@ -621,6 +621,7 @@ import {
 import {
   AgentTeamsPrepareLaunch,
   AgentTeamsTmuxCompat,
+  TerminalBoundPromptSend,
   TerminalCloseAll,
   TerminalCreateParams,
   TerminalFocus,
@@ -1453,6 +1454,7 @@ export const RPC_PARAMS_BY_METHOD = {
   'terminal.restoreFit': TerminalHandle,
   'terminal.reveal': TerminalReveal,
   'terminal.send': TerminalSend,
+  'terminal.sendBoundPrompt': TerminalBoundPromptSend,
   'terminal.setAutoRestoreFit': TerminalSetAutoRestoreFit,
   'terminal.setDisplayMode': TerminalSetDisplayMode,
   'terminal.setPaneTitle': TerminalSetPaneTitle,

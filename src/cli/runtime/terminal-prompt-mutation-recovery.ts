@@ -9,7 +9,11 @@ export function attachDurableMutationRecovery(
   originalCommand: string[] | undefined,
   method: string
 ): unknown {
-  if (method !== 'terminal.send' || !requestId || !(error instanceof RuntimeClientError)) {
+  if (
+    (method !== 'terminal.send' && method !== 'terminal.sendBoundPrompt') ||
+    !requestId ||
+    !(error instanceof RuntimeClientError)
+  ) {
     return attachMutationRecovery(error, requestId, originalCommand)
   }
   // Why: a text-plus-Enter prompt refuses a menu; text-only and bare-Enter sends stay direct input.
