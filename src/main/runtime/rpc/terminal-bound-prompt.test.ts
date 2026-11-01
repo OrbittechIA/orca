@@ -35,16 +35,20 @@ vi.mock('../../git/worktree', () => ({
   ]
 }))
 
-async function harness() {
-  const created = await createAgentPromptSubmissionRuntime((runtime, data) => {
-    if (data === '\r') {
-      runtime.onPtyData(
-        'pty-prompt',
-        '\x1b]9999;{"state":"working","agentType":"claude"}\x07',
-        Date.now()
-      )
-    }
-  }, 'claude')
+async function harness(provenForeground = false) {
+  const created = await createAgentPromptSubmissionRuntime(
+    (runtime, data) => {
+      if (data === '\r') {
+        runtime.onPtyData(
+          'pty-prompt',
+          '\x1b]9999;{"state":"working","agentType":"claude"}\x07',
+          Date.now()
+        )
+      }
+    },
+    'claude',
+    provenForeground ? () => true : undefined
+  )
   const [pane] = (await created.runtime.listTerminals()).terminals
   const replace = (incarnationId: string) =>
     created.runtime.registerPty('pty-prompt', pane.worktreeId, null, {
@@ -145,11 +149,13 @@ describe('terminal.sendBoundPrompt', () => {
 
   it('preserves native turn-start proof and observes the same request without a second input', async () => {
     vi.useFakeTimers()
-    const h = await harness()
+    const h = await harness(true)
     try {
+      expect(await h.runtime.isTerminalRunningSettledPromptAgent(h.handle)).toBe(true)
       const first = h.dispatcher.dispatch(h.request)
       await vi.runAllTimersAsync()
-      await expect(first).resolves.toMatchObject({
+      const response = await first
+      expect(response, JSON.stringify(response)).toMatchObject({
         ok: true,
         result: {
           send: {
