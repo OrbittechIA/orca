@@ -162,7 +162,10 @@ describe('Explicit desktop read acknowledgements', () => {
       provider: 'claude',
       location: SCOPE
     })
-    const readRecord = store.getRecord
+    const readRecord = vi.mocked(store.getRecord).getMockImplementation()
+    if (!readRecord) {
+      throw new Error('structured host record reader missing')
+    }
     vi.spyOn(store, 'getRecord').mockImplementation((id) =>
       id === OTHER ? otherRecord : readRecord(id)
     )

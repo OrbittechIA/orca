@@ -37,4 +37,14 @@ describe('getHostOperationOwnership', () => {
     expect(getHostOperationOwnership('accounts')).toBeNull()
     expect(getHostOperationOwnership('.list')).toBeNull()
   })
+
+  it('routes versioned workspace selection operations to their owning host or stream', () => {
+    expect(getHostOperationOwnership('workspace.selection.ack.v1')).toBe('host')
+    expect(getHostOperationOwnership('workspace.selection.reconcile.v1')).toBe('host')
+    expect(getHostOperationOwnership('workspace.selection.report.v1')).toBe('host')
+    expect(getHostOperationOwnership('workspace.selection.unsubscribe.v1')).toBe('stream')
+    expect(getHostOperationOwnership('workspace.selection.watch.v1')).toBe('stream')
+    expect(getHostOperationOwnership('workspace.selection.unknown.v1')).toBeNull()
+    expect(getHostOperationOwnership('workspace.selection.watch.v2')).toBeNull()
+  })
 })

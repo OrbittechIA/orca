@@ -81,7 +81,12 @@ const HOST_OPERATION_METHOD_OWNERSHIP = {
   'github.project.listAccessible': 'scope-picked',
   'github.project.listViews': 'scope-picked',
   'github.project.resolveRef': 'scope-picked',
-  'github.project.viewTable': 'scope-picked'
+  'github.project.viewTable': 'scope-picked',
+  'workspace.selection.ack.v1': 'host',
+  'workspace.selection.reconcile.v1': 'host',
+  'workspace.selection.report.v1': 'host',
+  'workspace.selection.unsubscribe.v1': 'stream',
+  'workspace.selection.watch.v1': 'stream'
 } as const satisfies Record<string, HostOperationOwnership>
 
 const OWNERSHIP_BY_METHOD: ReadonlyMap<string, HostOperationOwnership> = new Map(

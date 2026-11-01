@@ -17,7 +17,15 @@ beforeEach(() => {
   readAway.mockReset().mockResolvedValue(true)
   dismiss.mockReset()
   vi.stubGlobal('__ORCA_WEB_CLIENT__', false)
-  Object.assign(window, { api: { notifications: { getDesktopAwayState: readAway, dismiss } } })
+  Object.assign(window, {
+    api: {
+      notifications: { getDesktopAwayState: readAway, dismiss },
+      runtimeEnvironments: {
+        list: async () => [],
+        onStatusChanged: () => () => {}
+      }
+    }
+  })
   vi.spyOn(document, 'hasFocus').mockReturnValue(true)
   useAppStore.setState({
     activeView: 'terminal',
