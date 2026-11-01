@@ -269,7 +269,6 @@ jobs:
       WAKE_EXPECTED_CONTROL_SHA: ${{ inputs.expected_control_sha }}
       WAKE_FINANCE_ADMISSION_SHA256: ${{ inputs.finance_admission_sha256 }}
       WAKE_QUALIFICATION_SHA256: ${{ needs.qualification.outputs.qualification_sha256 }}
-      WAKE_QUALIFICATION_DIRECTORY: ${{ runner.temp }}/wake-f86-qualification
     steps:
     - name: Prepare private job paths
       timeout-minutes: 1
@@ -281,7 +280,7 @@ jobs:
         from pathlib import Path
         root=Path(os.environ['RUNNER_TEMP'])
         assert root.is_absolute() and '\n' not in str(root) and '\r' not in str(root)
-        paths={'AUDIT166_TOOLS':root/'wake-f86-control','AUDIT166_EVIDENCE':root/'orca245-evidence'}
+        paths={'AUDIT166_TOOLS':root/'wake-f86-control','AUDIT166_EVIDENCE':root/'orca245-evidence','WAKE_QUALIFICATION_DIRECTORY':root/'wake-f86-qualification'}
         for path in paths.values():path.mkdir(exist_ok=False)
         with open(os.environ['GITHUB_ENV'],'a') as f:
             for name,path in paths.items():f.write(f'{name}={path}\n')
