@@ -48,9 +48,11 @@ describe.skipIf(process.platform === 'win32')('snapshot commands on a real shell
   let root: string
   let snapshot: string
   let remoteBase: string
+  let preserveBusyBoxBase = false
 
   beforeEach(() => {
     base = mkdtempSync(join(tmpdir(), 'orcad-snapshot-shell-'))
+    preserveBusyBoxBase = false
     root = join(base, 'root')
     snapshot = join(base, 'snapshots', 'pre-1')
     remoteBase = join(base, '.orca-remote')
@@ -61,7 +63,9 @@ describe.skipIf(process.platform === 'win32')('snapshot commands on a real shell
   })
 
   afterEach(() => {
-    rmSync(base, { recursive: true, force: true })
+    if (!preserveBusyBoxBase) {
+      rmSync(base, { recursive: true, force: true })
+    }
   })
 
   it('captures and restores fenced state through a gateway with a 10 KiB exec limit', async () => {
@@ -268,18 +272,52 @@ describe.skipIf(process.platform === 'win32')('snapshot commands on a real shell
         }
       )
       const lock = join(remoteBase, 'orcad-state-mutation.lock')
+      const release = join(base, 'release-busybox-workload')
+      const workload = `while [ ! -e ${quotePosixShell(release)} ]; do sleep 0.05; done`
+      preserveBusyBoxBase = true
       const run = spawnProcess({
         program: SHELL,
         args: [
           '-c',
-          `PATH='${shim}':"$PATH"; ${serializedStateMutationCommand(remoteBase, 'sleep 5', 1)}`
+          `PATH='${shim}':"$PATH"; ${serializedStateMutationCommand(remoteBase, workload, 1)}`
         ]
+      })
+      let group = 0
+      let closed = false
+      let completedNormally = false
+      run.once('close', (code, signal) => {
+        closed = true
+        completedNormally = code === 0 && signal === null
       })
       try {
         await expect.poll(() => existsSync(join(lock, 'pgid'))).toBe(true)
         expect(Number(readFileSync(join(lock, 'pgid'), 'utf8'))).toBeGreaterThan(1)
+        group = Number(readFileSync(join(lock, 'pgid'), 'utf8'))
       } finally {
-        run.kill('SIGKILL')
+        writeFileSync(release, '')
+        await expect.poll(() => closed, { timeout: 5_000 }).toBe(true)
+        expect(completedNormally).toBe(true)
+        expect(group).toBeGreaterThan(1)
+        if (group > 1) {
+          await expect
+            .poll(
+              () => {
+                try {
+                  process.kill(-group, 0)
+                  return true
+                } catch (error) {
+                  if (error instanceof Error && 'code' in error && error.code === 'ESRCH') {
+                    return false
+                  }
+                  throw error
+                }
+              },
+              { timeout: 5_000 }
+            )
+            .toBe(false)
+        }
+        expect(existsSync(lock)).toBe(false)
+        preserveBusyBoxBase = false
       }
     },
     20_000
