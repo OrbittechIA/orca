@@ -93,7 +93,18 @@ export function serializedStateMutationCommand(
         : ':;'
     } };`,
     'beat_fence;',
-    `( while sleep ${heartbeatSeconds} && kill -0 $$ 2>/dev/null; do beat_fence; done ) >/dev/null 2>&1 & beat=$!;`,
+    '( stopping=; sleeper=;',
+    `trap 'stopping=1; [ -z "$sleeper" ] || kill "$sleeper" 2>/dev/null' HUP INT TERM;`,
+    'while [ -z "$stopping" ]; do',
+    `sleep ${heartbeatSeconds} & sleeper=$!;`,
+    // A stop between spawning sleep and publishing $! must still close that child.
+    '[ -z "$stopping" ] || kill "$sleeper" 2>/dev/null;',
+    'wait "$sleeper"; slept=$?;',
+    // A trapped signal can interrupt wait before the terminated child is reaped.
+    '[ -z "$stopping" ] || { wait "$sleeper" 2>/dev/null; break; };',
+    'sleeper=;',
+    '[ "$slept" -eq 0 ] && kill -0 $$ 2>/dev/null || break;',
+    'beat_fence; done ) >/dev/null 2>&1 & beat=$!;',
     // Reap quietly because gateways can merge job notices into verdict stdout.
     `trap 'kill "$beat" 2>/dev/null; wait "$beat" 2>/dev/null; rm -rf "$lock"' EXIT;`,
     script
