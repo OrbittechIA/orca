@@ -39,6 +39,10 @@ export abstract class OrcaRuntimeWithControllerKnowsPtyIsLive extends OrcaRuntim
     submit: () => Promise<T>
   ): Promise<T>
   protected abstract assertAgentPromptGeneration(ptyId: string, expected: number): void
+  protected abstract assertAgentPromptExpectedBinding(
+    handle: string,
+    expected: RuntimeAgentPromptWriteOptions['expectedBinding']
+  ): void
   protected abstract writeTerminalAgentPrompt(
     handle: string,
     ptyId: string,

@@ -1,9 +1,6 @@
 import { agentPromptObservationSignal } from './agent-prompt-signals'
 import { assertTerminalInputAdmitted } from '../../terminal-input-admission'
-import type {
-  AgentPromptExpectedBinding,
-  RuntimeAgentPromptWriteOptions
-} from '../../runtime-terminal-contracts'
+import type { RuntimeAgentPromptWriteOptions } from '../../runtime-terminal-contracts'
 import type {
   RuntimeTerminalPromptDelivery,
   RuntimeTerminalSend
@@ -39,22 +36,6 @@ export abstract class OrcaRuntimeWithWriteTerminalAgentPrompt extends OrcaRuntim
     ptyId: string,
     pasteIngestMs: number
   ): { arm: () => void; wait: () => Promise<void>; dispose: () => void } | null
-
-  protected assertAgentPromptExpectedBinding(
-    handle: string,
-    expected: AgentPromptExpectedBinding | undefined
-  ): void {
-    if (!expected) {
-      return
-    }
-    const current = this.getTerminalPromptRequestBinding(handle)
-    if (
-      current.ptyId !== expected.ptyId ||
-      current.processIncarnation !== expected.processIncarnation
-    ) {
-      throw new Error('terminal_handle_stale')
-    }
-  }
 
   /** Under `wait`, a pre-paste refusal is the hold's to resume rather than the caller's to see. */
   private throwIfAgentPromptPermissionReturned(

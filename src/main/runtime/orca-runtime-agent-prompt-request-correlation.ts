@@ -6,9 +6,26 @@ import type {
 } from './agent-prompt-submission-verification'
 import { verifyAgentPromptSubmission } from './agent-prompt-submission-verification'
 import { AgentPromptRequestCorrelation } from './agent-prompt-request-correlation'
+import type { AgentPromptExpectedBinding } from './runtime-terminal-contracts'
 
 export abstract class OrcaRuntimeWithAgentPromptRequestCorrelation extends OrcaRuntimeWithSerializeAgentPromptSubmission {
   private readonly agentPromptCorrelation = new AgentPromptRequestCorrelation()
+
+  protected assertAgentPromptExpectedBinding(
+    handle: string,
+    expected: AgentPromptExpectedBinding | undefined
+  ): void {
+    if (!expected) {
+      return
+    }
+    const current = this.getTerminalPromptRequestBinding(handle)
+    if (
+      current.ptyId !== expected.ptyId ||
+      current.processIncarnation !== expected.processIncarnation
+    ) {
+      throw new Error('terminal_handle_stale')
+    }
+  }
 
   getTerminalPromptRequestBinding(handle: string): {
     ptyId: string
