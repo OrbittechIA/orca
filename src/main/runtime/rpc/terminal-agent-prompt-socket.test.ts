@@ -208,6 +208,13 @@ it.each(['before', 'after', 'paired', 'orchestration'] as const)(
       await expect(second).rejects.toThrow('request_aborted')
       expect(writes).toEqual(boundary === 'after' ? [expect.stringContaining('first'), '\r'] : [])
       if (boundary === 'after' && sent) {
+        const requestId = sent.orchestrationRequestId
+        if (!requestId) {
+          throw new Error('CLI prompt missing durable request ID')
+        }
+        expect(
+          db.getMutationReceipt(db.getOrCreateLocalMutationCallerFingerprint(), requestId)
+        ).toMatchObject({ state: 'completed' })
         const replay = await dispatcher.dispatch(sent, { caller: { kind: 'desktop' } })
         expect(replay).toMatchObject({ ok: true, result: { mutation: { replayed: true } } })
         expect(writes).toHaveLength(2)
