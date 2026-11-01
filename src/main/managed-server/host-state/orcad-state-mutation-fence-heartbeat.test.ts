@@ -144,73 +144,77 @@ describe.skipIf(process.platform !== 'linux')('state mutation heartbeat child cl
     { name: 'a short successful mutation', code: 0, stopEarly: false },
     { name: 'a failed mutation', code: 7, stopEarly: false },
     { name: 'a heartbeat stopped as its child starts', code: 0, stopEarly: true }
-  ])('reaps its own sleep after $name', async ({ code, stopEarly }) => {
-    const base = mkdtempSync(join(tmpdir(), 'orcad-beat-child-'))
-    const bin = join(base, 'bin')
-    const pidFile = join(base, 'sleep.pid')
-    const release = join(base, 'release')
-    const lock = join(base, 'orcad-state-mutation.lock')
-    let childPid = 0
-    let childBirth: string | undefined
-    mkdirSync(bin)
-    writeFileSync(
-      join(bin, 'sleep'),
-      [
-        '#!/bin/sh',
-        'if [ "$1" = 60 ]; then',
-        `printf '%s\\n' "$$" > ${quotePosixShell(pidFile)}`,
-        ...(stopEarly ? ['kill -TERM "$PPID"'] : []),
-        'fi',
-        `exec ${quotePosixShell(sleep)} "$@"`,
-        ''
-      ].join('\n'),
-      { mode: 0o700 }
-    )
-    const script = [
-      'attempt=0;',
-      `while [ ! -f ${quotePosixShell(release)} ]; do`,
-      'attempt=$((attempt + 1)); [ "$attempt" -lt 500 ] || exit 91; sleep 0.01; done;',
-      `printf 'mutation-${code}\\n'; exit ${code}`
-    ].join(' ')
-    const running = runProcess({
-      program: '/bin/sh',
-      args: ['-c', serializedStateMutationCommand(base, script, 60, null)],
-      env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}` },
-      timeoutMs: 10_000
-    })
-    try {
-      await expect
-        .poll(() => (existsSync(pidFile) ? readFileSync(pidFile, 'utf8') : ''), {
-          timeout: 5_000
-        })
-        .toMatch(/^[1-9]\d*\n$/u)
-      childPid = Number(readFileSync(pidFile, 'utf8').trim())
-      expect(Number.isInteger(childPid) && childPid > 1).toBe(true)
-      childBirth = identity(childPid)?.birth
-      if (!stopEarly) {
+  ])(
+    'reaps its own sleep after $name',
+    async ({ code, stopEarly }) => {
+      const base = mkdtempSync(join(tmpdir(), 'orcad-beat-child-'))
+      const bin = join(base, 'bin')
+      const pidFile = join(base, 'sleep.pid')
+      const release = join(base, 'release')
+      const lock = join(base, 'orcad-state-mutation.lock')
+      let childPid = 0
+      let childBirth: string | undefined
+      mkdirSync(bin)
+      writeFileSync(
+        join(bin, 'sleep'),
+        [
+          '#!/bin/sh',
+          'if [ "$1" = 60 ]; then',
+          `printf '%s\\n' "$$" > ${quotePosixShell(pidFile)}`,
+          ...(stopEarly ? ['kill -TERM "$PPID"'] : []),
+          'fi',
+          `exec ${quotePosixShell(sleep)} "$@"`,
+          ''
+        ].join('\n'),
+        { mode: 0o700 }
+      )
+      const script = [
+        'attempt=0;',
+        `while [ ! -f ${quotePosixShell(release)} ]; do`,
+        'attempt=$((attempt + 1)); [ "$attempt" -lt 500 ] || exit 91; sleep 0.01; done;',
+        `printf 'mutation-${code}\\n'; exit ${code}`
+      ].join(' ')
+      const running = runProcess({
+        program: '/bin/sh',
+        args: ['-c', serializedStateMutationCommand(base, script, 60, null)],
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}` },
+        timeoutMs: 10_000
+      })
+      try {
         await expect
-          .poll(() => readlinkSync(`/proc/${childPid}/exe`), { timeout: 5_000 })
-          .toMatch(/\/sleep$/u)
-        expect(childBirth).toBeDefined()
+          .poll(() => (existsSync(pidFile) ? readFileSync(pidFile, 'utf8') : ''), {
+            timeout: 5_000
+          })
+          .toMatch(/^[1-9]\d*\n$/u)
+        childPid = Number(readFileSync(pidFile, 'utf8').trim())
+        expect(Number.isInteger(childPid) && childPid > 1).toBe(true)
+        childBirth = identity(childPid)?.birth
+        if (!stopEarly) {
+          await expect
+            .poll(() => readlinkSync(`/proc/${childPid}/exe`), { timeout: 5_000 })
+            .toMatch(/\/sleep$/u)
+          expect(childBirth).toBeDefined()
+        }
+        writeFileSync(release, '')
+        const result = await running
+        expect(result.timedOut).toBe(false)
+        expect(result.signal).toBeNull()
+        // The existing wrapper reports the deadline separately and normalizes other exit codes.
+        expect(result.code).toBe(0)
+        expect(result.stdout).toBe(`mutation-${code}\n`)
+        expect(result.stderr).toBe('')
+        expect(existsSync(lock)).toBe(false)
+        await expect.poll(() => identity(childPid), { timeout: 2_000 }).toBeNull()
+      } finally {
+        writeFileSync(release, '')
+        await running
+        const remaining = childPid > 1 ? identity(childPid) : null
+        if (remaining && remaining.birth === childBirth && remaining.state !== 'Z') {
+          process.kill(childPid, 'SIGKILL')
+        }
+        rmSync(base, { recursive: true, force: true })
       }
-      writeFileSync(release, '')
-      const result = await running
-      expect(result.timedOut).toBe(false)
-      expect(result.signal).toBeNull()
-      // The existing wrapper reports the deadline separately and normalizes other exit codes.
-      expect(result.code).toBe(0)
-      expect(result.stdout).toBe(`mutation-${code}\n`)
-      expect(result.stderr).toBe('')
-      expect(existsSync(lock)).toBe(false)
-      await expect.poll(() => identity(childPid), { timeout: 2_000 }).toBeNull()
-    } finally {
-      writeFileSync(release, '')
-      await running
-      const remaining = childPid > 1 ? identity(childPid) : null
-      if (remaining && remaining.birth === childBirth && remaining.state !== 'Z') {
-        process.kill(childPid, 'SIGKILL')
-      }
-      rmSync(base, { recursive: true, force: true })
-    }
-  }, 20_000)
+    },
+    20_000
+  )
 })
