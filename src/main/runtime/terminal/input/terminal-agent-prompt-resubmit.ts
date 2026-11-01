@@ -16,6 +16,7 @@ type HeldAgentPrompt = {
   readActivity: () => AgentPromptActivity
   prompt: string | undefined
   heldBudgetMs: number
+  assertWritable: () => void
 }
 
 export abstract class OrcaRuntimeWithResubmitHeldAgentPrompt extends OrcaRuntimeWithTitlelessPaneAgentIdentity {
@@ -70,6 +71,7 @@ export abstract class OrcaRuntimeWithResubmitHeldAgentPrompt extends OrcaRuntime
         if (await agentPromptSettledWithin(held, 0, options.signal)) {
           return resubmits
         }
+        held.assertWritable()
         if (!this.ptyController?.write(ptyId, AGENT_PROMPT_SUBMIT, options.inputKind)) {
           return resubmits
         }

@@ -4,6 +4,30 @@ import { createAgentPromptSubmissionRuntime } from '../agent-prompt-submission-r
 import { OrchestrationDb } from '../orchestration/db'
 import { RpcDispatcher } from './dispatcher'
 import { TERMINAL_METHODS } from './methods/terminal'
+import { OrcaRuntimeService } from '../orca-runtime'
+import { makeStore } from '../runtime-rpc-worktree-store-fixtures'
+import type {
+  AgentPromptActivity,
+  AgentPromptWaitTextCache
+} from '../agent-prompt-submission-verification'
+
+class RetryBoundaryRuntime extends OrcaRuntimeService {
+  replaceAfterActivityRead: (() => void) | null = null
+
+  protected override getAgentPromptActivity(
+    handle: string,
+    ptyId: string,
+    waitTextCache?: AgentPromptWaitTextCache
+  ): AgentPromptActivity {
+    const activity = super.getAgentPromptActivity(handle, ptyId, waitTextCache)
+    const replace = this.replaceAfterActivityRead
+    this.replaceAfterActivityRead = null
+    if (replace) {
+      queueMicrotask(replace)
+    }
+    return activity
+  }
+}
 
 vi.mock('../../git/worktree', () => ({
   listWorktreesStrict: async () => [
@@ -23,7 +47,11 @@ async function harness() {
   }, 'claude')
   const [pane] = (await created.runtime.listTerminals()).terminals
   const replace = (incarnationId: string) =>
-    created.runtime.registerPty('pty-prompt', pane.worktreeId, null, { ...pane, incarnationId })
+    created.runtime.registerPty('pty-prompt', pane.worktreeId, null, {
+      ...pane,
+      incarnationId,
+      terminalHandle: created.handle
+    })
   replace('inc-original')
   const db = new OrchestrationDb(':memory:')
   created.runtime.setOrchestrationDb(db)
@@ -160,5 +188,64 @@ describe('terminal.sendBoundPrompt', () => {
     } finally {
       h.db.close()
     }
+  })
+
+  it('writes no retry Enter to a process replaced during the final settled-check await', async () => {
+    vi.useFakeTimers()
+    // SAFETY: use the same minimal persistence fixture as the shared prompt runtime harness.
+    const runtime = new RetryBoundaryRuntime(makeStore() as never)
+    const writes: string[] = []
+    const replacementWrites: string[] = []
+    let replaced = false
+    runtime.setPtyController({
+      spawn: async () => ({ id: 'pty-retry' }),
+      write: (_id, data) => {
+        writes.push(data)
+        if (replaced) {
+          replacementWrites.push(data)
+        }
+        return true
+      },
+      kill: () => true,
+      getForegroundProcess: async () => 'codex'
+    })
+    const terminal = await runtime.createTerminal('path:/tmp/worktree-a', { launchAgent: 'codex' })
+    const [pane] = (await runtime.listTerminals()).terminals
+    const replace = (incarnationId: string) =>
+      runtime.registerPty('pty-retry', pane.worktreeId, null, {
+        ...pane,
+        incarnationId,
+        terminalHandle: terminal.handle
+      })
+    replace('inc-original')
+    const admitted = runtime.getTerminalPromptRequestBinding(terminal.handle)
+    let checks = 0
+    const result = runtime
+      .sendTerminalAgentPrompt(terminal.handle, 'preserve this admitted prompt', {
+        inputKind: 'driving',
+        composerReady: true,
+        expectedBinding: admitted,
+        acceptQueued: true,
+        requestId: 'retry-boundary',
+        observationTimeoutMs: 0,
+        beforeWrite: () => {
+          if (++checks === 3) {
+            runtime.replaceAfterActivityRead = () => {
+              replace('inc-replacement')
+              replaced = true
+            }
+          }
+        }
+      })
+      .catch((error: unknown) => error)
+    await vi.runAllTimersAsync()
+    await result
+    expect(checks).toBeGreaterThanOrEqual(3)
+    expect(replaced).toBe(true)
+    expect(runtime.getTerminalPromptRequestBinding(terminal.handle).processIncarnation).toBe(
+      'inc-replacement'
+    )
+    expect(writes.filter((data) => data === '\r')).toHaveLength(1)
+    expect(replacementWrites).toEqual([])
   })
 })

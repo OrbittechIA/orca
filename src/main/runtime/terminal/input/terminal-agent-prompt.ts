@@ -212,6 +212,7 @@ export abstract class OrcaRuntimeWithWriteTerminalAgentPrompt extends OrcaRuntim
           },
           {
             baseline,
+            assertWritable: () => assertWritable(admissionSignal),
             readActivity: () => this.getAgentPromptActivity(handle, ptyId, waitTextCache),
             prompt: options.promptForSchedule,
             heldBudgetMs: getAgentPromptHeldSubmitBudgetMs(
@@ -221,6 +222,7 @@ export abstract class OrcaRuntimeWithWriteTerminalAgentPrompt extends OrcaRuntim
             )
           }
         ))
+    assertWritable(admissionSignal)
     const effectTimeoutMs = resolveAgentPromptEffectTimeoutMs(this.getPtyAgent(ptyId))
     if (!options.acceptQueued || !options.requestId) {
       await verifyAgentPromptSubmission({
