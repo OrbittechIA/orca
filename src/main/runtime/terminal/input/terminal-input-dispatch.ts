@@ -203,6 +203,7 @@ export abstract class OrcaRuntimeWithControllerKnowsPtyIsLive extends OrcaRuntim
     prompt: string,
     options: RuntimeAgentPromptWriteOptions
   ): Promise<RuntimeTerminalSend> {
+    this.assertAgentPromptExpectedBinding(handle, options.expectedBinding)
     // Why the consuming agent: the foreground process reads the bytes; launchAgent covers startup.
     const payloadFor = (ptyId: string): string => {
       // Why: a launch prompt replaced the desktop's draft paste, so it sends that paste's bytes.
@@ -217,9 +218,10 @@ export abstract class OrcaRuntimeWithControllerKnowsPtyIsLive extends OrcaRuntim
       )
     }
     // Switch point: a saved pane main holds with no terminal yet starts first (once, shared).
-    const starting = ORCA_LAYOUT_OWNER_IS_MAIN
-      ? this.startRestoredHandlePane(handle, { signal: agentPromptObservationSignal(options) })
-      : null
+    const starting =
+      ORCA_LAYOUT_OWNER_IS_MAIN && !options.expectedBinding
+        ? this.startRestoredHandlePane(handle, { signal: agentPromptObservationSignal(options) })
+        : null
     if (starting) {
       const target = await starting
       return { ...(await this.sendTerminalAgentPrompt(target, prompt, options)), handle }

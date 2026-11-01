@@ -260,5 +260,9 @@ function markEnvironmentUsedFromResponse(
 }
 
 function shouldUseCachedRequestConnection(method: string): boolean {
-  return method === 'terminal.send' || method === 'terminal.updateViewport'
+  return (
+    method === 'terminal.send' ||
+    method === 'terminal.sendBoundPrompt' ||
+    method === 'terminal.updateViewport'
+  )
 }

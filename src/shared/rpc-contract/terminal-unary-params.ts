@@ -160,6 +160,7 @@ export const TerminalSetPaneTitle = TerminalHandle.extend({
 })
 
 export const TerminalSend = TerminalHandle.extend({
+  expectedRuntimeId: requiredString('Missing runtime id').optional(),
   text: OptionalString,
   enter: z.unknown().optional(),
   interrupt: z.unknown().optional(),
@@ -192,6 +193,16 @@ export const TerminalSend = TerminalHandle.extend({
     })
     .optional(),
   claimViewport: z.literal(true).optional()
+})
+
+export const TerminalBoundPromptSend = TerminalSend.extend({
+  expectedRuntimeId: requiredString('Missing expected runtime id'),
+  expectedIncarnationId: requiredString('Missing expected PTY incarnation'),
+  text: requiredString('Missing prompt text'),
+  enter: z.literal(true),
+  interrupt: z.literal(false).optional(),
+  agentPrompt: z.literal(true),
+  client: z.object({ id: requiredString('Missing client ID'), type: z.literal('desktop') })
 })
 
 export const TerminalViewport = z.object({

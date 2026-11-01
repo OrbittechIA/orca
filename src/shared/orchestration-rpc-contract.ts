@@ -65,7 +65,11 @@ export function isOrchestrationMutation(method: string, params: unknown): boolea
 }
 
 export function isTerminalPromptMutation(method: string, params: unknown): boolean {
-  if (method !== 'terminal.send' || !params || typeof params !== 'object') {
+  if (
+    (method !== 'terminal.send' && method !== 'terminal.sendBoundPrompt') ||
+    !params ||
+    typeof params !== 'object'
+  ) {
     return false
   }
   const value = params as Record<string, unknown>

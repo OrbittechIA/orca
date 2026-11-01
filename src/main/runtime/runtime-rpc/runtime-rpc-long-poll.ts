@@ -57,7 +57,7 @@ export function classifyRuntimeLongPoll(request: RpcRequest): RuntimeLongPollCla
   }
   // Prompt submission waits for lifecycle verification; keep the socket alive.
   if (
-    request.method === 'terminal.send' &&
+    (request.method === 'terminal.send' || request.method === 'terminal.sendBoundPrompt') &&
     typeof request.params === 'object' &&
     request.params !== null &&
     (request.params as { agentPrompt?: unknown }).agentPrompt === true
