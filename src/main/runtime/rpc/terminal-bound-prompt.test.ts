@@ -5,7 +5,7 @@ import { OrchestrationDb } from '../orchestration/db'
 import { RpcDispatcher } from './dispatcher'
 import { TERMINAL_METHODS } from './methods/terminal'
 import { OrcaRuntimeService } from '../orca-runtime'
-import { makeStore } from '../runtime-rpc-worktree-store-fixtures'
+import { partialRuntimeStore, storeRepo, storeWorktreeMeta } from '../runtime-store-partial-fixture'
 import type {
   AgentPromptActivity,
   AgentPromptWaitTextCache
@@ -198,8 +198,14 @@ describe('terminal.sendBoundPrompt', () => {
 
   it('writes no retry Enter to a process replaced during the final settled-check await', async () => {
     vi.useFakeTimers()
-    // SAFETY: use the same minimal persistence fixture as the shared prompt runtime harness.
-    const runtime = new RetryBoundaryRuntime(makeStore() as never)
+    const repo = storeRepo({ id: 'repo-1', path: '/tmp/repo' })
+    const runtime = new RetryBoundaryRuntime(
+      partialRuntimeStore({
+        getRepo: (id) => (id === repo.id ? repo : undefined),
+        getRepos: () => [repo],
+        setWorktreeMeta: (_target, updates) => storeWorktreeMeta(updates)
+      })
+    )
     const writes: string[] = []
     const replacementWrites: string[] = []
     let replaced = false

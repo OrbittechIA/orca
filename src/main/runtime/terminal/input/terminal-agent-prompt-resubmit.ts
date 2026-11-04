@@ -1,5 +1,8 @@
 import { OrcaRuntimeWithTitlelessPaneAgentIdentity } from '../wait/titleless-pane-agent-identity'
-import type { RuntimeAgentPromptWriteOptions } from '../../runtime-terminal-contracts'
+import type {
+  AgentPromptExpectedBinding,
+  RuntimeAgentPromptWriteOptions
+} from '../../runtime-terminal-contracts'
 import {
   AGENT_PROMPT_SUBMIT,
   isHeldAgentPromptDraft
@@ -20,6 +23,22 @@ type HeldAgentPrompt = {
 }
 
 export abstract class OrcaRuntimeWithResubmitHeldAgentPrompt extends OrcaRuntimeWithTitlelessPaneAgentIdentity {
+  protected assertAgentPromptExpectedBinding(
+    handle: string,
+    expected: AgentPromptExpectedBinding | undefined
+  ): void {
+    if (!expected) {
+      return
+    }
+    const current = this.getTerminalPromptRequestBinding(handle)
+    if (
+      current.ptyId !== expected.ptyId ||
+      current.processIncarnation !== expected.processIncarnation
+    ) {
+      throw new Error('terminal_handle_stale')
+    }
+  }
+
   /** Retry blind Enter and drafts held by Windows input-record pastes or unopened dsh launchpads; retries cannot fail a submitted prompt. */
   protected async resubmitHeldAgentPrompt(
     ptyId: string,

@@ -24,14 +24,12 @@ function client(capable: boolean, runtimeId = 'runtime-original') {
     },
     _meta: { runtimeId }
   })
-  const call = vi
-    .spyOn(c, 'call')
-    .mockResolvedValue({
-      id: 'send',
-      ok: true,
-      result: { send: { handle: 'term-one', accepted: false, bytesWritten: 0 } },
-      _meta: { runtimeId }
-    })
+  const call = vi.spyOn(c, 'call').mockResolvedValue({
+    id: 'send',
+    ok: true,
+    result: { send: { handle: 'term-one', accepted: false, bytesWritten: 0 } },
+    _meta: { runtimeId }
+  })
   return { c, call }
 }
 

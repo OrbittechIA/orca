@@ -9,6 +9,7 @@ import { PROVEN_ABSENT_LEAF_PTY_TTL_MS } from '../../orca-runtime-core'
 import { pruneExpiredProvenAbsentLeafPtyVerdicts } from '../../proven-absent-leaf-pty-verdicts'
 import type { RuntimeTerminalSend } from '../../../../shared/runtime-types'
 import type {
+  AgentPromptExpectedBinding,
   RuntimeAgentPromptWriteOptions,
   TerminalHandleRecord
 } from '../../runtime-terminal-contracts'
@@ -39,6 +40,10 @@ export abstract class OrcaRuntimeWithControllerKnowsPtyIsLive extends OrcaRuntim
     submit: () => Promise<T>
   ): Promise<T>
   protected abstract assertAgentPromptGeneration(ptyId: string, expected: number): void
+  protected abstract assertAgentPromptExpectedBinding(
+    handle: string,
+    expected: AgentPromptExpectedBinding | undefined
+  ): void
   protected abstract writeTerminalAgentPrompt(
     handle: string,
     ptyId: string,
