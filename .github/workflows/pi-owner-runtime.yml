@@ -1,38 +1,266 @@
-name: Pi owner runtime verification
+name: Recovery native Node baseline acc14
+run-name: Recovery native Node acc14 ${{ inputs.admission_nonce }}
+
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
-    paths:
-      - 'src/main/pi/**'
-      - '!src/main/pi/**/*.test.ts'
-      - 'tests/tools/pi-owner-runtime-smoke.mjs'
-      - 'tests/tools/omp-completion-runtime-smoke.mjs'
-      - '.github/workflows/pi-owner-runtime.yml'
   workflow_dispatch:
+    inputs:
+      admission_nonce:
+        description: Single-use parent admission nonce
+        required: true
+        type: string
+      expected_ci_commit:
+        description: Frozen QA workflow commit
+        required: true
+        type: string
+      expected_workflow_sha256:
+        description: Frozen workflow bytes
+        required: true
+        type: string
+
 permissions:
   contents: read
+
 concurrency:
-  group: pi-owner-runtime-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: recovery-native-node-acc14-${{ inputs.admission_nonce }}
+  cancel-in-progress: false
+
 jobs:
-  runtime:
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft != true
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+  native-node-baseline:
+    if: >-
+      github.repository == 'OrbittechIA/orca' &&
+      github.event_name == 'workflow_dispatch' && github.run_attempt == 1 &&
+      github.ref == 'refs/heads/qa/recovery-20261110-native-node-acc14-r2' &&
+      inputs.admission_nonce == 'recovery-native-node-acc14-20261110-r2'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
     env:
       ORCA_BACKGROUND_LAUNCH: '1'
+      GOMEMLIMIT: 10GiB
+      GOGC: '50'
+      GOMAXPROCS: '2'
+      NODE_OPTIONS: --max-old-space-size=5120
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout the immutable QA envelope
+        uses: actions/checkout@v6
         with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
           persist-credentials: false
-      - uses: ./.github/actions/install-node-dependencies
-      - name: Install pinned extension loader
-        run: npm install --prefix .cache/pi-owner --ignore-scripts --no-audit --no-fund @earendil-works/pi-coding-agent@0.83.0
-      - name: Verify real owner exit and hook delivery
-        run: node tests/tools/pi-owner-runtime-smoke.mjs .cache/pi-owner/node_modules/@earendil-works/pi-coding-agent
-      - name: Verify OMP completion over native HTTP
-        run: node tests/tools/omp-completion-runtime-smoke.mjs
+
+      - name: Verify admission and restore the exact unchanged source
+        shell: bash
+        env:
+          EXPECTED_CI_COMMIT: ${{ inputs.expected_ci_commit }}
+          EXPECTED_WORKFLOW_SHA256: ${{ inputs.expected_workflow_sha256 }}
+          ACTUAL_CI_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$EXPECTED_CI_COMMIT" = "$ACTUAL_CI_COMMIT"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_CI_COMMIT"
+          test "$(git rev-parse HEAD^1)" = acc14e29d01bd167d4512d7247006c74f6d516cb
+          test "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 2
+          test "$(git diff --name-only HEAD^1 HEAD)" = .github/workflows/pi-owner-runtime.yml
+          actual_workflow_sha256="$(sha256sum .github/workflows/pi-owner-runtime.yml | cut -d ' ' -f 1)"
+          test "$actual_workflow_sha256" = "$EXPECTED_WORKFLOW_SHA256"
+          git checkout --detach acc14e29d01bd167d4512d7247006c74f6d516cb
+          test "$(git rev-parse HEAD^{tree})" = b622188a415649389d34860028b0bed515a8308d
+          test -z "$(git status --porcelain --untracked-files=no)"
+          printf 'source_commit=%s\nsource_tree=%s\nci_commit=%s\nworkflow_sha256=%s\n' \
+            "$(git rev-parse HEAD)" "$(git rev-parse HEAD^{tree})" "$EXPECTED_CI_COMMIT" "$actual_workflow_sha256"
+
+      - name: Install the pinned toolchain and build existing internal packages
+        uses: ./.github/actions/install-node-dependencies
+        with:
+          native-runtime: none
+          cache-pnpm-store: 'false'
+          cache-pnpm-verification: 'false'
+          cache-electron-package: 'false'
+          persist-native-cache: 'false'
+
+      - name: Run the exact native Node baseline with a kernel memory limit
+        shell: bash
+        env:
+          BASELINE_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain --untracked-files=no)"
+          baseline_output="$(mktemp -d "$RUNNER_TEMP/native-node-baseline.XXXXXX")"
+          export BASELINE_OUTPUT="$baseline_output"
+          export BASELINE_SOURCE="$GITHUB_WORKSPACE"
+          export BASELINE_PATH="$PATH"
+          export BASELINE_RUNNER_HOME="$HOME"
+          node --input-type=module <<'NODE'
+          import {createHash} from 'node:crypto';
+          import {readFileSync, writeFileSync} from 'node:fs';
+          import {dirname, join} from 'node:path';
+          import {createRequire} from 'node:module';
+          import {pathToFileURL} from 'node:url';
+          const require=createRequire(import.meta.url);
+          const manifest=require.resolve('typescript/package.json');
+          const {version}=JSON.parse(readFileSync(manifest));
+          const {default:getExePath}=await import(pathToFileURL(join(dirname(manifest),'lib/getExePath.js')));
+          const program=getExePath();
+          const sha256=createHash('sha256').update(readFileSync(program)).digest('hex');
+          if(version!=='7.0.2'||sha256!=='4f2de678286401759b3fb4475bafe35b8f32b4b3a07d92642bbf37eadc9b34a4') throw Error('native compiler changed');
+          const result={version,program,sha256,node:process.version,platform:process.platform,arch:process.arch};
+          writeFileSync(join(process.env.BASELINE_OUTPUT,'compiler-provenance.json'),JSON.stringify(result,null,2)+'\n');
+          console.log(JSON.stringify(result));
+          NODE
+          cat > "$baseline_output/run-native-node-capped.py" <<'PYTHON'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import shutil
+          import signal
+          import subprocess
+          import sys
+          import time
+          
+          CAP = 14 * 1024**3
+          LIMIT_SECONDS = 1200
+          LOG_LIMIT = 8 * 1024**2
+          COMMAND = [
+              "node", "config/scripts/run-typecheck-projects-in-parallel.mjs",
+              "--compiler=native", "--project=config/tsconfig.node.json", "--checkers=1",
+          ]
+          
+          
+          def main():
+              if os.geteuid() != 0:
+                  raise RuntimeError("root controller required for its own cgroup only")
+              uid, gid = int(os.environ["SUDO_UID"]), int(os.environ["SUDO_GID"])
+              if uid == 0:
+                  raise RuntimeError("compiler must run as the ordinary runner")
+              signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(RuntimeError("controller terminated")))
+              run_id = os.environ["BASELINE_RUN_ID"]
+              if not run_id.isdecimal():
+                  raise RuntimeError("invalid run id")
+              cwd = pathlib.Path(os.environ["BASELINE_SOURCE"]).resolve(strict=True)
+              output = pathlib.Path(os.environ["BASELINE_OUTPUT"]).resolve(strict=True)
+              if cwd.stat().st_uid != uid or output.stat().st_uid != uid:
+                  raise RuntimeError("source/output runner owner mismatch")
+              mem = dict(line.split(":", 1) for line in pathlib.Path("/proc/meminfo").read_text().splitlines())
+              available = int(mem["MemAvailable"].split()[0]) * 1024
+              if available < CAP + 256 * 1024**2 or shutil.disk_usage(output).free < 4 * 1024**3:
+                  raise RuntimeError("fresh remote capacity below 14GiB plus reserve / 4GiB disk")
+              provenance = json.loads((output / "compiler-provenance.json").read_text())
+              compiler = pathlib.Path(provenance["program"])
+              expected = "4f2de678286401759b3fb4475bafe35b8f32b4b3a07d92642bbf37eadc9b34a4"
+              if provenance["version"] != "7.0.2" or hashlib.sha256(compiler.read_bytes()).hexdigest() != expected:
+                  raise RuntimeError("compiler identity mismatch")
+              group = pathlib.Path("/sys/fs/cgroup") / ("orobouros-native-node-" + run_id)
+              group.mkdir(mode=0o755)
+              identity = (group.stat().st_dev, group.stat().st_ino)
+              result = {
+                  "schema": "orobouros-remote-native-node-baseline-v1", "runId": run_id,
+                  "sourceCommit": "acc14e29d01bd167d4512d7247006c74f6d516cb",
+                  "sourceTree": "b622188a415649389d34860028b0bed515a8308d",
+                  "command": COMMAND, "compiler": provenance,
+                  "limits": {"memoryBytes": CAP, "swapBytes": 0, "cpuQuota": "100000 100000", "pids": 128, "sampledStopSeconds": LIMIT_SECONDS, "sampledStopLogBytes": LOG_LIMIT},
+                  "entryMemAvailableBytes": available, "controllerOutsideCompilerCgroup": True,
+                  "result": "INCOMPLETE", "childStarted": False,
+              }
+              process = None
+          
+              def owned():
+                  if (group.stat().st_dev, group.stat().st_ino) != identity:
+                      raise RuntimeError("owned cgroup identity changed")
+          
+              def contents(name):
+                  owned()
+                  return (group / name).read_text().strip()
+          
+              def members():
+                  return contents("cgroup.procs").split()
+          
+              def counters():
+                  return {name: contents(name) for name in ["memory.peak", "memory.events", "pids.events", "cpu.stat"]}
+          
+              try:
+                  for name, value in {"memory.max": str(CAP), "memory.swap.max": "0", "memory.oom.group": "1", "pids.max": "128", "cpu.max": "100000 100000"}.items():
+                      owned()
+                      (group / name).write_text(value)
+                      if contents(name) != value:
+                          raise RuntimeError("kernel limit readback mismatch: " + name)
+                  if not (group / "cgroup.kill").is_file() or members():
+                      raise RuntimeError("cgroup kill unavailable or cgroup not empty")
+                  result["countersBefore"] = counters()
+                  environment = {
+                      "PATH": os.environ["BASELINE_PATH"], "HOME": os.environ["BASELINE_RUNNER_HOME"],
+                      "LANG": "C.UTF-8", "GOMEMLIMIT": "10GiB", "GOGC": "50", "GOMAXPROCS": "2",
+                      "NODE_OPTIONS": "--max-old-space-size=5120", "ORCA_BACKGROUND_LAUNCH": "1", "CI": "true",
+                  }
+          
+                  def enter():
+                      (group / "cgroup.procs").write_text(str(os.getpid()))
+                      os.setgroups([])
+                      os.setgid(gid)
+                      os.setuid(uid)
+          
+                  log_path = output / "native-node.log"
+                  started = time.monotonic()
+                  with log_path.open("xb") as log:
+                      process = subprocess.Popen(COMMAND, cwd=cwd, env=environment, stdin=subprocess.DEVNULL,
+                                                 stdout=log, stderr=subprocess.STDOUT, preexec_fn=enter, start_new_session=True)
+                      result["childStarted"] = True
+                      result["pid"] = process.pid
+                      while process.poll() is None:
+                          if time.monotonic() - started > LIMIT_SECONDS or log_path.stat().st_size > LOG_LIMIT:
+                              result["stopReason"] = "TIME_OR_LOG_LIMIT"
+                              owned()
+                              (group / "cgroup.kill").write_text("1")
+                              break
+                          time.sleep(0.2)
+                      result["exitCode"] = process.wait(timeout=10)
+                  result["wallSeconds"] = time.monotonic() - started
+                  if members():
+                      result["residualDescendantsObserved"] = True
+                      (group / "cgroup.kill").write_text("1")
+                  for _ in range(100):
+                      if not members():
+                          break
+                      time.sleep(0.05)
+                  result["countersAfter"] = counters()
+                  result["remainingPids"] = members()
+                  events = dict(line.split() for line in result["countersAfter"]["memory.events"].splitlines())
+                  result["result"] = "PASS" if (result["exitCode"] == 0 and not result["remainingPids"]
+                      and not result.get("residualDescendantsObserved") and not result.get("stopReason")
+                      and int(events.get("oom", 0)) == 0 and int(events.get("oom_kill", 0)) == 0) else "FAIL_OR_INCONCLUSIVE"
+                  result["logBytes"] = log_path.stat().st_size
+                  log_hash = hashlib.sha256()
+                  with log_path.open("rb") as log:
+                      for chunk in iter(lambda: log.read(65536), b""):
+                          log_hash.update(chunk)
+                  result["logSha256"] = log_hash.hexdigest()
+                  with log_path.open("rb") as log:
+                      log.seek(max(0, result["logBytes"] - 65536))
+                      print(log.read().decode(errors="replace"))
+              finally:
+                  owned()
+                  if members():
+                      (group / "cgroup.kill").write_text("1")
+                      if process is not None:
+                          process.wait(timeout=10)
+                      for _ in range(100):
+                          if not members():
+                              break
+                          time.sleep(0.05)
+                  result["finalRemainingPids"] = members()
+                  if not result["finalRemainingPids"]:
+                      group.rmdir()
+                  result["cgroupRemoved"] = not group.exists()
+                  if not result["cgroupRemoved"]:
+                      result["result"] = "CLOSURE_UNKNOWN"
+                  (output / "native-node-result.json").write_text(json.dumps(result, indent=2) + "\n")
+                  print(json.dumps(result, indent=2), flush=True)
+              return 0 if result["result"] == "PASS" else 1
+          
+          
+          if __name__ == "__main__":
+              sys.exit(main())
+          PYTHON
+          chmod 0444 "$baseline_output/run-native-node-capped.py"
+          sudo --preserve-env=BASELINE_RUN_ID,BASELINE_OUTPUT,BASELINE_SOURCE,BASELINE_PATH,BASELINE_RUNNER_HOME \
+            python3 "$baseline_output/run-native-node-capped.py"
+          git diff --exit-code
